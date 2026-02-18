@@ -485,7 +485,9 @@ stemma extract run --resource-id <uuid> [--profile <name>]
 | `--docling-queue-max-size` | Override threaded pipeline queue size |
 | `--docling-log-settings` / `--no-docling-log-settings` | Enable/disable terminal logging of effective docling runtime settings (default: enabled) |
 
-**Output:** Panel summarising Run ID, Resource ID, tables found.
+**Output:**
+- Live spinner while parsing.
+- Summary panel with run ID, resource ID, table count, parser version, parse duration, pages, pages/sec, and top timing buckets (if provided by docling).
 
 **Parser behaviour:**
 - PDFs: uses IBM Docling if installed.
@@ -782,6 +784,7 @@ stemma pipeline financial-pass \
   [--state-file <path>] \
   [--log-file <path>] \
   [--extract-timeout-seconds <n>] \
+  [--verbose-docs|--no-verbose-docs] \
   [--docling-auto-tune|--no-docling-auto-tune] \
   [--docling-use-threaded-pipeline|--no-docling-use-threaded-pipeline] \
   [--docling-device <name>] \
@@ -801,6 +804,7 @@ stemma pipeline financial-pass \
 | `--state-file` | Custom path for the resumable state JSON (default: `.stemma/financial_pass_state.json`) |
 | `--log-file` | Custom path for the JSONL log (default: `.stemma/financial_pass.log.jsonl`) |
 | `--extract-timeout-seconds` | Per-file extraction timeout; defaults to 300 seconds |
+| `--verbose-docs` / `--no-verbose-docs` | Print detailed terminal log line for each processed document (default: enabled) |
 | `--docling-*` | Same docling performance flags as `stemma extract run`; apply to every PDF extraction in the pass |
 
 **File detection rules:**
@@ -818,11 +822,14 @@ Extraction is only attempted for files with extractable media types: `applicatio
 
 **Log file format:** One JSON object per line:
 ```jsonl
-{"path": "/path/to/file.pdf", "ingest_status": "ingested", "resource_id": "...", "digest": "...", "extract_status": "extracted:12"}
-{"path": "/path/to/broken.pdf", "error": "Extraction failed: ..."}
+{"path": "/path/to/file.pdf", "ingest_status": "ingested", "resource_id": "...", "digest": "...", "extract_status": "extracted:12", "elapsed_seconds": 4.38, "parse_elapsed_seconds": 3.91, "page_count": 87, "pages_per_second": 22.25}
+{"path": "/path/to/broken.pdf", "error": "Extraction failed: ...", "elapsed_seconds": 300.01}
 ```
 
-**Output:** Summary panel with candidate count, processed count, ingested, duplicates, extracted, skipped, failed.
+**Output:**
+- Live terminal progress with overall file progress and current file status.
+- Per-document verbose lines (default) showing ingest status, extract status, elapsed seconds, and parse speed when available.
+- Final summary panel with candidate count, processed count, ingested, duplicates, extracted, skipped, failed.
 
 ---
 

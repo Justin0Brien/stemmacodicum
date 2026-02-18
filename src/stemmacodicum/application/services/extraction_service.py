@@ -23,6 +23,12 @@ class ExtractSummary:
     run_id: str
     resource_id: str
     tables_found: int
+    parser_name: str | None = None
+    parser_version: str | None = None
+    elapsed_seconds: float | None = None
+    page_count: int | None = None
+    pages_per_second: float | None = None
+    timings: dict[str, float] | None = None
 
 
 class ExtractionService:
@@ -106,6 +112,18 @@ class ExtractionService:
             run_id=run.id,
             resource_id=resource_id,
             tables_found=len(parse_result.tables),
+            parser_name=parse_result.parser_name,
+            parser_version=parse_result.parser_version,
+            elapsed_seconds=parse_result.elapsed_seconds,
+            page_count=parse_result.page_count,
+            pages_per_second=(
+                (parse_result.page_count / parse_result.elapsed_seconds)
+                if parse_result.page_count
+                and parse_result.elapsed_seconds is not None
+                and parse_result.elapsed_seconds > 0
+                else None
+            ),
+            timings=parse_result.timings,
         )
 
     def list_tables(self, resource_id: str, limit: int = 100) -> list[ExtractedTable]:

@@ -62,3 +62,5 @@ Docling PDF extraction auto-tunes CPU/GPU/batching by default and logs the effec
 ```bash
 stemma extract run --resource-digest <sha256> --docling-device mps --docling-threads 10 --docling-layout-batch-size 40
 ```
+
+`stemma extract run` now shows live spinner/timing output, and `stemma pipeline financial-pass` shows live overall progress plus verbose per-document logs by default.

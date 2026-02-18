@@ -4,12 +4,13 @@ import argparse
 import json
 
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
-from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.cli.context import CLIContext
+from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.core.errors import ProjectNotInitializedError, ValidationError
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
@@ -74,7 +75,22 @@ def run_extract(args: argparse.Namespace, ctx: CLIContext) -> int:
         archive_dir=ctx.paths.archive_dir,
         docling_runtime_options=get_docling_runtime_options(args),
     )
-    summary = service.extract_resource(resource_id=resource_id, parser_profile=args.profile)
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        TimeElapsedColumn(),
+        console=ctx.console,
+    )
+
+    with progress:
+        task = progress.add_task(f"Extracting resource {resource_id}...", total=None)
+        summary = service.extract_resource(resource_id=resource_id, parser_profile=args.profile)
+        progress.update(task, description=f"Completed extraction for resource {resource_id}")
+
+    timing_summary = ""
+    if summary.timings:
+        ordered = sorted(summary.timings.items(), key=lambda kv: kv[1], reverse=True)
+        timing_summary = ", ".join(f"{name}:{seconds:.2f}s" for name, seconds in ordered[:4])
 
     ctx.console.print(
         Panel.fit(
@@ -83,6 +99,19 @@ def run_extract(args: argparse.Namespace, ctx: CLIContext) -> int:
                     f"Run ID: {summary.run_id}",
                     f"Resource ID: {summary.resource_id}",
                     f"Tables found: {summary.tables_found}",
+                    f"Parser: {summary.parser_name or 'unknown'} ({summary.parser_version or 'unknown'})",
+                    (
+                        f"Parse time: {summary.elapsed_seconds:.2f}s"
+                        if summary.elapsed_seconds is not None
+                        else "Parse time: n/a"
+                    ),
+                    f"Pages: {summary.page_count if summary.page_count is not None else 'n/a'}",
+                    (
+                        f"Rate: {summary.pages_per_second:.2f} pages/sec"
+                        if summary.pages_per_second is not None
+                        else "Rate: n/a"
+                    ),
+                    (f"Top timings: {timing_summary}" if timing_summary else "Top timings: n/a"),
                 ]
             ),
             title="Extraction Summary",

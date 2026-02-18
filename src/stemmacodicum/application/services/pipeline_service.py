@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import signal
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
 from stemmacodicum.application.services.ingestion_service import IngestionService
@@ -113,12 +115,37 @@ class FinancialPipelineService:
         max_files: int | None = None,
         run_extraction: bool = True,
         extract_timeout_seconds: int | None = 300,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> PipelineStats:
         candidates = self.find_financial_candidates(root)
         processed_set = self.load_state()
         state_entries_before = len(processed_set)
 
-        already_processed = 0
+        pending = [candidate for candidate in candidates if str(candidate) not in processed_set]
+        already_processed = len(candidates) - len(pending)
+        worklist = pending[:max_files] if max_files is not None else pending
+        planned_total = len(worklist)
+
+        self._emit_progress(
+            progress_callback,
+            {
+                "event": "scan_complete",
+                "candidates": len(candidates),
+                "already_processed": already_processed,
+                "planned_total": planned_total,
+                "run_extraction": run_extraction,
+            },
+        )
+
+        for skipped in (candidate for candidate in candidates if str(candidate) in processed_set):
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "state_skip",
+                    "path": str(skipped),
+                },
+            )
+
         ingested = 0
         duplicates = 0
         extracted = 0
@@ -126,13 +153,19 @@ class FinancialPipelineService:
         failed = 0
         processed = 0
 
-        for candidate in candidates:
+        for index, candidate in enumerate(worklist, start=1):
             candidate_key = str(candidate)
-            if candidate_key in processed_set:
-                already_processed += 1
-                continue
-            if max_files is not None and processed >= max_files:
-                break
+            started = time.perf_counter()
+
+            self._emit_progress(
+                progress_callback,
+                {
+                    "event": "file_start",
+                    "index": index,
+                    "total": planned_total,
+                    "path": candidate_key,
+                },
+            )
 
             try:
                 ingest = self.ingestion_service.ingest_file(candidate)
@@ -142,6 +175,10 @@ class FinancialPipelineService:
                     duplicates += 1
 
                 extract_status = "skipped"
+                tables_found = 0
+                parse_elapsed_seconds: float | None = None
+                page_count: int | None = None
+                pages_per_second: float | None = None
                 if run_extraction and ingest.resource.media_type in self.EXTRACTABLE_MEDIA_TYPES:
                     already = self.extraction_repo.list_recent_runs(ingest.resource.id, limit=1)
                     if already:
@@ -152,9 +189,14 @@ class FinancialPipelineService:
                             summary = self.extraction_service.extract_resource(ingest.resource.id)
                         extracted += 1
                         extract_status = f"extracted:{summary.tables_found}"
+                        tables_found = summary.tables_found
+                        parse_elapsed_seconds = summary.elapsed_seconds
+                        page_count = summary.page_count
+                        pages_per_second = summary.pages_per_second
                 else:
                     skipped_extraction += 1
 
+                elapsed_seconds = time.perf_counter() - started
                 self.append_log(
                     {
                         "path": candidate_key,
@@ -162,15 +204,50 @@ class FinancialPipelineService:
                         "resource_id": ingest.resource.id,
                         "digest": ingest.resource.digest_sha256,
                         "extract_status": extract_status,
+                        "elapsed_seconds": round(elapsed_seconds, 4),
+                        "parse_elapsed_seconds": round(parse_elapsed_seconds, 4)
+                        if parse_elapsed_seconds is not None
+                        else None,
+                        "page_count": page_count,
+                        "pages_per_second": round(pages_per_second, 4) if pages_per_second is not None else None,
                     }
+                )
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "file_done",
+                        "index": index,
+                        "total": planned_total,
+                        "path": candidate_key,
+                        "ingest_status": ingest.status,
+                        "extract_status": extract_status,
+                        "tables_found": tables_found,
+                        "elapsed_seconds": elapsed_seconds,
+                        "parse_elapsed_seconds": parse_elapsed_seconds,
+                        "page_count": page_count,
+                        "pages_per_second": pages_per_second,
+                    },
                 )
             except Exception as exc:
                 failed += 1
+                elapsed_seconds = time.perf_counter() - started
                 self.append_log(
                     {
                         "path": candidate_key,
                         "error": str(exc),
+                        "elapsed_seconds": round(elapsed_seconds, 4),
                     }
+                )
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "file_error",
+                        "index": index,
+                        "total": planned_total,
+                        "path": candidate_key,
+                        "error": str(exc),
+                        "elapsed_seconds": elapsed_seconds,
+                    },
                 )
 
             processed += 1
@@ -192,6 +269,15 @@ class FinancialPipelineService:
             state_entries_before=state_entries_before,
             state_entries_after=len(processed_set),
         )
+
+    @staticmethod
+    def _emit_progress(
+        callback: Callable[[dict[str, object]], None] | None,
+        payload: dict[str, object],
+    ) -> None:
+        if callback is None:
+            return
+        callback(payload)
 
 
 @contextmanager

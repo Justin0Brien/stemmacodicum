@@ -5,6 +5,7 @@ import logging
 import os
 import platform
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -92,6 +93,9 @@ class ParseResult:
     parser_version: str
     config_digest: str
     tables: list[ParsedTable]
+    elapsed_seconds: float | None = None
+    page_count: int | None = None
+    timings: dict[str, float] | None = None
 
 
 class DoclingAdapter:
@@ -172,7 +176,10 @@ class DoclingAdapter:
         pdf_format_option = self._build_model(model_cls=PdfFormatOption, values=pdf_option_values)
 
         converter = DocumentConverter(format_options={InputFormat.PDF: pdf_format_option})
+        print(f"[docling] start file={file_path.name}")
+        started = time.perf_counter()
         result = converter.convert(str(file_path))
+        elapsed_seconds = time.perf_counter() - started
 
         tables: list[ParsedTable] = []
         for idx, table in enumerate(getattr(result.document, "tables", []) or []):
@@ -210,6 +217,22 @@ class DoclingAdapter:
         except Exception:
             parser_version = "auto"
 
+        page_count = self._extract_page_count(result)
+        timing_totals = self._extract_timing_totals(result)
+        pages_per_second = (page_count / elapsed_seconds) if page_count and elapsed_seconds > 0 else None
+        timing_summary = self._timing_summary(timing_totals)
+        done_bits = [
+            f"file={file_path.name}",
+            f"elapsed={elapsed_seconds:.2f}s",
+            f"pages={page_count}",
+            f"tables={len(tables)}",
+        ]
+        if pages_per_second is not None:
+            done_bits.append(f"rate={pages_per_second:.2f}pg/s")
+        if timing_summary:
+            done_bits.append(f"timings={timing_summary}")
+        print("[docling] done " + " ".join(done_bits))
+
         config = {
             "profile": self.profile,
             "mode": "docling_pdf",
@@ -221,6 +244,9 @@ class DoclingAdapter:
             parser_version=parser_version,
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
+            elapsed_seconds=elapsed_seconds,
+            page_count=page_count,
+            timings=timing_totals,
         )
 
     def _parse_text_tables(self, file_path: Path, media_type: str) -> ParseResult:
@@ -243,6 +269,9 @@ class DoclingAdapter:
             parser_version="0.1",
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
         )
 
     @staticmethod
@@ -527,3 +556,35 @@ class DoclingAdapter:
             f"cpu_cores={runtime.cpu_cores} "
             f"memory_gb={runtime.memory_gb}"
         )
+
+    @staticmethod
+    def _extract_page_count(result: Any) -> int:
+        input_obj = getattr(result, "input", None)
+        input_pages = getattr(input_obj, "page_count", None)
+        if isinstance(input_pages, int) and input_pages > 0:
+            return input_pages
+        pages = getattr(result, "pages", None)
+        if isinstance(pages, list) and pages:
+            return len(pages)
+        return 0
+
+    @staticmethod
+    def _extract_timing_totals(result: Any) -> dict[str, float]:
+        totals: dict[str, float] = {}
+        timing_map = getattr(result, "timings", None)
+        if not isinstance(timing_map, dict):
+            return totals
+        for key, item in timing_map.items():
+            times = getattr(item, "times", None)
+            if isinstance(times, list) and times:
+                numeric = [float(x) for x in times if isinstance(x, (int, float))]
+                if numeric:
+                    totals[str(key)] = sum(numeric)
+        return totals
+
+    @staticmethod
+    def _timing_summary(totals: dict[str, float], limit: int = 4) -> str:
+        if not totals:
+            return ""
+        ordered = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
+        return ",".join(f"{name}:{seconds:.2f}s" for name, seconds in ordered[:limit])

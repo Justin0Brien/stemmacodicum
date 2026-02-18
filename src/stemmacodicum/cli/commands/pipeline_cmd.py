@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from rich.panel import Panel
@@ -90,23 +91,36 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
         extract_timeout_seconds=args.extract_timeout_seconds,
     )
 
-    ctx.console.print(
-        Panel.fit(
-            "\n".join(
-                [
-                    f"Candidates found: {stats.candidates}",
-                    f"Processed this run: {stats.processed}",
-                    f"Ingested: {stats.ingested}",
-                    f"Duplicates: {stats.duplicates}",
-                    f"Extracted: {stats.extracted}",
-                    f"Skipped extraction: {stats.skipped_extraction}",
-                    f"Failed: {stats.failed}",
-                    f"State file: {state_path}",
-                    f"Log file: {log_path}",
-                ]
-            ),
-            title="Financial Pipeline Summary",
+    state_last_modified = "n/a"
+    if state_path.exists():
+        state_last_modified = datetime.fromtimestamp(state_path.stat().st_mtime).isoformat(timespec="seconds")
+
+    no_work_reason = ""
+    if stats.processed == 0 and stats.already_processed > 0:
+        no_work_reason = (
+            f"No new processing: all {stats.already_processed} candidate files were already in state"
         )
-    )
+
+    lines = [
+        f"Candidates found: {stats.candidates}",
+        f"Already processed (state skip): {stats.already_processed}",
+        f"Eligible for processing: {stats.candidates - stats.already_processed}",
+        f"Processed this run: {stats.processed}",
+        f"  ├─ Ingested: {stats.ingested}",
+        f"  ├─ Duplicates: {stats.duplicates}",
+        f"  ├─ Extracted: {stats.extracted}",
+        f"  ├─ Skipped extraction: {stats.skipped_extraction}",
+        f"  └─ Failed: {stats.failed}",
+        f"Remaining unprocessed candidates: {stats.remaining_unprocessed}",
+        (
+            f"State entries: {stats.state_entries_before} -> {stats.state_entries_after} "
+            f"(last modified: {state_last_modified})"
+        ),
+    ]
+    if no_work_reason:
+        lines.append(no_work_reason)
+    lines.extend([f"State file: {state_path}", f"Log file: {log_path}"])
+
+    ctx.console.print(Panel.fit("\n".join(lines), title="Financial Pipeline Summary"))
 
     return 0 if stats.failed == 0 else 1

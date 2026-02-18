@@ -50,6 +50,51 @@ def test_financial_pipeline_filters_and_processes(tmp_path: Path) -> None:
     stats = service.run(root=root, max_files=10, run_extraction=False)
 
     assert stats.candidates == 1
+    assert stats.already_processed == 0
     assert stats.processed == 1
     assert stats.ingested == 1
     assert stats.failed == 0
+    assert stats.remaining_unprocessed == 0
+
+
+def test_financial_pipeline_reports_already_processed(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    f1 = root / "annual_report_2025.pdf"
+    f1.write_text("fake pdf bytes", encoding="utf-8")
+
+    db_path = tmp_path / "stemma.db"
+    schema_path = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "stemmacodicum"
+        / "infrastructure"
+        / "db"
+        / "schema.sql"
+    )
+    initialize_schema(db_path, schema_path)
+
+    resource_repo = ResourceRepo(db_path)
+    extraction_repo = ExtractionRepo(db_path)
+    archive_dir = tmp_path / "archive"
+
+    ingestion = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
+
+    service = FinancialPipelineService(
+        ingestion_service=ingestion,
+        extraction_service=extraction,
+        extraction_repo=extraction_repo,
+        state_path=tmp_path / "state.json",
+        log_path=tmp_path / "run.log.jsonl",
+    )
+
+    first = service.run(root=root, max_files=10, run_extraction=False)
+    second = service.run(root=root, max_files=10, run_extraction=False)
+
+    assert first.processed == 1
+    assert second.processed == 0
+    assert second.already_processed == 1
+    assert second.state_entries_before == 1
+    assert second.state_entries_after == 1

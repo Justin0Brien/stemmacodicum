@@ -14,12 +14,16 @@ from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 @dataclass(slots=True)
 class PipelineStats:
     candidates: int
+    already_processed: int
     processed: int
     ingested: int
     duplicates: int
     extracted: int
     skipped_extraction: int
     failed: int
+    remaining_unprocessed: int
+    state_entries_before: int
+    state_entries_after: int
 
 
 class FinancialPipelineService:
@@ -112,7 +116,9 @@ class FinancialPipelineService:
     ) -> PipelineStats:
         candidates = self.find_financial_candidates(root)
         processed_set = self.load_state()
+        state_entries_before = len(processed_set)
 
+        already_processed = 0
         ingested = 0
         duplicates = 0
         extracted = 0
@@ -123,6 +129,7 @@ class FinancialPipelineService:
         for candidate in candidates:
             candidate_key = str(candidate)
             if candidate_key in processed_set:
+                already_processed += 1
                 continue
             if max_files is not None and processed >= max_files:
                 break
@@ -171,14 +178,19 @@ class FinancialPipelineService:
             self.save_state(processed_set)
 
         self.save_state(processed_set)
+        remaining_unprocessed = max(0, len(candidates) - already_processed - processed)
         return PipelineStats(
             candidates=len(candidates),
+            already_processed=already_processed,
             processed=processed,
             ingested=ingested,
             duplicates=duplicates,
             extracted=extracted,
             skipped_extraction=skipped_extraction,
             failed=failed,
+            remaining_unprocessed=remaining_unprocessed,
+            state_entries_before=state_entries_before,
+            state_entries_after=len(processed_set),
         )
 
 

@@ -138,8 +138,22 @@ class VerificationService:
                 if selector.selector_type == "TextQuoteSelector":
                     payload = json.loads(selector.selector_json)
                     exact = str(payload.get("exact") or "").strip()
-                    if exact and claim.narrative_text and exact.lower() in claim.narrative_text.lower():
-                        return "pass", {"reason": "narrative_quote_match", "quote": exact}
+                    if not exact:
+                        continue
+
+                    source_text = self.extraction_repo.get_latest_document_text_for_resource(item.resource_id)
+                    if source_text and exact.lower() in source_text.text_content.lower():
+                        return (
+                            "pass",
+                            {
+                                "reason": "narrative_quote_match_source",
+                                "quote": exact,
+                                "resource_id": item.resource_id,
+                            },
+                        )
+
+                    if claim.narrative_text and exact.lower() in claim.narrative_text.lower():
+                        return "pass", {"reason": "narrative_quote_match_claim_text", "quote": exact}
 
         return "fail", {"reason": "no_matching_text_quote_selector"}
 

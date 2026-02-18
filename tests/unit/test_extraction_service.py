@@ -44,7 +44,7 @@ def test_table_id_is_deterministic() -> None:
     assert ExtractionService.derive_table_id(t1) == ExtractionService.derive_table_id(t2)
 
 
-def test_extract_resource_persists_tables(tmp_path: Path) -> None:
+def test_extract_resource_persists_tables_and_text_layers(tmp_path: Path) -> None:
     resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
 
     source = tmp_path / "report.md"
@@ -68,7 +68,27 @@ def test_extract_resource_persists_tables(tmp_path: Path) -> None:
     summary = service.extract_resource(ingested.resource.id)
 
     assert summary.tables_found == 1
+    assert summary.text_chars > 0
+    assert summary.segments_persisted > 0
+    assert summary.annotations_persisted > 0
 
     tables = extraction_repo.list_tables_for_resource(ingested.resource.id)
     assert len(tables) == 1
     assert tables[0].table_id.startswith("sha256:")
+
+    doc_text = service.get_document_text(ingested.resource.id)
+    assert doc_text is not None
+    assert "Cash" in doc_text.text_content
+    assert doc_text.char_count == len(doc_text.text_content)
+
+    segments = service.list_segments(ingested.resource.id, limit=100)
+    assert any(s.segment_type == "layout:document" for s in segments)
+    assert any(s.segment_type == "structure:sentence" for s in segments)
+
+    annotations = service.list_annotations(ingested.resource.id, limit=200)
+    assert any(a["category"] == "quantity" for a in annotations)
+    assert any(a["category"] == "metric" for a in annotations)
+
+    dump = service.build_dump(ingested.resource.id)
+    assert dump["document_text"] is not None
+    assert len(dump["tables"]) == 1

@@ -64,3 +64,7 @@ stemma extract run --resource-digest <sha256> --docling-device mps --docling-thr
 ```
 
 `stemma extract run` now shows live spinner/timing output, and `stemma pipeline financial-pass` shows live overall progress plus verbose per-document logs by default.
+
+SQLite runs in WAL mode with lock wait timeouts, so you can run ingestion/extraction in one terminal while reading or editing data from another terminal or the web GUI.
+
+The web GUI includes a per-card `?` help icon (single popup with Basic then Comprehensive guidance) and a Database Explorer card to inspect tables, schema, and sample rows.

@@ -14,6 +14,135 @@
       --accent-2: #164e63;
       --border: #d6dee8;
       --error: #b42318;
+      --button-secondary-bg: #334155;
+      --button-secondary-text: #ffffff;
+      --pre-bg: #0b1727;
+      --pre-fg: #d7ebff;
+      --drop-bg: #f0fdfb;
+      --drop-drag-bg: #dcfce7;
+      --help-overlay: rgba(7, 16, 28, 0.62);
+      --help-panel-bg: #ffffff;
+      --help-code-bg: #eef2f7;
+      --help-code-fg: #1d2736;
+      --help-icon-bg: #e8eef8;
+      --help-icon-fg: #1f3555;
+      --hero-grad-start: #164e63;
+      --hero-grad-end: #1f6f8b;
+    }
+    body[data-theme="harmonious-light"] {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1d2736;
+      --muted: #5a6475;
+      --accent: #0f766e;
+      --accent-2: #164e63;
+      --border: #d6dee8;
+      --button-secondary-bg: #334155;
+      --button-secondary-text: #ffffff;
+      --pre-bg: #0b1727;
+      --pre-fg: #d7ebff;
+      --drop-bg: #f0fdfb;
+      --drop-drag-bg: #dcfce7;
+      --help-overlay: rgba(7, 16, 28, 0.62);
+      --help-panel-bg: #ffffff;
+      --help-code-bg: #eef2f7;
+      --help-code-fg: #1d2736;
+      --help-icon-bg: #e8eef8;
+      --help-icon-fg: #1f3555;
+      --hero-grad-start: #164e63;
+      --hero-grad-end: #1f6f8b;
+    }
+    body[data-theme="restful-dark"] {
+      --bg: #10171f;
+      --card: #17212d;
+      --text: #e9eef7;
+      --muted: #a5b3c5;
+      --accent: #169a8f;
+      --accent-2: #1a405f;
+      --border: #2e3d50;
+      --button-secondary-bg: #2a3b50;
+      --button-secondary-text: #e9eef7;
+      --pre-bg: #0a111b;
+      --pre-fg: #d7e8ff;
+      --drop-bg: #12272b;
+      --drop-drag-bg: #15363a;
+      --help-overlay: rgba(4, 8, 13, 0.74);
+      --help-panel-bg: #17212d;
+      --help-code-bg: #243445;
+      --help-code-fg: #e9eef7;
+      --help-icon-bg: #2c3f56;
+      --help-icon-fg: #f6fbff;
+      --hero-grad-start: #1a405f;
+      --hero-grad-end: #123043;
+    }
+    body[data-theme="sunset-paper"] {
+      --bg: #f8f2ea;
+      --card: #fffdf9;
+      --text: #2e1f22;
+      --muted: #6f5a5f;
+      --accent: #b4532a;
+      --accent-2: #7f3b5e;
+      --border: #e8d8cd;
+      --button-secondary-bg: #5d4b57;
+      --button-secondary-text: #fff9f6;
+      --pre-bg: #2a1f2b;
+      --pre-fg: #f3e8ff;
+      --drop-bg: #fff4ea;
+      --drop-drag-bg: #ffe8d6;
+      --help-overlay: rgba(35, 18, 24, 0.58);
+      --help-panel-bg: #fffdf9;
+      --help-code-bg: #f8ece5;
+      --help-code-fg: #2e1f22;
+      --help-icon-bg: #f4dfd0;
+      --help-icon-fg: #4a2c2f;
+      --hero-grad-start: #7f3b5e;
+      --hero-grad-end: #b4532a;
+    }
+    body[data-theme="forest-mist"] {
+      --bg: #eef5f1;
+      --card: #fbfffd;
+      --text: #1d312a;
+      --muted: #4d6a62;
+      --accent: #1f8f63;
+      --accent-2: #264f4a;
+      --border: #cfe0d8;
+      --button-secondary-bg: #355a53;
+      --button-secondary-text: #f3fffb;
+      --pre-bg: #132b26;
+      --pre-fg: #c8f2e7;
+      --drop-bg: #effaf5;
+      --drop-drag-bg: #dcf2e7;
+      --help-overlay: rgba(12, 28, 24, 0.58);
+      --help-panel-bg: #fbfffd;
+      --help-code-bg: #e5f3ed;
+      --help-code-fg: #1d312a;
+      --help-icon-bg: #d9ebe4;
+      --help-icon-fg: #193e36;
+      --hero-grad-start: #264f4a;
+      --hero-grad-end: #1f8f63;
+    }
+    body[data-theme="midnight-contrast"] {
+      --bg: #090e16;
+      --card: #131b28;
+      --text: #f5f9ff;
+      --muted: #b9c5d9;
+      --accent: #00b3a4;
+      --accent-2: #223756;
+      --border: #33465f;
+      --button-secondary-bg: #394d68;
+      --button-secondary-text: #f5f9ff;
+      --pre-bg: #03070f;
+      --pre-fg: #ecf5ff;
+      --drop-bg: #102228;
+      --drop-drag-bg: #16353c;
+      --help-overlay: rgba(0, 0, 0, 0.78);
+      --help-panel-bg: #131b28;
+      --help-code-bg: #2a3f5b;
+      --help-code-fg: #f5f9ff;
+      --help-icon-bg: #304760;
+      --help-icon-fg: #ffffff;
+      --hero-grad-start: #223756;
+      --hero-grad-end: #00b3a4;
     }
     * { box-sizing: border-box; }
     body {
@@ -24,18 +153,117 @@
     }
     header {
       padding: 24px;
-      background: linear-gradient(120deg, var(--accent-2), #1f6f8b);
+      background: linear-gradient(120deg, var(--hero-grad-start), var(--hero-grad-end));
       color: #fff;
     }
-    header h1 { margin: 0 0 8px; font-size: 28px; }
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 6px;
+    }
+    header h1 { margin: 0; font-size: 28px; }
     header p { margin: 0; opacity: 0.92; }
-    main {
+    .theme-picker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(255, 255, 255, 0.95);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .theme-picker select {
+      min-width: 220px;
+      border-color: rgba(255, 255, 255, 0.32);
+      background: rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+      padding: 6px 10px;
+    }
+    .theme-picker select option {
+      color: #0f172a;
+      background: #ffffff;
+    }
+    @media (max-width: 720px) {
+      .header-top {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .theme-picker {
+        width: 100%;
+      }
+      .theme-picker select {
+        min-width: 0;
+        width: 100%;
+      }
+    }
+    .app-shell {
       max-width: 1280px;
       margin: 0 auto;
       padding: 18px;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      grid-template-columns: 260px minmax(0, 1fr);
       gap: 14px;
+      align-items: start;
+    }
+    .nav-column {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
+      padding: 12px;
+      position: sticky;
+      top: 12px;
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+    }
+    .nav-title {
+      margin: 0 0 6px;
+      font-size: 16px;
+      color: var(--text);
+    }
+    .nav-copy {
+      margin: 0 0 10px;
+    }
+    .nav-list {
+      display: grid;
+      gap: 8px;
+    }
+    .nav-btn {
+      text-align: left;
+      width: 100%;
+      border: 1px solid var(--border);
+    }
+    .nav-btn.active {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+    .workspace {
+      min-width: 0;
+    }
+    .workspace-head {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
+    }
+    .workspace-head h2 {
+      margin: 0 0 2px;
+      font-size: 18px;
+    }
+    .workspace-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .workspace-panel {
+      display: none;
+    }
+    .workspace-panel.active {
+      display: block;
     }
     .card {
       background: var(--card);
@@ -43,6 +271,7 @@
       border-radius: 14px;
       box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
       padding: 14px;
+      position: relative;
     }
     .card h2 { margin: 0 0 10px; font-size: 18px; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -60,17 +289,142 @@
       border: none;
       cursor: pointer;
     }
-    button.secondary { background: #334155; }
+    button.secondary {
+      background: var(--button-secondary-bg);
+      color: var(--button-secondary-text);
+    }
     button:hover { filter: brightness(1.05); }
     pre {
-      background: #0b1727;
-      color: #d7ebff;
+      background: var(--pre-bg);
+      color: var(--pre-fg);
       border-radius: 10px;
       padding: 10px;
       overflow: auto;
-      max-height: 260px;
+      max-height: none;
       margin: 8px 0 0;
       font-size: 12px;
+    }
+    pre[id^="out-"] {
+      min-height: 22rem;
+      height: 22rem;
+      resize: vertical;
+    }
+    .db-grid-controls input,
+    .db-grid-controls select {
+      flex: 1 1 220px;
+    }
+    .db-grid-controls input:disabled,
+    .db-grid-controls button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    #db-grid-view {
+      display: none;
+      margin-top: 8px;
+    }
+    #db-grid-view.open {
+      display: block;
+    }
+    .db-grid-scroll {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: auto;
+      max-height: 70vh;
+      background: var(--card);
+    }
+    .db-grid-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .db-grid-table th,
+    .db-grid-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .db-grid-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--card);
+    }
+    .db-grid-table .db-filter-row th {
+      top: 35px;
+      z-index: 1;
+    }
+    .db-grid-table tbody tr:nth-child(even) {
+      background: rgba(127, 127, 127, 0.08);
+    }
+    .db-sort-btn {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 0;
+      line-height: 1.2;
+    }
+    .db-sort-btn:hover {
+      text-decoration: underline;
+    }
+    .db-filter-input {
+      width: 100%;
+      min-width: 120px;
+      padding: 4px 6px;
+      font-size: 12px;
+    }
+    .inspector-list {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      padding: 8px;
+      max-height: 24rem;
+      overflow: auto;
+      margin-top: 8px;
+    }
+    .inspector-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px;
+      margin-bottom: 8px;
+      background: rgba(127, 127, 127, 0.05);
+    }
+    .inspector-card:last-child {
+      margin-bottom: 0;
+    }
+    .inspector-card h4 {
+      margin: 0 0 4px;
+      font-size: 13px;
+    }
+    .inspector-meta {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 6px;
+      word-break: break-word;
+    }
+    .inspector-copy-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .inspector-copy-row button {
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+    .inspector-copy-status {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .db-cell {
+      max-width: 560px;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
     .dropzone {
       border: 2px dashed var(--accent);
@@ -78,30 +432,188 @@
       padding: 16px;
       text-align: center;
       color: var(--muted);
-      background: #f0fdfb;
+      background: var(--drop-bg);
       margin-bottom: 10px;
     }
-    .dropzone.drag { background: #dcfce7; }
+    .dropzone.drag { background: var(--drop-drag-bg); }
     .small { color: var(--muted); font-size: 12px; }
     .err { color: var(--error); font-size: 12px; }
+    .help-icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--help-icon-bg);
+      color: var(--help-icon-fg);
+      font-weight: 700;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      min-width: 28px;
+    }
+    .help-icon:hover { filter: brightness(1.08); }
+    .help-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: var(--help-overlay);
+      z-index: 999;
+      padding: 18px;
+    }
+    .help-modal.open { display: flex; }
+    .help-panel {
+      width: min(920px, 100%);
+      max-height: 86vh;
+      overflow: auto;
+      background: var(--help-panel-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 24px 60px rgba(12, 25, 41, 0.35);
+    }
+    .help-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 10px;
+    }
+    .help-head h3 { margin: 0; font-size: 18px; }
+    .help-content h4 { margin: 12px 0 6px; }
+    .help-content p { margin: 0 0 8px; }
+    .help-content ul { margin: 0 0 12px 18px; padding: 0; }
+    .help-content li { margin-bottom: 4px; }
+    .help-content code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      background: var(--help-code-bg);
+      color: var(--help-code-fg);
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+    .help-content pre {
+      margin: 8px 0 12px;
+      max-height: none;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .help-content pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      border-radius: 0;
+    }
+    @media (max-width: 980px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .nav-column {
+        position: static;
+        max-height: none;
+      }
+      .nav-list {
+        display: flex;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+      }
+      .nav-btn {
+        flex: 0 0 auto;
+        width: auto;
+        min-width: 170px;
+      }
+    }
   </style>
 </head>
-<body>
+<body data-theme="harmonious-light">
   <header>
-    <h1>Stemma Codicum Web</h1>
+    <div class="header-top">
+      <h1>Stemma Codicum Web</h1>
+      <div class="theme-picker">
+        <label for="theme-select">Theme</label>
+        <select id="theme-select" onchange="setTheme(this.value)">
+          <option value="harmonious-light">Harmonious Light</option>
+          <option value="restful-dark">Restful Dark</option>
+          <option value="forest-mist">Forest Mist</option>
+          <option value="sunset-paper">Sunset Paper</option>
+          <option value="midnight-contrast">Midnight Contrast</option>
+        </select>
+      </div>
+    </div>
     <p>CLI-equivalent operations + drag/drop ingest with duplicate detection.</p>
   </header>
-  <main>
-    <section class="card">
+  <main class="app-shell">
+    <aside class="nav-column">
+      <h2 class="nav-title">Functions</h2>
+      <p class="small nav-copy">Select a function to open its full panel.</p>
+      <div class="nav-list">
+        <button class="secondary nav-btn" type="button" data-pane="project">Project and Health</button>
+        <button class="secondary nav-btn" type="button" data-pane="database">Database Explorer</button>
+        <button class="secondary nav-btn" type="button" data-pane="ingest">Ingest</button>
+        <button class="secondary nav-btn" type="button" data-pane="references">References</button>
+        <button class="secondary nav-btn" type="button" data-pane="extraction">Extraction</button>
+        <button class="secondary nav-btn" type="button" data-pane="claims">Claims</button>
+        <button class="secondary nav-btn" type="button" data-pane="binding">Binding</button>
+        <button class="secondary nav-btn" type="button" data-pane="verification">Verification and Reports</button>
+        <button class="secondary nav-btn" type="button" data-pane="trace">Trace</button>
+        <button class="secondary nav-btn" type="button" data-pane="ceapf">CEAPF</button>
+        <button class="secondary nav-btn" type="button" data-pane="pipeline">Financial Pipeline</button>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <div class="workspace-head">
+        <h2 id="workspace-title">Function Workspace</h2>
+        <p id="workspace-subtitle">Project and Health</p>
+      </div>
+
+      <section class="card workspace-panel" data-pane="project" data-help-key="project">
       <h2>Project and Health</h2>
       <div class="row">
         <button onclick="callApi('POST','/api/init',{},'out-project')">Init Project</button>
         <button class="secondary" onclick="callApi('GET','/api/doctor',null,'out-project')">Doctor</button>
       </div>
       <pre id="out-project"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="database" data-help-key="database">
+      <h2>Database Explorer</h2>
+      <div class="row">
+        <button class="secondary" onclick="dbListTables()">List Tables</button>
+        <select id="db-table-select">
+          <option value="">Select table</option>
+        </select>
+      </div>
+      <div class="row">
+        <input id="db-limit" value="50" placeholder="Row limit" />
+        <input id="db-offset" value="0" placeholder="Offset" />
+        <button onclick="dbViewTable()">View Rows</button>
+        <button class="secondary" onclick="dbDescribeTable()">Table Schema</button>
+      </div>
+      <div id="db-grid-controls" class="row db-grid-controls">
+        <select id="db-view-mode" onchange="dbSetViewMode(this.value)">
+          <option value="spreadsheet">Spreadsheet View</option>
+          <option value="json">JSON View</option>
+        </select>
+        <input id="db-search" placeholder="Search current view (all columns)" />
+        <button id="db-clear-filters" class="secondary" onclick="dbClearFilters()">Clear Filters</button>
+      </div>
+      <p class="small">Inspect table names, row counts, schema, and sample rows.</p>
+      <div id="db-grid-view">
+        <p class="small" id="db-grid-meta">Load a table to inspect data in spreadsheet mode.</p>
+        <div class="db-grid-scroll">
+          <table id="db-grid-table" class="db-grid-table"></table>
+        </div>
+      </div>
+      <pre id="out-db"></pre>
+      </section>
+
+      <section class="card workspace-panel" data-pane="ingest" data-help-key="ingest">
       <h2>Ingest</h2>
       <div id="dropzone" class="dropzone">Drag & drop a document here to ingest (dedupe-aware)</div>
       <div class="row">
@@ -113,9 +625,9 @@
         <button class="secondary" onclick="listResources()">List Resources</button>
       </div>
       <pre id="out-ingest"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="references" data-help-key="references">
       <h2>References</h2>
       <div class="row">
         <input id="bib-path" placeholder="/path/to/references.bib" />
@@ -131,9 +643,9 @@
         <button class="secondary" onclick="callApi('GET','/api/citations',null,'out-refs')">List Citations</button>
       </div>
       <pre id="out-refs"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="extraction" data-help-key="extraction">
       <h2>Extraction</h2>
       <div class="row">
         <input id="extract-resource-id" placeholder="Resource ID (optional)" />
@@ -145,10 +657,38 @@
         <input id="extract-tables-digest" placeholder="Resource digest (optional)" />
         <button class="secondary" onclick="extractTables()">List Tables</button>
       </div>
+      <p class="small">Extraction Inspector: inspect canonical text, standoff segments, annotations, and full extraction dumps.</p>
+      <div class="row">
+        <input id="inspect-resource-id" placeholder="Inspector resource ID (optional)" />
+        <input id="inspect-resource-digest" placeholder="Inspector resource digest (optional)" />
+        <input id="inspect-run-id" placeholder="Inspector run ID (optional, latest if empty)" />
+      </div>
+      <div class="row">
+        <input id="inspect-segment-type" placeholder="Segment type filter (e.g. layout:paragraph)" />
+        <input id="inspect-layer" placeholder="Layer filter (e.g. domain_financial)" />
+        <input id="inspect-category" placeholder="Category filter (e.g. metric)" />
+        <input id="inspect-limit" value="200" placeholder="Limit" />
+      </div>
+      <div class="row">
+        <input id="inspect-segment-limit" value="2000" placeholder="Dump segment limit" />
+        <input id="inspect-annotation-limit" value="2000" placeholder="Dump annotation limit" />
+        <input id="inspect-table-limit" value="500" placeholder="Dump table limit" />
+      </div>
+      <div class="row">
+        <button class="secondary" onclick="extractInspectorText()">Inspect Text</button>
+        <button class="secondary" onclick="extractInspectorSegments()">Inspect Segments</button>
+        <button class="secondary" onclick="extractInspectorAnnotations()">Inspect Annotations</button>
+        <button class="secondary" onclick="extractInspectorDump()">Inspect Dump</button>
+      </div>
+      <div id="extract-inspector-list" class="inspector-list">
+        <p class="small">No inspector items loaded yet.</p>
+      </div>
+      <p id="extract-inspector-copy-status" class="inspector-copy-status"></p>
       <pre id="out-extract"></pre>
-    </section>
+      <pre id="out-extract-inspector"></pre>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="claims" data-help-key="claims">
       <h2>Claims</h2>
       <div class="row">
         <input id="claims-file" placeholder="Claims file path" />
@@ -166,9 +706,9 @@
         <button class="secondary" onclick="callApi('GET','/api/claim-sets',null,'out-claims')">List Claim Sets</button>
       </div>
       <pre id="out-claims"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="binding" data-help-key="binding">
       <h2>Binding</h2>
       <div class="row">
         <input id="bind-claim-id" placeholder="Claim ID" />
@@ -184,9 +724,9 @@
         <button class="secondary" onclick="bindValidate()">Validate Binding</button>
       </div>
       <pre id="out-bind"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="verification" data-help-key="verification">
       <h2>Verification and Reports</h2>
       <div class="row">
         <input id="verify-claim-id" placeholder="Claim ID" />
@@ -203,9 +743,9 @@
         <button class="secondary" onclick="reportVerification()">Get Report</button>
       </div>
       <pre id="out-verify"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="trace" data-help-key="trace">
       <h2>Trace</h2>
       <div class="row">
         <input id="trace-claim-id" placeholder="Claim ID" />
@@ -221,9 +761,9 @@
         <button onclick="traceCitation()">Trace Citation</button>
       </div>
       <pre id="out-trace"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="ceapf" data-help-key="ceapf">
       <h2>CEAPF</h2>
       <textarea id="ceapf-prop">{"subject":"org:InstitutionZ","predicate":"ceapf:spent","object":{"amount":3.4,"unit":"GBP"}}</textarea>
       <div class="row">
@@ -245,9 +785,9 @@
         <button onclick="addRelation()">Add Relation</button>
       </div>
       <pre id="out-ceapf"></pre>
-    </section>
+      </section>
 
-    <section class="card">
+      <section class="card workspace-panel" data-pane="pipeline" data-help-key="pipeline">
       <h2>Financial Pipeline</h2>
       <div class="row">
         <input id="pipe-root" value="/Volumes/X10/data/Institution" />
@@ -261,10 +801,445 @@
       </div>
       <p class="small">Runs resumably using project state/log files in <code>.stemma/</code>.</p>
       <pre id="out-pipeline"></pre>
+      </section>
     </section>
   </main>
 
+<div id="help-modal" class="help-modal" aria-hidden="true">
+  <div class="help-panel">
+    <div class="help-head">
+      <h3 id="help-title">Help</h3>
+      <button class="secondary" onclick="closeHelp()">Close</button>
+    </div>
+    <div id="help-content" class="help-content"></div>
+  </div>
+</div>
+
 <script>
+const HELP_CONTENT = {
+  project: {
+    title: "Project and Health",
+    basic: `
+      <p>Use this card to initialize project files and run diagnostic checks.</p>
+      <h4>Core actions</h4>
+      <ul>
+        <li><code>Init Project</code>: creates/repairs <code>.stemma/</code> and database schema.</li>
+        <li><code>Doctor</code>: runs integrity checks and DB runtime checks.</li>
+      </ul>
+      <h4>Example flow</h4>
+      <pre><code>1) Click Init Project
+2) Click Doctor
+3) Confirm "ok": true and db_runtime.journal_mode = "wal"</code></pre>
+    `,
+    full: `
+      <p>This card corresponds to <code>stemma init</code> and <code>stemma doctor</code>. Run these before batch work or after crashes.</p>
+      <h4>When to use</h4>
+      <ul>
+        <li>Fresh project setup.</li>
+        <li>Before/after long ingestion pipelines.</li>
+        <li>To verify DB concurrency settings and archive integrity.</li>
+      </ul>
+      <h4>Example</h4>
+      <pre><code>POST /api/init
+GET /api/doctor
+
+Expected doctor signals:
+- checks_run >= 4
+- db_runtime.journal_mode = "wal"
+- db_runtime.busy_timeout_ms > 0</code></pre>
+    `,
+  },
+  database: {
+    title: "Database Explorer",
+    basic: `
+      <p>Inspect real database state: table list, row counts, schema, and sample rows.</p>
+      <h4>Quick start</h4>
+      <ul>
+        <li>Click <code>List Tables</code> to load all tables and counts.</li>
+        <li>Select a table and click <code>View Rows</code>.</li>
+        <li>Use <code>Spreadsheet View</code> for sortable/filterable grid output.</li>
+        <li>Use <code>Table Schema</code> to view create SQL and columns.</li>
+      </ul>
+      <h4>Example</h4>
+      <pre><code>Table: resources
+Limit: 50
+Offset: 0
+Action: View Rows</code></pre>
+    `,
+    full: `
+      <p>This card is for learning and diagnostics. It uses read-only style inspection endpoints.</p>
+      <h4>Recommended checks</h4>
+      <ul>
+        <li>After ingest: verify rows in <code>resources</code> and <code>resource_digests</code>.</li>
+        <li>After extraction: verify <code>extraction_runs</code> and <code>extracted_tables</code>.</li>
+        <li>After binding/verification: inspect <code>evidence_*</code> and <code>verification_*</code> tables.</li>
+        <li>Use global search + per-column filters to narrow large result sets quickly.</li>
+      </ul>
+      <h4>Example sequence</h4>
+      <pre><code>1) List Tables
+2) Table Schema on extraction_runs
+3) View Rows on extraction_runs (limit 20)
+4) View Rows on extracted_tables (limit 20)</code></pre>
+    `,
+  },
+  ingest: {
+    title: "Ingest",
+    basic: `
+      <p>Add source files into immutable archive storage with deduplication.</p>
+      <ul>
+        <li>Use drag/drop for quick single-file ingest.</li>
+        <li>Use absolute path ingest for scripted workflows.</li>
+        <li>Use <code>List Resources</code> to verify digest + metadata.</li>
+      </ul>
+      <pre><code>Path example:
+/Users/you/downloads/report.pdf</code></pre>
+    `,
+    full: `
+      <p>Equivalent to <code>stemma ingest ...</code> and <code>stemma resources</code>. The archive is digest-addressed.</p>
+      <h4>Tips</h4>
+      <ul>
+        <li>Duplicate file bytes return status <code>duplicate</code> without archive rewrite.</li>
+        <li>Use resources listing to obtain <code>resource.id</code> and digest for downstream steps.</li>
+      </ul>
+      <pre><code>Typical pipeline:
+1) Ingest Path
+2) List Resources (limit 20)
+3) Copy resource id or digest into Extraction card</code></pre>
+    `,
+  },
+  references: {
+    title: "References",
+    basic: `
+      <p>Import bibliography records and connect citations to ingested resources.</p>
+      <ul>
+        <li><code>Import BibTeX</code> reads a .bib file.</li>
+        <li><code>Link Ref-&gt;Resource</code> maps cite ID to resource digest.</li>
+      </ul>
+      <pre><code>Cite ID example: AB12
+Digest example: 64-char sha256</code></pre>
+    `,
+    full: `
+      <p>Use this when turning bibliographic metadata into auditable source links.</p>
+      <h4>Recommended flow</h4>
+      <ul>
+        <li>Import BibTeX first.</li>
+        <li>List citations to get generated cite IDs.</li>
+        <li>Link each citation to a known ingested digest.</li>
+      </ul>
+      <pre><code>1) Import BibTeX
+2) List Citations
+3) Link Ref-&gt;Resource using cite_id + digest
+4) List Refs to confirm links</code></pre>
+    `,
+  },
+  extraction: {
+    title: "Extraction",
+    basic: `
+      <p>Run extraction for one resource, then inspect tables, text, segments, and annotations.</p>
+      <ul>
+        <li>Provide either resource ID or digest.</li>
+        <li><code>Run Extract</code> creates extraction runs.</li>
+        <li><code>List Tables</code> returns extracted table records.</li>
+        <li><code>Extraction Inspector</code> calls text/segment/annotation/dump APIs.</li>
+      </ul>
+      <pre><code>Use exactly one selector:
+- Resource ID
+- Resource digest</code></pre>
+    `,
+    full: `
+      <p>This maps to <code>stemma extract run</code>, <code>stemma extract tables</code>, <code>stemma extract text</code>, <code>stemma extract segments</code>, <code>stemma extract annotations</code>, and <code>stemma extract dump</code>.</p>
+      <h4>What to watch</h4>
+      <ul>
+        <li>Summary fields: parser, timing, tables found.</li>
+        <li>Table IDs are deterministic for stable binding.</li>
+        <li>Inspector supports optional <code>run_id</code> for historical run debugging.</li>
+        <li>Segments and annotations include compact cards with <code>Copy Selector JSON</code> actions.</li>
+      </ul>
+      <pre><code>1) Run Extract for digest
+2) List Tables for same digest
+3) Use Inspect Text / Segments / Annotations
+4) Copy table_id into binding selectors if needed</code></pre>
+    `,
+  },
+  claims: {
+    title: "Claims",
+    basic: `
+      <p>Import claims into a claim set and inspect claim records.</p>
+      <ul>
+        <li>Choose format (<code>csv</code>, <code>json</code>, <code>md</code>).</li>
+        <li>Set claim set name for grouping.</li>
+      </ul>
+      <pre><code>Claim set example: annual-report-2025</code></pre>
+    `,
+    full: `
+      <p>This card is the entry point for structured assertion data.</p>
+      <h4>Good workflow</h4>
+      <ul>
+        <li>Import into a named claim set.</li>
+        <li>Use list filters to inspect only one set.</li>
+        <li>Then bind evidence and run verification.</li>
+      </ul>
+      <pre><code>1) Import Claims
+2) List Claim Sets
+3) List Claims (claim set filter)</code></pre>
+    `,
+  },
+  binding: {
+    title: "Binding",
+    basic: `
+      <p>Attach evidence selectors to a claim and validate required roles.</p>
+      <ul>
+        <li>Provide claim ID and one resource selector (ID or digest).</li>
+        <li>Provide role and selector JSON array.</li>
+      </ul>
+      <pre><code>[{"type":"PageGeometrySelector","pageIndex":0,"boxes":[]},
+ {"type":"TextQuoteSelector","exact":"example"}]</code></pre>
+    `,
+    full: `
+      <p>Bindings are the core of machine-verifiable provenance.</p>
+      <h4>Guidance</h4>
+      <ul>
+        <li>Use at least two distinct selector types for robustness.</li>
+        <li>Run <code>Validate Binding</code> after each add.</li>
+        <li>For quantitative claims, include value-cell and supporting roles.</li>
+      </ul>
+      <pre><code>1) Add Binding
+2) Validate Binding
+3) Fix missing roles or selector diversity issues</code></pre>
+    `,
+  },
+  verification: {
+    title: "Verification and Reports",
+    basic: `
+      <p>Run deterministic verification and export run reports.</p>
+      <ul>
+        <li><code>Verify Claim</code>: one claim.</li>
+        <li><code>Verify Set</code>: all claims in set.</li>
+        <li><code>Get Report</code>: summary + optional file exports.</li>
+      </ul>
+      <pre><code>Policy profile defaults to "strict"</code></pre>
+    `,
+    full: `
+      <p>Use verification after import + binding are complete.</p>
+      <h4>Typical process</h4>
+      <ul>
+        <li>Verify set for batch signal.</li>
+        <li>Use report output to inspect failures.</li>
+        <li>Optionally export JSON and Markdown reports.</li>
+      </ul>
+      <pre><code>1) Verify Set (claim set)
+2) Copy run_id from response
+3) Get Report with run_id</code></pre>
+    `,
+  },
+  trace: {
+    title: "Trace",
+    basic: `
+      <p>Navigate links between claims, evidence, resources, and citations.</p>
+      <ul>
+        <li>Trace from claim ID, resource selector, or cite ID.</li>
+      </ul>
+      <pre><code>Trace by one anchor at a time:
+- claim_id
+- resource_id/resource_digest
+- cite_id</code></pre>
+    `,
+    full: `
+      <p>Trace is best for audits and debugging missing evidence links.</p>
+      <h4>Use cases</h4>
+      <ul>
+        <li>Confirm which evidence items back a claim.</li>
+        <li>Find all claims tied to one resource.</li>
+        <li>Review citation-resource consistency.</li>
+      </ul>
+      <pre><code>1) Trace claim
+2) Trace resource from returned resource id
+3) Trace citation from cite id</code></pre>
+    `,
+  },
+  ceapf: {
+    title: "CEAPF",
+    basic: `
+      <p>Create propositions/assertions and connect them with argument relations.</p>
+      <ul>
+        <li>Add proposition JSON.</li>
+        <li>Add assertion event for proposition.</li>
+        <li>Add support/rebuttal relation edges.</li>
+      </ul>
+      <pre><code>{"subject":"org:X","predicate":"ceapf:spent","object":{"amount":3.4,"unit":"GBP"}}</code></pre>
+    `,
+    full: `
+      <p>CEAPF supports higher-level argument graph modeling on top of evidence.</p>
+      <h4>Practical flow</h4>
+      <ul>
+        <li>Create proposition first.</li>
+        <li>Create assertion(s) with modality and agent.</li>
+        <li>Connect assertions and propositions with directed relation types.</li>
+      </ul>
+      <pre><code>Relation types:
+- supports
+- rebuts
+- undercuts
+- qualifies</code></pre>
+    `,
+  },
+  pipeline: {
+    title: "Financial Pipeline",
+    basic: `
+      <p>Run resumable bulk ingest + extraction over a directory tree.</p>
+      <ul>
+        <li>Set root path and optional max files.</li>
+        <li>Use skip extraction when doing ingest-only passes.</li>
+      </ul>
+      <pre><code>Root example:
+/Volumes/X10/data/Institution</code></pre>
+    `,
+    full: `
+      <p>Use this for production-scale scanning of financial documents.</p>
+      <h4>Behavior notes</h4>
+      <ul>
+        <li>Uses state/log files under <code>.stemma/</code> for resumability.</li>
+        <li>Per-file extraction timeout prevents long hangs.</li>
+        <li>Re-runs process only unprocessed candidates.</li>
+      </ul>
+      <pre><code>Suggested first run:
+- max_files: 25
+- timeout: 300
+- skip_extraction: false</code></pre>
+    `,
+  },
+};
+
+function installHelpButtons() {
+  document.querySelectorAll('.card[data-help-key]').forEach((card) => {
+    const key = card.dataset.helpKey;
+    const icon = document.createElement('button');
+    icon.className = 'help-icon';
+    icon.textContent = '?';
+    icon.title = 'Help';
+    icon.setAttribute('aria-label', 'Help');
+    icon.onclick = () => showHelp(key);
+    card.appendChild(icon);
+  });
+}
+
+function showHelp(key) {
+  const entry = HELP_CONTENT[key];
+  if (!entry) return;
+  document.getElementById('help-title').textContent = `${entry.title} Help`;
+  document.getElementById('help-content').innerHTML = `
+    <h4>Basic</h4>
+    ${entry.basic || ''}
+    <h4>Comprehensive</h4>
+    ${entry.full || ''}
+  `;
+  const modal = document.getElementById('help-modal');
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeHelp() {
+  const modal = document.getElementById('help-modal');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function setActivePane(pane) {
+  const panels = Array.from(document.querySelectorAll('.workspace-panel[data-pane]'));
+  if (!panels.length) return;
+
+  const known = new Set(panels.map((panel) => panel.dataset.pane));
+  const chosen = known.has(pane) ? pane : panels[0].dataset.pane;
+
+  panels.forEach((panel) => {
+    panel.classList.toggle('active', panel.dataset.pane === chosen);
+  });
+  document.querySelectorAll('.nav-btn[data-pane]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.pane === chosen);
+  });
+
+  const entry = HELP_CONTENT[chosen];
+  const subtitle = document.getElementById('workspace-subtitle');
+  if (subtitle) subtitle.textContent = entry ? entry.title : chosen;
+  localStorage.setItem('stemmaActivePane', chosen);
+}
+
+function initWorkspaceNav() {
+  const buttons = Array.from(document.querySelectorAll('.nav-btn[data-pane]'));
+  buttons.forEach((btn) => {
+    btn.onclick = () => setActivePane(btn.dataset.pane);
+  });
+  const saved = localStorage.getItem('stemmaActivePane');
+  const fallback = buttons.length ? buttons[0].dataset.pane : 'project';
+  setActivePane(saved || fallback);
+}
+
+function initResizableOutputs() {
+  const minHeightPx = 320;
+  document.querySelectorAll('pre[id^="out-"]').forEach((panel) => {
+    const key = `stemmaOutHeight:${panel.id}`;
+    const saved = Number(localStorage.getItem(key) || "0");
+    if (Number.isFinite(saved) && saved >= minHeightPx) {
+      panel.style.height = `${saved}px`;
+    }
+    const persist = () => {
+      const next = Math.max(minHeightPx, panel.clientHeight || minHeightPx);
+      localStorage.setItem(key, String(next));
+    };
+    panel.addEventListener('mouseup', persist);
+    panel.addEventListener('touchend', persist, { passive: true });
+  });
+}
+
+function setTheme(themeName) {
+  const allowed = new Set([
+    'harmonious-light',
+    'restful-dark',
+    'forest-mist',
+    'sunset-paper',
+    'midnight-contrast',
+  ]);
+  const selected = allowed.has(themeName) ? themeName : 'harmonious-light';
+  document.body.setAttribute('data-theme', selected);
+  localStorage.setItem('stemmaTheme', selected);
+  const picker = document.getElementById('theme-select');
+  if (picker && picker.value !== selected) picker.value = selected;
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('stemmaTheme');
+  setTheme(saved || 'harmonious-light');
+}
+
+function candidateApiUrls(url) {
+  const results = [];
+  const seen = new Set();
+  const add = (u) => {
+    if (!u || seen.has(u)) return;
+    seen.add(u);
+    results.push(u);
+  };
+
+  // Absolute path as configured in the UI.
+  add(url);
+
+  // Relative fallback (works when app is mounted under a path prefix).
+  if (url.startsWith('/')) add(url.slice(1));
+
+  // Prefix fallback for mounts like /stemma -> /stemma/api/...
+  if (url.startsWith('/')) {
+    const path = window.location.pathname || '/';
+    const trimmed = path.replace(/\/+$/, '');
+    const lastSeg = trimmed.split('/').pop() || '';
+    if (trimmed && trimmed !== '/' && !lastSeg.includes('.')) {
+      const prefixed = `${trimmed}${url}`;
+      add(prefixed.replace(/\/{2,}/g, '/'));
+    }
+  }
+
+  return results;
+}
+
 async function callApi(method, url, body, outId, isFormData=false) {
   const opts = { method, headers: {} };
   if (body !== null && body !== undefined) {
@@ -275,15 +1250,394 @@ async function callApi(method, url, body, outId, isFormData=false) {
       opts.body = JSON.stringify(body);
     }
   }
+  const attempts = candidateApiUrls(url);
+  let lastData = null;
   try {
-    const res = await fetch(url, opts);
-    const data = await res.json();
-    document.getElementById(outId).textContent = JSON.stringify(data, null, 2);
-    return data;
+    for (const attemptUrl of attempts) {
+      const res = await fetch(attemptUrl, opts);
+      let data;
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        data = { detail: text || `HTTP ${res.status}` };
+      }
+
+      if (!(res.status === 404 && data && data.detail === 'Not Found')) {
+        if (outId) document.getElementById(outId).textContent = JSON.stringify(data, null, 2);
+        return data;
+      }
+      lastData = data;
+    }
+
+    const payload = {
+      ...(lastData || { detail: 'Not Found' }),
+      attempted_urls: attempts,
+    };
+    if (outId) document.getElementById(outId).textContent = JSON.stringify(payload, null, 2);
+    return payload;
   } catch (e) {
-    document.getElementById(outId).textContent = JSON.stringify({error: String(e)}, null, 2);
+    if (outId) {
+      document.getElementById(outId).textContent = JSON.stringify(
+        { error: String(e), attempted_urls: attempts },
+        null,
+        2
+      );
+    }
     throw e;
   }
+}
+
+let dbTables = [];
+let dbLastPayload = null;
+let dbGridSource = null;
+let dbGridState = {
+  sortColumn: null,
+  sortDirection: 'asc',
+  globalSearch: '',
+  columnFilters: {},
+};
+
+function currentDbTable() {
+  return document.getElementById('db-table-select').value;
+}
+
+function dbOutputMode() {
+  const select = document.getElementById('db-view-mode');
+  return select ? select.value : 'spreadsheet';
+}
+
+function renderDbResult(payload) {
+  dbLastPayload = payload;
+  document.getElementById('out-db').textContent = JSON.stringify(payload, null, 2);
+}
+
+function dbEscapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function dbCellText(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function dbMaybeNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^[+-]?\d+(\.\d+)?$/.test(trimmed)) return null;
+  const num = Number(trimmed);
+  return Number.isFinite(num) ? num : null;
+}
+
+function dbResetGridState() {
+  dbGridState.sortColumn = null;
+  dbGridState.sortDirection = 'asc';
+  dbGridState.globalSearch = '';
+  dbGridState.columnFilters = {};
+  const search = document.getElementById('db-search');
+  if (search) search.value = '';
+}
+
+function dbSetGridSource(source) {
+  dbGridSource = source;
+  dbResetGridState();
+  if (dbOutputMode() === 'spreadsheet') dbRenderGrid();
+}
+
+function dbSetGridMessage(message) {
+  const meta = document.getElementById('db-grid-meta');
+  const table = document.getElementById('db-grid-table');
+  if (meta) meta.textContent = message;
+  if (table) table.innerHTML = '';
+}
+
+function dbFilteredSortedRows() {
+  if (!dbGridSource) return [];
+  const columns = dbGridSource.columns;
+  const global = (dbGridState.globalSearch || '').trim().toLowerCase();
+  let rows = dbGridSource.rows.filter((row) => {
+    if (global) {
+      const hasGlobal = columns.some((col) => dbCellText(row[col]).toLowerCase().includes(global));
+      if (!hasGlobal) return false;
+    }
+    for (const col of columns) {
+      const filter = (dbGridState.columnFilters[col] || '').trim().toLowerCase();
+      if (!filter) continue;
+      if (!dbCellText(row[col]).toLowerCase().includes(filter)) return false;
+    }
+    return true;
+  });
+
+  const sortCol = dbGridState.sortColumn;
+  if (!sortCol) return rows;
+  const direction = dbGridState.sortDirection === 'desc' ? -1 : 1;
+  rows = [...rows].sort((a, b) => {
+    const av = a[sortCol];
+    const bv = b[sortCol];
+    if (av === bv) return 0;
+    if (av === null || av === undefined) return 1 * direction;
+    if (bv === null || bv === undefined) return -1 * direction;
+
+    const an = dbMaybeNumber(av);
+    const bn = dbMaybeNumber(bv);
+    if (an !== null && bn !== null) return (an - bn) * direction;
+
+    const as = dbCellText(av);
+    const bs = dbCellText(bv);
+    return as.localeCompare(bs, undefined, { numeric: true, sensitivity: 'base' }) * direction;
+  });
+  return rows;
+}
+
+function dbRenderGrid() {
+  if (!dbGridSource || !Array.isArray(dbGridSource.columns) || !dbGridSource.columns.length) {
+    dbSetGridMessage('No tabular data loaded yet.');
+    return;
+  }
+  const columns = dbGridSource.columns;
+  const visibleRows = dbFilteredSortedRows();
+  const meta = document.getElementById('db-grid-meta');
+  if (meta) {
+    const loaded = dbGridSource.rows.length;
+    const total = dbGridSource.totalRows ?? loaded;
+    const offset = dbGridSource.offset ?? 0;
+    const limit = dbGridSource.limit ?? loaded;
+    const scope = dbGridSource.title || 'Current view';
+    meta.textContent = `${scope}: ${visibleRows.length} matching rows (loaded ${loaded}, table total ${total}, offset ${offset}, limit ${limit}).`;
+  }
+
+  const table = document.getElementById('db-grid-table');
+  const header = columns
+    .map((col, idx) => {
+      const active = dbGridState.sortColumn === col;
+      const arrow = active ? (dbGridState.sortDirection === 'asc' ? ' ▲' : ' ▼') : '';
+      return `<th><button class="db-sort-btn" type="button" data-col-idx="${idx}">${dbEscapeHtml(col)}${arrow}</button></th>`;
+    })
+    .join('');
+  const filters = columns
+    .map((col, idx) => {
+      const value = dbGridState.columnFilters[col] || '';
+      return `<th><input class="db-filter-input" data-col-idx="${idx}" value="${dbEscapeHtml(value)}" placeholder="Filter" /></th>`;
+    })
+    .join('');
+  const body = visibleRows.length
+    ? visibleRows
+        .map((row) => {
+          const cells = columns.map((col) => `<td class="db-cell">${dbEscapeHtml(dbCellText(row[col]))}</td>`).join('');
+          return `<tr>${cells}</tr>`;
+        })
+        .join('')
+    : `<tr><td class="small" colspan="${columns.length}">No rows match current filters.</td></tr>`;
+
+  table.innerHTML = `<thead><tr>${header}</tr><tr class="db-filter-row">${filters}</tr></thead><tbody>${body}</tbody>`;
+
+  table.querySelectorAll('.db-sort-btn').forEach((button) => {
+    button.addEventListener('click', () => {
+      const idx = Number(button.getAttribute('data-col-idx'));
+      const col = columns[idx];
+      if (!col) return;
+      if (dbGridState.sortColumn === col) {
+        dbGridState.sortDirection = dbGridState.sortDirection === 'asc' ? 'desc' : 'asc';
+      } else {
+        dbGridState.sortColumn = col;
+        dbGridState.sortDirection = 'asc';
+      }
+      dbRenderGrid();
+    });
+  });
+  table.querySelectorAll('.db-filter-input').forEach((input) => {
+    input.addEventListener('input', () => {
+      const idx = Number(input.getAttribute('data-col-idx'));
+      const col = columns[idx];
+      if (!col) return;
+      dbGridState.columnFilters[col] = input.value || '';
+      dbRenderGrid();
+    });
+  });
+}
+
+function dbSetViewMode(mode) {
+  const allowed = new Set(['json', 'spreadsheet']);
+  const selected = allowed.has(mode) ? mode : 'spreadsheet';
+  const modeSelect = document.getElementById('db-view-mode');
+  if (modeSelect && modeSelect.value !== selected) modeSelect.value = selected;
+  localStorage.setItem('stemmaDbViewMode', selected);
+
+  const pre = document.getElementById('out-db');
+  const grid = document.getElementById('db-grid-view');
+  const search = document.getElementById('db-search');
+  const clear = document.getElementById('db-clear-filters');
+  if (selected === 'spreadsheet') {
+    if (grid) grid.classList.add('open');
+    if (pre) pre.style.display = 'none';
+    if (search) search.disabled = false;
+    if (clear) clear.disabled = false;
+    dbRenderGrid();
+  } else {
+    if (grid) grid.classList.remove('open');
+    if (pre) pre.style.display = '';
+    if (search) search.disabled = true;
+    if (clear) clear.disabled = true;
+    if (dbLastPayload) renderDbResult(dbLastPayload);
+  }
+}
+
+function initDbExplorer() {
+  const search = document.getElementById('db-search');
+  if (search) {
+    search.addEventListener('input', () => {
+      dbGridState.globalSearch = search.value || '';
+      if (dbOutputMode() === 'spreadsheet') dbRenderGrid();
+    });
+  }
+
+  const savedMode = localStorage.getItem('stemmaDbViewMode');
+  const modeSelect = document.getElementById('db-view-mode');
+  if (modeSelect && (savedMode === 'json' || savedMode === 'spreadsheet')) {
+    modeSelect.value = savedMode;
+  }
+  dbSetViewMode(modeSelect ? modeSelect.value : 'spreadsheet');
+}
+
+function dbClearFilters() {
+  dbResetGridState();
+  if (dbOutputMode() === 'spreadsheet') dbRenderGrid();
+}
+
+function refreshDbSelect() {
+  const select = document.getElementById('db-table-select');
+  const current = select.value;
+  select.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select table';
+  select.appendChild(placeholder);
+  dbTables.forEach((t) => {
+    const opt = document.createElement('option');
+    opt.value = t.name;
+    opt.textContent = `${t.name} (${t.row_count} rows)`;
+    select.appendChild(opt);
+  });
+  if (current && dbTables.some((t) => t.name === current)) {
+    select.value = current;
+  }
+}
+
+async function dbListTables() {
+  const data = await callApi('GET', '/api/db/tables', null, null);
+  if (data && data.detail === 'Not Found') {
+    const payload = {
+      ok: false,
+      error: 'Database Explorer API endpoint was not found on this server instance.',
+      hint: 'Restart the web server from the current workspace so /api/db/tables is registered.',
+      attempted_urls: data.attempted_urls || [],
+    };
+    renderDbResult(payload);
+    dbSetGridMessage(payload.error);
+    return;
+  }
+
+  dbTables = Array.isArray(data.tables) ? data.tables : [];
+  refreshDbSelect();
+
+  renderDbResult(data);
+  dbSetGridSource({
+    title: 'Table list',
+    table: null,
+    columns: ['name', 'row_count', 'column_count'],
+    rows: dbTables.map((t) => ({
+      name: t.name,
+      row_count: t.row_count,
+      column_count: Array.isArray(t.columns) ? t.columns.length : 0,
+    })),
+    totalRows: dbTables.length,
+    offset: 0,
+    limit: dbTables.length,
+  });
+}
+
+async function dbViewTable() {
+  const name = currentDbTable();
+  if (!name) {
+    const payload = { error: 'Select a table first.' };
+    renderDbResult(payload);
+    dbSetGridMessage(payload.error);
+    return;
+  }
+  const limit = Number(document.getElementById('db-limit').value || '50');
+  const offset = Number(document.getElementById('db-offset').value || '0');
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 50;
+  const safeOffset = Number.isFinite(offset) && offset >= 0 ? Math.floor(offset) : 0;
+  const data = await callApi(
+    'GET',
+    `/api/db/table?name=${encodeURIComponent(name)}&limit=${safeLimit}&offset=${safeOffset}`,
+    null,
+    null
+  );
+  renderDbResult(data);
+  if (!data || data.ok !== true || !Array.isArray(data.rows)) {
+    dbSetGridMessage(data?.detail || data?.error || 'Unable to load table rows.');
+    return;
+  }
+  dbSetGridSource({
+    title: `Table: ${name}`,
+    table: name,
+    columns: Array.isArray(data.columns) ? data.columns : [],
+    rows: data.rows,
+    totalRows: Number.isFinite(data.total_rows) ? data.total_rows : data.rows.length,
+    offset: safeOffset,
+    limit: safeLimit,
+  });
+}
+
+function dbDescribeTable() {
+  const name = currentDbTable();
+  if (!name) {
+    const payload = { error: 'Select a table first.' };
+    renderDbResult(payload);
+    dbSetGridMessage(payload.error);
+    return;
+  }
+  const match = dbTables.find((t) => t.name === name);
+  if (!match) {
+    const payload = { error: 'Table metadata not loaded. Click "List Tables" first.' };
+    renderDbResult(payload);
+    dbSetGridMessage(payload.error);
+    return;
+  }
+  const payload = {
+    ok: true,
+    table: name,
+    row_count: match.row_count,
+    columns: match.columns,
+    create_sql: match.create_sql,
+  };
+  renderDbResult(payload);
+  dbSetGridSource({
+    title: `Schema: ${name}`,
+    table: name,
+    columns: ['name', 'type', 'notnull', 'pk'],
+    rows: Array.isArray(match.columns)
+      ? match.columns.map((c) => ({
+          name: c.name,
+          type: c.type,
+          notnull: c.notnull,
+          pk: c.pk,
+        }))
+      : [],
+    totalRows: Array.isArray(match.columns) ? match.columns.length : 0,
+    offset: 0,
+    limit: Array.isArray(match.columns) ? match.columns.length : 0,
+  });
 }
 
 async function ingestPath() {
@@ -323,6 +1677,253 @@ async function extractTables() {
   const digest = encodeURIComponent(document.getElementById('extract-tables-digest').value || '');
   const qs = id ? `resource_id=${id}` : `resource_digest=${digest}`;
   await callApi('GET', `/api/extract/tables?${qs}`, null, 'out-extract');
+}
+
+function extractionInspectorError(message) {
+  document.getElementById('out-extract-inspector').textContent = JSON.stringify({ error: message }, null, 2);
+  extractionInspectorSetCardsHtml('<p class="small err">' + dbEscapeHtml(message) + '</p>');
+}
+
+let extractionInspectorCopyPayloads = [];
+
+function extractionInspectorSetCardsHtml(html) {
+  const container = document.getElementById('extract-inspector-list');
+  if (!container) return;
+  container.innerHTML = html;
+  container.querySelectorAll('[data-copy-idx]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const idx = Number(button.getAttribute('data-copy-idx'));
+      await extractionInspectorCopyPayloadByIndex(idx);
+    });
+  });
+}
+
+function extractionInspectorSetCopyStatus(message, isError=false) {
+  const el = document.getElementById('extract-inspector-copy-status');
+  if (!el) return;
+  el.textContent = message || '';
+  if (isError) {
+    el.classList.add('err');
+  } else {
+    el.classList.remove('err');
+  }
+}
+
+async function extractionInspectorCopyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', 'readonly');
+  area.style.position = 'absolute';
+  area.style.left = '-9999px';
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand('copy');
+  document.body.removeChild(area);
+}
+
+async function extractionInspectorCopyPayloadByIndex(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= extractionInspectorCopyPayloads.length) {
+    extractionInspectorSetCopyStatus('Unable to copy selector JSON: payload missing.', true);
+    return;
+  }
+  const payload = extractionInspectorCopyPayloads[index];
+  try {
+    await extractionInspectorCopyText(JSON.stringify(payload, null, 2));
+    extractionInspectorSetCopyStatus('Copied selector JSON to clipboard.');
+  } catch (e) {
+    extractionInspectorSetCopyStatus('Failed to copy selector JSON: ' + String(e), true);
+  }
+}
+
+function extractionInspectorResetCards(message='No inspector items loaded yet.') {
+  extractionInspectorCopyPayloads = [];
+  extractionInspectorSetCardsHtml('<p class="small">' + dbEscapeHtml(message) + '</p>');
+  extractionInspectorSetCopyStatus('');
+}
+
+function extractionInspectorSegmentSelector(segment) {
+  return {
+    type: 'TextPositionSelector',
+    start: Number(segment.start_offset),
+    end: Number(segment.end_offset),
+    segment_type: segment.segment_type || null,
+    extraction_run_id: segment.extraction_run_id || null,
+  };
+}
+
+function extractionInspectorAnnotationSelector(annotation) {
+  const spans = Array.isArray(annotation.spans)
+    ? annotation.spans.map((s) => ({
+        start: Number(s.start),
+        end: Number(s.end),
+      }))
+    : [];
+  const selector = {
+    type: 'TextAnnotationSelector',
+    annotation_id: annotation.id,
+    layer: annotation.layer || null,
+    category: annotation.category || null,
+    label: annotation.label || null,
+    spans,
+  };
+  if (spans.length === 1) {
+    selector.start = spans[0].start;
+    selector.end = spans[0].end;
+  }
+  return selector;
+}
+
+function extractionInspectorRenderSegments(data) {
+  const segments = Array.isArray(data?.segments) ? data.segments : [];
+  if (!segments.length) {
+    extractionInspectorResetCards('No segments matched the current inspector query.');
+    return;
+  }
+  extractionInspectorCopyPayloads = segments.map((segment) => extractionInspectorSegmentSelector(segment));
+  const html = segments
+    .map((segment, idx) => {
+      const start = Number(segment.start_offset);
+      const end = Number(segment.end_offset);
+      const length = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : '';
+      return `
+        <article class="inspector-card">
+          <h4>${dbEscapeHtml(segment.segment_type || 'segment')} (#${idx + 1})</h4>
+          <p class="inspector-meta">start=${dbEscapeHtml(String(segment.start_offset))}, end=${dbEscapeHtml(String(segment.end_offset))}, len=${dbEscapeHtml(String(length))}, page=${dbEscapeHtml(String(segment.page_index ?? 'n/a'))}</p>
+          <div class="inspector-copy-row">
+            <button class="secondary" type="button" data-copy-idx="${idx}">Copy Selector JSON</button>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
+  extractionInspectorSetCardsHtml(html);
+  extractionInspectorSetCopyStatus('Ready: click "Copy Selector JSON" on any segment.');
+}
+
+function extractionInspectorRenderAnnotations(data) {
+  const annotations = Array.isArray(data?.annotations) ? data.annotations : [];
+  if (!annotations.length) {
+    extractionInspectorResetCards('No annotations matched the current inspector query.');
+    return;
+  }
+  extractionInspectorCopyPayloads = annotations.map((annotation) =>
+    extractionInspectorAnnotationSelector(annotation)
+  );
+  const html = annotations
+    .map((annotation, idx) => {
+      const spans = Array.isArray(annotation.spans) ? annotation.spans.length : 0;
+      return `
+        <article class="inspector-card">
+          <h4>${dbEscapeHtml(annotation.layer || 'annotation')} / ${dbEscapeHtml(annotation.category || 'uncategorized')} (#${idx + 1})</h4>
+          <p class="inspector-meta">label=${dbEscapeHtml(String(annotation.label || ''))}, spans=${dbEscapeHtml(String(spans))}, source=${dbEscapeHtml(String(annotation.source || 'n/a'))}</p>
+          <div class="inspector-copy-row">
+            <button class="secondary" type="button" data-copy-idx="${idx}">Copy Selector JSON</button>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
+  extractionInspectorSetCardsHtml(html);
+  extractionInspectorSetCopyStatus('Ready: click "Copy Selector JSON" on any annotation.');
+}
+
+function extractionInspectorTargetQuery() {
+  const id = (document.getElementById('inspect-resource-id').value || '').trim();
+  const digest = (document.getElementById('inspect-resource-digest').value || '').trim();
+  const runId = (document.getElementById('inspect-run-id').value || '').trim();
+
+  if (!id && !digest) {
+    extractionInspectorError('Provide inspector resource ID or digest.');
+    return null;
+  }
+
+  let qs = id
+    ? `resource_id=${encodeURIComponent(id)}`
+    : `resource_digest=${encodeURIComponent(digest)}`;
+  if (runId) qs += `&extraction_run_id=${encodeURIComponent(runId)}`;
+  return qs;
+}
+
+function extractionInspectorLimit(defaultValue='200') {
+  const raw = (document.getElementById('inspect-limit').value || defaultValue).trim();
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
+  return String(Math.floor(parsed));
+}
+
+async function extractInspectorText() {
+  const qs = extractionInspectorTargetQuery();
+  if (!qs) return;
+  const data = await callApi('GET', `/api/extract/text?${qs}`, null, 'out-extract-inspector');
+  if (!data || data.ok !== true || !data.document_text) {
+    extractionInspectorResetCards('No extracted text found for this resource/run.');
+    return;
+  }
+  const meta = data.document_text;
+  extractionInspectorResetCards(
+    `Loaded text: ${meta.char_count || 0} chars (digest ${meta.text_digest_sha256 || 'n/a'}).`
+  );
+}
+
+async function extractInspectorSegments() {
+  const qs = extractionInspectorTargetQuery();
+  if (!qs) return;
+  const segmentType = (document.getElementById('inspect-segment-type').value || '').trim();
+  const limit = extractionInspectorLimit('200');
+  let url = `/api/extract/segments?${qs}&limit=${encodeURIComponent(limit)}`;
+  if (segmentType) url += `&segment_type=${encodeURIComponent(segmentType)}`;
+  const data = await callApi('GET', url, null, 'out-extract-inspector');
+  if (!data || data.ok !== true) {
+    extractionInspectorError(data?.detail || 'Failed to load segments.');
+    return;
+  }
+  extractionInspectorRenderSegments(data);
+}
+
+async function extractInspectorAnnotations() {
+  const qs = extractionInspectorTargetQuery();
+  if (!qs) return;
+  const layer = (document.getElementById('inspect-layer').value || '').trim();
+  const category = (document.getElementById('inspect-category').value || '').trim();
+  const limit = extractionInspectorLimit('200');
+  let url = `/api/extract/annotations?${qs}&limit=${encodeURIComponent(limit)}`;
+  if (layer) url += `&layer=${encodeURIComponent(layer)}`;
+  if (category) url += `&category=${encodeURIComponent(category)}`;
+  const data = await callApi('GET', url, null, 'out-extract-inspector');
+  if (!data || data.ok !== true) {
+    extractionInspectorError(data?.detail || 'Failed to load annotations.');
+    return;
+  }
+  extractionInspectorRenderAnnotations(data);
+}
+
+function extractionInspectorDumpLimit(id, fallback) {
+  const raw = (document.getElementById(id).value || String(fallback)).trim();
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return String(fallback);
+  return String(Math.floor(parsed));
+}
+
+async function extractInspectorDump() {
+  const qs = extractionInspectorTargetQuery();
+  if (!qs) return;
+  const segmentLimit = extractionInspectorDumpLimit('inspect-segment-limit', 2000);
+  const annotationLimit = extractionInspectorDumpLimit('inspect-annotation-limit', 2000);
+  const tableLimit = extractionInspectorDumpLimit('inspect-table-limit', 500);
+  const url = `/api/extract/dump?${qs}&segment_limit=${encodeURIComponent(segmentLimit)}&annotation_limit=${encodeURIComponent(annotationLimit)}&table_limit=${encodeURIComponent(tableLimit)}`;
+  const data = await callApi('GET', url, null, 'out-extract-inspector');
+  if (!data || data.ok !== true || !data.dump) {
+    extractionInspectorError(data?.detail || 'Failed to load extraction dump.');
+    return;
+  }
+  const dump = data.dump;
+  extractionInspectorResetCards(
+    `Dump loaded: tables=${(dump.tables || []).length}, segments=${(dump.segments || []).length}, annotations=${(dump.annotations || []).length}.`
+  );
 }
 
 async function importClaims() {
@@ -462,6 +2063,16 @@ dz.addEventListener('drop', async (e) => {
   fd.append('file', file);
   await callApi('POST', '/api/ingest/upload', fd, 'out-ingest', true);
 });
+
+document.getElementById('help-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'help-modal') closeHelp();
+});
+initTheme();
+initWorkspaceNav();
+installHelpButtons();
+initDbExplorer();
+initResizableOutputs();
+dbListTables();
 </script>
 </body>
 </html>

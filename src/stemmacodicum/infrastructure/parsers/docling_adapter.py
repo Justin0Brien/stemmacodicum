@@ -4,9 +4,10 @@ import json
 import logging
 import os
 import platform
+import re
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -88,11 +89,23 @@ class ParsedTable:
 
 
 @dataclass(slots=True)
+class ParsedBlock:
+    block_type: str
+    start_offset: int
+    end_offset: int
+    page_index: int | None = None
+    bbox: dict[str, float] | None = None
+    attrs: dict[str, object] | None = None
+
+
+@dataclass(slots=True)
 class ParseResult:
     parser_name: str
     parser_version: str
     config_digest: str
     tables: list[ParsedTable]
+    full_text: str = ""
+    blocks: list[ParsedBlock] = field(default_factory=list)
     elapsed_seconds: float | None = None
     page_count: int | None = None
     timings: dict[str, float] | None = None
@@ -239,11 +252,17 @@ class DoclingAdapter:
             "runtime": runtime.to_config(),
             "threaded_supported": threaded_supported,
         }
+        full_text = self._extract_docling_text(result)
+        if not full_text.strip():
+            full_text = self._build_fallback_text_from_tables(tables)
+        blocks = self._default_blocks_for_text(full_text)
         return ParseResult(
             parser_name="docling",
             parser_version=parser_version,
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
+            full_text=full_text,
+            blocks=blocks,
             elapsed_seconds=elapsed_seconds,
             page_count=page_count,
             timings=timing_totals,
@@ -264,15 +283,98 @@ class DoclingAdapter:
             i += 1
 
         config = {"profile": self.profile, "mode": "text_table", "media_type": media_type}
+        blocks = self._default_blocks_for_text(text)
         return ParseResult(
             parser_name="text-table-parser",
             parser_version="0.1",
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
+            full_text=text,
+            blocks=blocks,
             elapsed_seconds=None,
             page_count=1,
             timings=None,
         )
+
+    @staticmethod
+    def _extract_docling_text(result: Any) -> str:
+        document = getattr(result, "document", None)
+        if document is None:
+            return ""
+
+        candidates = [
+            "export_to_markdown",
+            "export_to_text",
+            "to_markdown",
+            "to_text",
+            "export_to_html",
+        ]
+        for name in candidates:
+            fn = getattr(document, name, None)
+            if not callable(fn):
+                continue
+            try:
+                value = fn()
+            except TypeError:
+                continue
+            except Exception:
+                continue
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            if value is not None:
+                return str(value)
+
+        direct_text = getattr(document, "text", None)
+        if direct_text is not None:
+            return str(direct_text)
+        return ""
+
+    @staticmethod
+    def _build_fallback_text_from_tables(tables: list[ParsedTable]) -> str:
+        parts: list[str] = []
+        for idx, table in enumerate(tables, start=1):
+            parts.append(f"Table {idx}")
+            if table.caption:
+                parts.append(table.caption)
+            if table.col_headers:
+                parts.append(" | ".join(table.col_headers))
+            by_row: dict[int, list[str]] = {}
+            for cell in table.cells:
+                by_row.setdefault(cell.row_index, []).append(cell.value)
+            for row_idx in sorted(by_row.keys()):
+                parts.append(" | ".join(by_row[row_idx]))
+            parts.append("")
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _default_blocks_for_text(text: str) -> list[ParsedBlock]:
+        if not text:
+            return []
+        blocks: list[ParsedBlock] = [
+            ParsedBlock(
+                block_type="document",
+                start_offset=0,
+                end_offset=len(text),
+                page_index=None,
+                attrs={"role": "root"},
+            )
+        ]
+        pattern = re.compile(r"\S(?:.*?\S)?(?:(?=\n\s*\n)|\Z)", re.DOTALL)
+        for idx, match in enumerate(pattern.finditer(text)):
+            start = int(match.start())
+            end = int(match.end())
+            if end <= start:
+                continue
+            blocks.append(
+                ParsedBlock(
+                    block_type="paragraph",
+                    start_offset=start,
+                    end_offset=end,
+                    page_index=None,
+                    attrs={"order_index": idx},
+                )
+            )
+        return blocks
 
     @staticmethod
     def _looks_like_table_header(lines: list[str], idx: int) -> bool:

@@ -165,3 +165,52 @@ def test_verify_quantitative_claim_fails_on_value_mismatch(tmp_path: Path) -> No
     outcome = verify_service.verify_claim(claim.id)
     assert outcome.status == "fail"
     assert outcome.diagnostics.get("reason") == "value_mismatch"
+
+
+def test_verify_narrative_claim_uses_extracted_source_text(tmp_path: Path) -> None:
+    claim_repo, resource_repo, extraction_repo, bind_service, verify_service, archive_dir = _bootstrap(tmp_path)
+
+    claims = tmp_path / "claims.json"
+    claims.write_text(
+        json.dumps(
+            {
+                "claims": [
+                    {
+                        "claim_type": "narrative",
+                        "narrative_text": "This claim text intentionally does not contain the quote.",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    claim_service = ClaimService(claim_repo)
+    claim_service.import_claims(claims, "json", "verify-narrative")
+    claim = claim_service.list_claims("verify-narrative")[0]
+
+    source = tmp_path / "narrative.md"
+    source.write_text(
+        "Management states that liquidity improved significantly during the period.",
+        encoding="utf-8",
+    )
+
+    ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    resource = ingest.ingest_file(source).resource
+
+    extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
+    extraction.extract_resource(resource.id)
+
+    bind_service.bind_evidence(
+        claim_id=claim.id,
+        resource_id=resource.id,
+        role="quote",
+        selectors=[
+            {"type": "PageGeometrySelector", "pageIndex": 0, "boxes": []},
+            {"type": "TextQuoteSelector", "exact": "liquidity improved significantly"},
+        ],
+    )
+
+    outcome = verify_service.verify_claim(claim.id)
+    assert outcome.status == "pass"
+    assert outcome.diagnostics.get("reason") == "narrative_quote_match_source"

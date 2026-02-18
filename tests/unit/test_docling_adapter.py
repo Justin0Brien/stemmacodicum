@@ -25,6 +25,8 @@ Table 1: Spend by category
 
     assert result.parser_name == "text-table-parser"
     assert len(result.tables) == 1
+    assert "Cash at bank" in result.full_text
+    assert any(block.block_type == "document" for block in result.blocks)
 
     table = result.tables[0]
     assert table.caption == "Table 1: Spend by category"

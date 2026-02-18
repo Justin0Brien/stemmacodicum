@@ -88,6 +88,80 @@ CREATE TABLE IF NOT EXISTS extracted_tables (
     FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS document_texts (
+    id TEXT PRIMARY KEY,
+    extraction_run_id TEXT NOT NULL UNIQUE,
+    resource_id TEXT NOT NULL,
+    text_content TEXT NOT NULL,
+    text_digest_sha256 TEXT NOT NULL,
+    char_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS text_segments (
+    id TEXT PRIMARY KEY,
+    document_text_id TEXT NOT NULL,
+    extraction_run_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    segment_type TEXT NOT NULL,
+    start_offset INTEGER NOT NULL,
+    end_offset INTEGER NOT NULL,
+    page_index INTEGER,
+    order_index INTEGER,
+    bbox_json TEXT,
+    attrs_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (document_text_id) REFERENCES document_texts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS text_annotations (
+    id TEXT PRIMARY KEY,
+    document_text_id TEXT NOT NULL,
+    extraction_run_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    layer TEXT NOT NULL,
+    category TEXT NOT NULL,
+    label TEXT,
+    confidence REAL,
+    source TEXT,
+    attrs_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (document_text_id) REFERENCES document_texts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS text_annotation_spans (
+    id TEXT PRIMARY KEY,
+    annotation_id TEXT NOT NULL,
+    start_offset INTEGER NOT NULL,
+    end_offset INTEGER NOT NULL,
+    span_order INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (annotation_id) REFERENCES text_annotations(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS text_annotation_relations (
+    id TEXT PRIMARY KEY,
+    document_text_id TEXT NOT NULL,
+    extraction_run_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    from_annotation_id TEXT NOT NULL,
+    to_annotation_id TEXT NOT NULL,
+    attrs_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (document_text_id) REFERENCES document_texts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT,
+    FOREIGN KEY (from_annotation_id) REFERENCES text_annotations(id) ON DELETE RESTRICT,
+    FOREIGN KEY (to_annotation_id) REFERENCES text_annotations(id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS claim_sets (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -204,6 +278,21 @@ ON extraction_runs(resource_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_extracted_tables_resource_table
 ON extracted_tables(resource_id, table_id);
 
+CREATE INDEX IF NOT EXISTS idx_document_texts_resource_created
+ON document_texts(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_text_segments_resource_type
+ON text_segments(resource_id, segment_type, start_offset);
+
+CREATE INDEX IF NOT EXISTS idx_text_annotations_resource_layer
+ON text_annotations(resource_id, layer, category);
+
+CREATE INDEX IF NOT EXISTS idx_text_annotation_spans_annotation
+ON text_annotation_spans(annotation_id, span_order);
+
+CREATE INDEX IF NOT EXISTS idx_text_annotation_relations_resource_type
+ON text_annotation_relations(resource_id, relation_type);
+
 CREATE TRIGGER IF NOT EXISTS block_delete_resources
 BEFORE DELETE ON resources
 BEGIN
@@ -238,6 +327,36 @@ CREATE TRIGGER IF NOT EXISTS block_delete_extracted_tables
 BEFORE DELETE ON extracted_tables
 BEGIN
     SELECT RAISE(ABORT, 'DELETE disabled for extracted_tables');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_document_texts
+BEFORE DELETE ON document_texts
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for document_texts');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_text_segments
+BEFORE DELETE ON text_segments
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for text_segments');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_text_annotations
+BEFORE DELETE ON text_annotations
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for text_annotations');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_text_annotation_spans
+BEFORE DELETE ON text_annotation_spans
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for text_annotation_spans');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_text_annotation_relations
+BEFORE DELETE ON text_annotation_relations
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for text_annotation_relations');
 END;
 
 CREATE TRIGGER IF NOT EXISTS block_delete_claim_sets

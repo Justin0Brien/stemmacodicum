@@ -322,6 +322,15 @@ This separation is the key architectural insight of CEAPF: a source document can
 
 The SQLite database at `.stemma/stemma.db` contains the following tables. All foreign keys are `ON DELETE RESTRICT` — records cannot be deleted if referenced by other records.
 
+**Concurrency model (multi-process safe):**
+- Connections use SQLite WAL mode (`PRAGMA journal_mode=WAL`) so readers (CLI/web) can continue while a writer is active.
+- Connections set a busy timeout to wait on transient write locks instead of failing immediately.
+- Foreign keys remain enforced on every connection.
+
+Environment variables for tuning lock behavior:
+- `STEMMA_SQLITE_CONNECT_TIMEOUT_SECONDS` (default: `30`)
+- `STEMMA_SQLITE_BUSY_TIMEOUT_MS` (default: `30000`)
+
 | Table | Purpose |
 |---|---|
 | `resources` | One row per ingested file |
@@ -706,13 +715,16 @@ Runs integrity and consistency checks across the entire database and archive.
 stemma doctor
 ```
 
-Three checks are run:
+Four checks are run:
 
 | Check | Level | Condition |
 |---|---|---|
+| `db_runtime` | error/warning | SQLite runtime pragmas are unsuitable for concurrency (for example, non-WAL mode, disabled `busy_timeout`, disabled `foreign_keys`) |
 | `archive_integrity` | error | An archived file is missing from disk, or its on-disk SHA-256 no longer matches the recorded digest |
 | `selector_json` | error | An evidence selector's JSON payload cannot be parsed |
 | `quantitative_bindings` | warning | A quantitative claim has zero evidence bindings |
+
+Doctor also prints a `Database Runtime` table showing current SQLite values (journal mode, busy timeout, foreign key enforcement, etc.).
 
 Returns exit code `0` if no errors (warnings are allowed), `1` otherwise.
 
@@ -849,6 +861,10 @@ stemma web [--host 127.0.0.1] [--port 8765] [--reload]
 
 Once running, open `http://127.0.0.1:8765` in a browser for the HTML UI.
 
+The web UI now includes:
+- A per-card `?` help icon (top-right) opening one popup with `Basic` guidance first and `Comprehensive` guidance below.
+- A `Database Explorer` card for listing tables, viewing schema, and previewing table rows.
+
 ---
 
 ## 7. REST API Reference
@@ -862,6 +878,8 @@ The web server exposes a complete REST API. All JSON responses include an `"ok":
 | `POST` | `/api/init` | Initialise project (idempotent) |
 | `GET` | `/api/doctor` | Run integrity checks |
 
+`/api/doctor` returns `db_runtime` in addition to `checks_run` and `issues`.
+
 ### Resources
 
 | Method | Path | Description |
@@ -869,6 +887,13 @@ The web server exposes a complete REST API. All JSON responses include an `"ok":
 | `GET` | `/api/resources?limit=<n>` | List resources |
 | `POST` | `/api/ingest/path` | Ingest file by server-side path |
 | `POST` | `/api/ingest/upload` | Upload and ingest a file (multipart form) |
+
+### Database Inspection
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/db/tables?limit=<n>` | List user tables with row counts, columns, and create SQL |
+| `GET` | `/api/db/table?name=<table>&limit=<n>&offset=<n>` | Return selected table schema + row slice |
 
 **`POST /api/ingest/path` body:**
 ```json

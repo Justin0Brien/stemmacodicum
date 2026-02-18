@@ -35,6 +35,13 @@ def run_doctor(args: argparse.Namespace, ctx: CLIContext) -> int:
     )
     ctx.console.print(summary)
 
+    runtime = Table(title="Database Runtime")
+    runtime.add_column("Setting")
+    runtime.add_column("Value", overflow="fold")
+    for key, value in report.db_runtime.items():
+        runtime.add_row(str(key), str(value))
+    ctx.console.print(runtime)
+
     if report.issues:
         out = Table(title="Doctor Issues")
         out.add_column("Level")

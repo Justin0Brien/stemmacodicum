@@ -31,6 +31,7 @@ from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.reference_repo import ReferenceRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.db.repos.verification_repo import VerificationRepo
+from stemmacodicum.infrastructure.db.sqlite import get_connection
 
 
 class IngestPathRequest(BaseModel):
@@ -110,6 +111,10 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(k): _jsonable(v) for k, v in value.items()}
     return value
+
+
+def _quote_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
 
 
 def create_app(paths: AppPaths) -> FastAPI:
@@ -233,6 +238,103 @@ def create_app(paths: AppPaths) -> FastAPI:
         resources = [_jsonable(r) for r in get_resource_repo().list(limit=limit)]
         return {"ok": True, "count": len(resources), "resources": resources}
 
+    def _db_tables_payload(limit: int) -> dict[str, Any]:
+        with get_connection(paths.db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT name, sql
+                FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                ORDER BY name ASC
+                """
+            ).fetchall()
+
+            out: list[dict[str, Any]] = []
+            for row in rows[:limit]:
+                table_name = str(row["name"])
+                quoted = _quote_identifier(table_name)
+                row_count = conn.execute(f"SELECT COUNT(*) AS c FROM {quoted}").fetchone()["c"]
+                col_rows = conn.execute(f"PRAGMA table_info({quoted})").fetchall()
+                columns = [
+                    {
+                        "name": c["name"],
+                        "type": c["type"],
+                        "notnull": bool(c["notnull"]),
+                        "pk": bool(c["pk"]),
+                    }
+                    for c in col_rows
+                ]
+                out.append(
+                    {
+                        "name": table_name,
+                        "row_count": int(row_count),
+                        "columns": columns,
+                        "create_sql": row["sql"],
+                    }
+                )
+
+        return {"ok": True, "count": len(out), "tables": out}
+
+    def _db_table_payload(name: str, limit: int, offset: int) -> dict[str, Any]:
+        with get_connection(paths.db_path) as conn:
+            table_rows = conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                ORDER BY name ASC
+                """
+            ).fetchall()
+            allowed = {str(r["name"]) for r in table_rows}
+
+            if name not in allowed:
+                raise HTTPException(status_code=404, detail=f"Table not found: {name}")
+
+            quoted = _quote_identifier(name)
+            total_rows = conn.execute(f"SELECT COUNT(*) AS c FROM {quoted}").fetchone()["c"]
+            col_rows = conn.execute(f"PRAGMA table_info({quoted})").fetchall()
+            columns = [c["name"] for c in col_rows]
+
+            data_rows = conn.execute(
+                f"SELECT * FROM {quoted} LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+            rows = [{k: row[k] for k in row.keys()} for row in data_rows]
+
+            schema = conn.execute(
+                """
+                SELECT sql
+                FROM sqlite_master
+                WHERE type = 'table' AND name = ?
+                """,
+                (name,),
+            ).fetchone()
+
+        return {
+            "ok": True,
+            "table": name,
+            "limit": limit,
+            "offset": offset,
+            "total_rows": int(total_rows),
+            "columns": columns,
+            "rows": rows,
+            "create_sql": schema["sql"] if schema else None,
+        }
+
+    @app.get("/api/db/tables")
+    @app.get("/api/db/tables/")
+    def api_db_tables(limit: int = Query(default=500, ge=1, le=2000)) -> dict[str, Any]:
+        return _db_tables_payload(limit=limit)
+
+    @app.get("/api/db/table")
+    @app.get("/api/db/table/")
+    def api_db_table(
+        name: str = Query(..., min_length=1),
+        limit: int = Query(default=50, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return _db_table_payload(name=name, limit=limit, offset=offset)
+
     @app.post("/api/refs/import-bib")
     def api_refs_import_bib(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         path = payload.get("bib_path")
@@ -280,6 +382,16 @@ def create_app(paths: AppPaths) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "summary": _jsonable(summary)}
 
+    def _resolve_extract_resource_id(resource_id: str | None, resource_digest: str | None) -> str:
+        if resource_id:
+            return resource_id
+        if resource_digest:
+            resource = get_resource_repo().get_by_digest(resource_digest)
+            if resource is None:
+                raise ValueError(f"Resource digest not found: {resource_digest}")
+            return resource.id
+        raise ValueError("Provide resource_id or resource_digest")
+
     @app.get("/api/extract/tables")
     def api_extract_tables(
         resource_id: str | None = None,
@@ -287,19 +399,92 @@ def create_app(paths: AppPaths) -> FastAPI:
         limit: int = Query(default=100, ge=1, le=100000),
     ) -> dict[str, Any]:
         try:
-            if resource_id:
-                target_id = resource_id
-            elif resource_digest:
-                resource = get_resource_repo().get_by_digest(resource_digest)
-                if resource is None:
-                    raise ValueError(f"Resource digest not found: {resource_digest}")
-                target_id = resource.id
-            else:
-                raise ValueError("Provide resource_id or resource_digest")
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
             tables = [_jsonable(t) for t in get_extraction_service().list_tables(target_id, limit=limit)]
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "count": len(tables), "tables": tables}
+
+    @app.get("/api/extract/text")
+    def api_extract_text(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        extraction_run_id: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            doc_text = get_extraction_service().get_document_text(
+                resource_id=target_id,
+                extraction_run_id=extraction_run_id,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "document_text": _jsonable(doc_text) if doc_text else None}
+
+    @app.get("/api/extract/segments")
+    def api_extract_segments(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        extraction_run_id: str | None = None,
+        segment_type: str | None = None,
+        limit: int = Query(default=1000, ge=1, le=200000),
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            segments = get_extraction_service().list_segments(
+                resource_id=target_id,
+                extraction_run_id=extraction_run_id,
+                segment_type=segment_type,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        payload = [_jsonable(s) for s in segments]
+        return {"ok": True, "count": len(payload), "segments": payload}
+
+    @app.get("/api/extract/annotations")
+    def api_extract_annotations(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        extraction_run_id: str | None = None,
+        layer: str | None = None,
+        category: str | None = None,
+        limit: int = Query(default=1000, ge=1, le=200000),
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            annotations = get_extraction_service().list_annotations(
+                resource_id=target_id,
+                extraction_run_id=extraction_run_id,
+                layer=layer,
+                category=category,
+                limit=limit,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "count": len(annotations), "annotations": annotations}
+
+    @app.get("/api/extract/dump")
+    def api_extract_dump(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        extraction_run_id: str | None = None,
+        segment_limit: int = Query(default=5000, ge=1, le=500000),
+        annotation_limit: int = Query(default=5000, ge=1, le=500000),
+        table_limit: int = Query(default=1000, ge=1, le=500000),
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            payload = get_extraction_service().build_dump(
+                resource_id=target_id,
+                extraction_run_id=extraction_run_id,
+                segment_limit=segment_limit,
+                annotation_limit=annotation_limit,
+                table_limit=table_limit,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "dump": payload}
 
     @app.post("/api/claims/import")
     def api_claims_import(req: ClaimsImportRequest) -> dict[str, Any]:
@@ -437,6 +622,7 @@ def create_app(paths: AppPaths) -> FastAPI:
         return {
             "ok": report.ok,
             "checks_run": report.checks_run,
+            "db_runtime": _jsonable(report.db_runtime),
             "issues": [_jsonable(i) for i in report.issues],
         }
 

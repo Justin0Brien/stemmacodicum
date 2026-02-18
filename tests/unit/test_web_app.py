@@ -49,6 +49,22 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     r = client.post("/api/extract/run", json={"resource_id": resource_id})
     assert r.status_code == 200
 
+    r = client.get(f"/api/extract/text?resource_id={resource_id}")
+    assert r.status_code == 200
+    assert r.json()["document_text"] is not None
+
+    r = client.get(f"/api/extract/segments?resource_id={resource_id}&limit=50")
+    assert r.status_code == 200
+    assert r.json()["count"] >= 1
+
+    r = client.get(f"/api/extract/annotations?resource_id={resource_id}&limit=50")
+    assert r.status_code == 200
+    assert r.json()["count"] >= 1
+
+    r = client.get(f"/api/extract/dump?resource_id={resource_id}")
+    assert r.status_code == 200
+    assert r.json()["dump"]["document_text"] is not None
+
     # Claims import/list
     claims = tmp_path / "claims.json"
     claims.write_text(
@@ -74,6 +90,26 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
 
     # Doctor
     r = client.get("/api/doctor")
+    assert r.status_code == 200
+    payload = r.json()
+    assert "db_runtime" in payload
+    assert payload["db_runtime"]["journal_mode"] == "wal"
+
+    # Database explorer APIs
+    r = client.get("/api/db/tables")
+    assert r.status_code == 200
+    db_payload = r.json()
+    assert db_payload["count"] >= 1
+    first_table = db_payload["tables"][0]["name"]
+
+    r = client.get("/api/db/tables/")
+    assert r.status_code == 200
+
+    r = client.get(f"/api/db/table?name={first_table}&limit=10&offset=0")
+    assert r.status_code == 200
+    assert r.json()["table"] == first_table
+
+    r = client.get(f"/api/db/table/?name={first_table}&limit=10&offset=0")
     assert r.status_code == 200
 
     # Financial pipeline (controlled fixture)

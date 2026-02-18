@@ -11,7 +11,11 @@ from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.domain.models.extraction import ExtractedTable, ExtractionRun
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
-from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter, ParsedTable
+from stemmacodicum.infrastructure.parsers.docling_adapter import (
+    DoclingAdapter,
+    DoclingRuntimeOptions,
+    ParsedTable,
+)
 
 
 @dataclass(slots=True)
@@ -27,10 +31,12 @@ class ExtractionService:
         resource_repo: ResourceRepo,
         extraction_repo: ExtractionRepo,
         archive_dir: Path,
+        docling_runtime_options: DoclingRuntimeOptions | None = None,
     ) -> None:
         self.resource_repo = resource_repo
         self.extraction_repo = extraction_repo
         self.archive_dir = archive_dir
+        self.docling_runtime_options = docling_runtime_options
 
     def extract_resource(self, resource_id: str, parser_profile: str = "default") -> ExtractSummary:
         resource = self.resource_repo.get_by_id(resource_id)
@@ -41,7 +47,7 @@ class ExtractionService:
         if not archived_path.exists():
             raise ExtractionError(f"Archived resource file missing: {archived_path}")
 
-        adapter = DoclingAdapter(profile=parser_profile)
+        adapter = DoclingAdapter(profile=parser_profile, runtime_options=self.docling_runtime_options)
         try:
             parse_result = adapter.parse_resource(archived_path, resource.media_type)
         except Exception as exc:

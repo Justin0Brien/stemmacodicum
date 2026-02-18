@@ -1,10 +1,72 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import platform
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from stemmacodicum.core.hashing import compute_bytes_digest
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class DoclingRuntimeOptions:
+    """Runtime controls for docling PDF extraction."""
+
+    auto_tune: bool = True
+    use_threaded_pipeline: bool | None = None
+    device: str | None = None
+    num_threads: int | None = None
+    layout_batch_size: int | None = None
+    ocr_batch_size: int | None = None
+    table_batch_size: int | None = None
+    queue_max_size: int | None = None
+    log_settings: bool = True
+
+
+@dataclass(slots=True)
+class SystemResources:
+    cpu_cores: int
+    memory_gb: int
+    platform_name: str
+    machine: str
+
+
+@dataclass(slots=True)
+class ResolvedDoclingRuntime:
+    mode: str
+    use_threaded_pipeline: bool
+    device: str
+    num_threads: int
+    layout_batch_size: int
+    ocr_batch_size: int
+    table_batch_size: int
+    queue_max_size: int
+    cpu_cores: int
+    memory_gb: int
+    platform_name: str
+    machine: str
+
+    def to_config(self) -> dict[str, object]:
+        return {
+            "mode": self.mode,
+            "use_threaded_pipeline": self.use_threaded_pipeline,
+            "device": self.device,
+            "num_threads": self.num_threads,
+            "layout_batch_size": self.layout_batch_size,
+            "ocr_batch_size": self.ocr_batch_size,
+            "table_batch_size": self.table_batch_size,
+            "queue_max_size": self.queue_max_size,
+            "cpu_cores": self.cpu_cores,
+            "memory_gb": self.memory_gb,
+            "platform": self.platform_name,
+            "machine": self.machine,
+        }
 
 
 @dataclass(slots=True)
@@ -39,8 +101,13 @@ class DoclingAdapter:
     - PDF extraction via docling (optional, if installed).
     """
 
-    def __init__(self, profile: str = "default") -> None:
+    def __init__(
+        self,
+        profile: str = "default",
+        runtime_options: DoclingRuntimeOptions | None = None,
+    ) -> None:
         self.profile = profile
+        self.runtime_options = runtime_options or DoclingRuntimeOptions()
 
     def parse_resource(self, file_path: Path, media_type: str) -> ParseResult:
         if media_type == "application/pdf":
@@ -59,9 +126,52 @@ class DoclingAdapter:
 
     def _parse_pdf_docling(self, file_path: Path) -> ParseResult:
         # Keep import local so non-PDF users don't require docling.
-        from docling.document_converter import DocumentConverter  # type: ignore
+        from docling.datamodel.accelerator_options import AcceleratorOptions  # type: ignore
+        from docling.datamodel.base_models import InputFormat  # type: ignore
+        from docling.datamodel.pipeline_options import PdfPipelineOptions  # type: ignore
+        from docling.document_converter import DocumentConverter, PdfFormatOption  # type: ignore
 
-        converter = DocumentConverter()
+        ThreadedPdfPipelineOptions: type[Any] | None = None
+        ThreadedStandardPdfPipeline: type[Any] | None = None
+        try:
+            from docling.datamodel.pipeline_options import ThreadedPdfPipelineOptions as _ThreadedOpts  # type: ignore
+
+            ThreadedPdfPipelineOptions = _ThreadedOpts
+        except Exception:
+            ThreadedPdfPipelineOptions = None
+        try:
+            from docling.pipeline.threaded_standard_pdf_pipeline import ThreadedStandardPdfPipeline as _ThreadedPipeline  # type: ignore
+
+            ThreadedStandardPdfPipeline = _ThreadedPipeline
+        except Exception:
+            ThreadedStandardPdfPipeline = None
+
+        threaded_supported = (
+            ThreadedPdfPipelineOptions is not None and ThreadedStandardPdfPipeline is not None
+        )
+        runtime = self._resolve_runtime_settings(threaded_supported=threaded_supported)
+        self._log_runtime_settings(file_path=file_path, runtime=runtime, threaded_supported=threaded_supported)
+
+        accelerator = AcceleratorOptions(device=runtime.device, num_threads=runtime.num_threads)
+        pipeline_cls: type[Any] = PdfPipelineOptions
+        if runtime.use_threaded_pipeline and ThreadedPdfPipelineOptions is not None:
+            pipeline_cls = ThreadedPdfPipelineOptions
+
+        pipeline_values = {
+            "accelerator_options": accelerator,
+            "layout_batch_size": runtime.layout_batch_size,
+            "ocr_batch_size": runtime.ocr_batch_size,
+            "table_batch_size": runtime.table_batch_size,
+            "queue_max_size": runtime.queue_max_size,
+        }
+        pipeline_options = self._build_model(model_cls=pipeline_cls, values=pipeline_values)
+
+        pdf_option_values: dict[str, object] = {"pipeline_options": pipeline_options}
+        if runtime.use_threaded_pipeline and ThreadedStandardPdfPipeline is not None:
+            pdf_option_values["pipeline_cls"] = ThreadedStandardPdfPipeline
+        pdf_format_option = self._build_model(model_cls=PdfFormatOption, values=pdf_option_values)
+
+        converter = DocumentConverter(format_options={InputFormat.PDF: pdf_format_option})
         result = converter.convert(str(file_path))
 
         tables: list[ParsedTable] = []
@@ -92,10 +202,23 @@ class DoclingAdapter:
                 )
             )
 
-        config = {"profile": self.profile, "mode": "docling_pdf"}
+        parser_version = "auto"
+        try:
+            import docling  # type: ignore
+
+            parser_version = str(getattr(docling, "__version__", "auto"))
+        except Exception:
+            parser_version = "auto"
+
+        config = {
+            "profile": self.profile,
+            "mode": "docling_pdf",
+            "runtime": runtime.to_config(),
+            "threaded_supported": threaded_supported,
+        }
         return ParseResult(
             parser_name="docling",
-            parser_version="auto",
+            parser_version=parser_version,
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
         )
@@ -188,3 +311,219 @@ class DoclingAdapter:
             if probe:
                 break
         return None
+
+    @staticmethod
+    def _build_model(model_cls: type[Any], values: dict[str, object]) -> Any:
+        model_fields = getattr(model_cls, "model_fields", None)
+        if isinstance(model_fields, dict) and model_fields:
+            values = {key: value for key, value in values.items() if key in model_fields}
+        try:
+            return model_cls(**values)
+        except Exception:
+            model = model_cls()
+            for key, value in values.items():
+                if hasattr(model, key):
+                    setattr(model, key, value)
+            return model
+
+    def _resolve_runtime_settings(
+        self,
+        *,
+        threaded_supported: bool,
+        system_resources: SystemResources | None = None,
+    ) -> ResolvedDoclingRuntime:
+        detected = system_resources or self._detect_system_resources()
+
+        if self.runtime_options.auto_tune:
+            resolved = self._auto_tuned_runtime(detected=detected, threaded_supported=threaded_supported)
+        else:
+            resolved = self._conservative_runtime(detected=detected, threaded_supported=threaded_supported)
+
+        if self.runtime_options.use_threaded_pipeline is not None:
+            wanted_threaded = bool(self.runtime_options.use_threaded_pipeline)
+            if wanted_threaded and not threaded_supported:
+                logger.warning(
+                    "Docling threaded pipeline requested but not available in this docling version; using standard pipeline."
+                )
+            resolved.use_threaded_pipeline = wanted_threaded and threaded_supported
+
+        if self.runtime_options.device:
+            resolved.device = self.runtime_options.device.strip().lower()
+        if self.runtime_options.num_threads is not None:
+            resolved.num_threads = self._sanitize_positive_int(
+                self.runtime_options.num_threads,
+                fallback=resolved.num_threads,
+                minimum=1,
+            )
+        if self.runtime_options.layout_batch_size is not None:
+            resolved.layout_batch_size = self._sanitize_positive_int(
+                self.runtime_options.layout_batch_size,
+                fallback=resolved.layout_batch_size,
+                minimum=1,
+            )
+        if self.runtime_options.ocr_batch_size is not None:
+            resolved.ocr_batch_size = self._sanitize_positive_int(
+                self.runtime_options.ocr_batch_size,
+                fallback=resolved.ocr_batch_size,
+                minimum=1,
+            )
+        if self.runtime_options.table_batch_size is not None:
+            resolved.table_batch_size = self._sanitize_positive_int(
+                self.runtime_options.table_batch_size,
+                fallback=resolved.table_batch_size,
+                minimum=1,
+            )
+        if self.runtime_options.queue_max_size is not None:
+            resolved.queue_max_size = self._sanitize_positive_int(
+                self.runtime_options.queue_max_size,
+                fallback=resolved.queue_max_size,
+                minimum=16,
+            )
+
+        if self.runtime_options.auto_tune:
+            resolved.mode = "auto"
+        else:
+            resolved.mode = "manual"
+
+        return resolved
+
+    @staticmethod
+    def _sanitize_positive_int(value: int, *, fallback: int, minimum: int) -> int:
+        if value < minimum:
+            return fallback
+        return value
+
+    def _auto_tuned_runtime(
+        self,
+        *,
+        detected: SystemResources,
+        threaded_supported: bool,
+    ) -> ResolvedDoclingRuntime:
+        reserve_cores = 1 if detected.cpu_cores <= 4 else 2
+        num_threads = max(1, min(32, detected.cpu_cores - reserve_cores))
+
+        is_apple_silicon = (
+            detected.platform_name == "darwin" and detected.machine in {"arm64", "aarch64"}
+        )
+        device = "mps" if is_apple_silicon else "auto"
+        gpu_accel = device.startswith(("mps", "cuda", "xpu"))
+
+        if detected.memory_gb >= 48:
+            layout_batch_size = 48 if gpu_accel else 16
+            ocr_batch_size = 8 if gpu_accel else 4
+            table_batch_size = 8 if gpu_accel else 4
+        elif detected.memory_gb >= 24:
+            layout_batch_size = 32 if gpu_accel else 12
+            ocr_batch_size = 6 if gpu_accel else 4
+            table_batch_size = 6 if gpu_accel else 4
+        elif detected.memory_gb >= 16:
+            layout_batch_size = 20 if gpu_accel else 8
+            ocr_batch_size = 4
+            table_batch_size = 4
+        else:
+            layout_batch_size = 10
+            ocr_batch_size = 2
+            table_batch_size = 2
+
+        # Keep layout batches high enough for throughput but proportional to thread budget.
+        layout_batch_size = min(layout_batch_size, max(8, num_threads * 4))
+        ocr_batch_size = min(ocr_batch_size, max(2, num_threads // 2))
+        table_batch_size = min(table_batch_size, max(2, num_threads // 2))
+        queue_max_size = max(100, min(400, (layout_batch_size + ocr_batch_size + table_batch_size) * 4))
+
+        use_threaded_pipeline = threaded_supported and detected.cpu_cores >= 8 and detected.memory_gb >= 16
+
+        return ResolvedDoclingRuntime(
+            mode="auto",
+            use_threaded_pipeline=use_threaded_pipeline,
+            device=device,
+            num_threads=num_threads,
+            layout_batch_size=layout_batch_size,
+            ocr_batch_size=ocr_batch_size,
+            table_batch_size=table_batch_size,
+            queue_max_size=queue_max_size,
+            cpu_cores=detected.cpu_cores,
+            memory_gb=detected.memory_gb,
+            platform_name=detected.platform_name,
+            machine=detected.machine,
+        )
+
+    def _conservative_runtime(
+        self,
+        *,
+        detected: SystemResources,
+        threaded_supported: bool,
+    ) -> ResolvedDoclingRuntime:
+        return ResolvedDoclingRuntime(
+            mode="manual",
+            use_threaded_pipeline=False if threaded_supported else False,
+            device="auto",
+            num_threads=max(1, min(4, detected.cpu_cores)),
+            layout_batch_size=4,
+            ocr_batch_size=4,
+            table_batch_size=4,
+            queue_max_size=100,
+            cpu_cores=detected.cpu_cores,
+            memory_gb=detected.memory_gb,
+            platform_name=detected.platform_name,
+            machine=detected.machine,
+        )
+
+    def _detect_system_resources(self) -> SystemResources:
+        cpu_cores = max(1, os.cpu_count() or 1)
+        memory_gb = self._detect_total_memory_gb()
+        platform_name = platform.system().lower()
+        machine = platform.machine().lower()
+        return SystemResources(
+            cpu_cores=cpu_cores,
+            memory_gb=max(memory_gb, 1),
+            platform_name=platform_name,
+            machine=machine,
+        )
+
+    @staticmethod
+    def _detect_total_memory_gb() -> int:
+        try:
+            page_size = os.sysconf("SC_PAGE_SIZE")
+            pages = os.sysconf("SC_PHYS_PAGES")
+            if isinstance(page_size, int) and isinstance(pages, int) and page_size > 0 and pages > 0:
+                return int((page_size * pages) / (1024**3))
+        except Exception:
+            pass
+
+        if platform.system().lower() == "darwin":
+            try:
+                output = subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True).strip()
+                total_bytes = int(output)
+                if total_bytes > 0:
+                    return int(total_bytes / (1024**3))
+            except Exception:
+                pass
+
+        return 8
+
+    def _log_runtime_settings(
+        self,
+        *,
+        file_path: Path,
+        runtime: ResolvedDoclingRuntime,
+        threaded_supported: bool,
+    ) -> None:
+        if not self.runtime_options.log_settings:
+            return
+        print(
+            "[docling] "
+            f"file={file_path.name} "
+            f"profile={self.profile} "
+            f"mode={runtime.mode} "
+            f"threaded={runtime.use_threaded_pipeline} "
+            f"threaded_supported={threaded_supported} "
+            f"device={runtime.device} "
+            f"threads={runtime.num_threads} "
+            f"layout_batch={runtime.layout_batch_size} "
+            f"ocr_batch={runtime.ocr_batch_size} "
+            f"table_batch={runtime.table_batch_size} "
+            f"queue_max={runtime.queue_max_size} "
+            f"cpu_cores={runtime.cpu_cores} "
+            f"memory_gb={runtime.memory_gb}"
+        )

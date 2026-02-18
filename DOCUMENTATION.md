@@ -475,6 +475,15 @@ stemma extract run --resource-id <uuid> [--profile <name>]
 | `--resource-digest` | SHA-256 hex string of the resource |
 | `--resource-id` | UUID of the resource |
 | `--profile` | Parser profile name (default: `"default"`) |
+| `--docling-auto-tune` / `--no-docling-auto-tune` | Enable/disable hardware auto-tuning for docling PDF extraction (default: enabled) |
+| `--docling-use-threaded-pipeline` / `--no-docling-use-threaded-pipeline` | Force threaded vs standard docling PDF pipeline (default: auto) |
+| `--docling-device` | Override inference device (`auto`, `cpu`, `mps`, `xpu`, `cuda`, `cuda:N`) |
+| `--docling-threads` | Override CPU thread count used by docling |
+| `--docling-layout-batch-size` | Override layout model batch size |
+| `--docling-ocr-batch-size` | Override OCR batch size |
+| `--docling-table-batch-size` | Override table extraction batch size |
+| `--docling-queue-max-size` | Override threaded pipeline queue size |
+| `--docling-log-settings` / `--no-docling-log-settings` | Enable/disable terminal logging of effective docling runtime settings (default: enabled) |
 
 **Output:** Panel summarising Run ID, Resource ID, tables found.
 
@@ -482,6 +491,7 @@ stemma extract run --resource-id <uuid> [--profile <name>]
 - PDFs: uses IBM Docling if installed.
 - Markdown / plain text: uses the built-in Markdown table parser.
 - The extracted tables receive deterministic IDs derived from a hash of their structure (caption + page + headers + bbox), so the same table always gets the same ID across re-runs.
+- For PDFs, the adapter auto-detects system resources (CPU cores, RAM, platform) and applies tuned docling runtime settings, then logs the effective settings to the terminal before conversion.
 
 #### `stemma extract tables`
 
@@ -771,7 +781,16 @@ stemma pipeline financial-pass \
   [--skip-extraction] \
   [--state-file <path>] \
   [--log-file <path>] \
-  [--extract-timeout-seconds <n>]
+  [--extract-timeout-seconds <n>] \
+  [--docling-auto-tune|--no-docling-auto-tune] \
+  [--docling-use-threaded-pipeline|--no-docling-use-threaded-pipeline] \
+  [--docling-device <name>] \
+  [--docling-threads <n>] \
+  [--docling-layout-batch-size <n>] \
+  [--docling-ocr-batch-size <n>] \
+  [--docling-table-batch-size <n>] \
+  [--docling-queue-max-size <n>] \
+  [--docling-log-settings|--no-docling-log-settings]
 ```
 
 | Argument | Description |
@@ -782,6 +801,7 @@ stemma pipeline financial-pass \
 | `--state-file` | Custom path for the resumable state JSON (default: `.stemma/financial_pass_state.json`) |
 | `--log-file` | Custom path for the JSONL log (default: `.stemma/financial_pass.log.jsonl`) |
 | `--extract-timeout-seconds` | Per-file extraction timeout; defaults to 300 seconds |
+| `--docling-*` | Same docling performance flags as `stemma extract run`; apply to every PDF extraction in the pass |
 
 **File detection rules:**
 

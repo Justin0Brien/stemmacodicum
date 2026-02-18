@@ -11,6 +11,7 @@ from stemmacodicum.application.services.ingestion_service import IngestionServic
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
 from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.cli.context import CLIContext
+from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.core.errors import ProjectNotInitializedError
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
@@ -44,6 +45,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
         default=300,
         help="Per-file extraction timeout in seconds (default: 300)",
     )
+    add_docling_runtime_args(fin)
     fin.set_defaults(handler=run_financial_pass)
 
 
@@ -63,6 +65,7 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
         resource_repo=resource_repo,
         extraction_repo=extraction_repo,
         archive_dir=ctx.paths.archive_dir,
+        docling_runtime_options=get_docling_runtime_options(args),
     )
 
     state_path = (

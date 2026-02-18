@@ -7,6 +7,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.cli.context import CLIContext
 from stemmacodicum.core.errors import ProjectNotInitializedError, ValidationError
@@ -21,6 +22,7 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     run_parser = extract_subparsers.add_parser("run", help="Extract structured tables from a resource")
     _add_resource_selectors(run_parser)
     run_parser.add_argument("--profile", default="default", help="Parser profile name")
+    add_docling_runtime_args(run_parser)
     run_parser.set_defaults(handler=run_extract)
 
     list_parser = extract_subparsers.add_parser("tables", help="List extracted tables for a resource")
@@ -70,6 +72,7 @@ def run_extract(args: argparse.Namespace, ctx: CLIContext) -> int:
         resource_repo=resource_repo,
         extraction_repo=extraction_repo,
         archive_dir=ctx.paths.archive_dir,
+        docling_runtime_options=get_docling_runtime_options(args),
     )
     summary = service.extract_resource(resource_id=resource_id, parser_profile=args.profile)
 

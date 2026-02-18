@@ -56,3 +56,9 @@ stemma web --host 127.0.0.1 --port 8765
 ```
 
 By default, project state is created under `.stemma/` in the current project root.
+
+Docling PDF extraction auto-tunes CPU/GPU/batching by default and logs the effective settings per file. You can override this per command, for example:
+
+```bash
+stemma extract run --resource-digest <sha256> --docling-device mps --docling-threads 10 --docling-layout-batch-size 40
+```

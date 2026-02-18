@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stemma Codicum Web</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1d2736;
+      --muted: #5a6475;
+      --accent: #0f766e;
+      --accent-2: #164e63;
+      --border: #d6dee8;
+      --error: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Source Sans 3", "Segoe UI", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at 0% 0%, #d8eff2 0%, var(--bg) 45%);
+    }
+    header {
+      padding: 24px;
+      background: linear-gradient(120deg, var(--accent-2), #1f6f8b);
+      color: #fff;
+    }
+    header h1 { margin: 0 0 8px; font-size: 28px; }
+    header p { margin: 0; opacity: 0.92; }
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
+      padding: 14px;
+    }
+    .card h2 { margin: 0 0 10px; font-size: 18px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    input, textarea, button, select {
+      font: inherit;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    input, select { flex: 1 1 180px; }
+    textarea { width: 100%; min-height: 86px; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    button.secondary { background: #334155; }
+    button:hover { filter: brightness(1.05); }
+    pre {
+      background: #0b1727;
+      color: #d7ebff;
+      border-radius: 10px;
+      padding: 10px;
+      overflow: auto;
+      max-height: 260px;
+      margin: 8px 0 0;
+      font-size: 12px;
+    }
+    .dropzone {
+      border: 2px dashed var(--accent);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+      color: var(--muted);
+      background: #f0fdfb;
+      margin-bottom: 10px;
+    }
+    .dropzone.drag { background: #dcfce7; }
+    .small { color: var(--muted); font-size: 12px; }
+    .err { color: var(--error); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Stemma Codicum Web</h1>
+    <p>CLI-equivalent operations + drag/drop ingest with duplicate detection.</p>
+  </header>
+  <main>
+    <section class="card">
+      <h2>Project and Health</h2>
+      <div class="row">
+        <button onclick="callApi('POST','/api/init',{},'out-project')">Init Project</button>
+        <button class="secondary" onclick="callApi('GET','/api/doctor',null,'out-project')">Doctor</button>
+      </div>
+      <pre id="out-project"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Ingest</h2>
+      <div id="dropzone" class="dropzone">Drag & drop a document here to ingest (dedupe-aware)</div>
+      <div class="row">
+        <input id="ingest-path" placeholder="Absolute file path" />
+        <button onclick="ingestPath()">Ingest Path</button>
+      </div>
+      <div class="row">
+        <input id="resources-limit" value="20" />
+        <button class="secondary" onclick="listResources()">List Resources</button>
+      </div>
+      <pre id="out-ingest"></pre>
+    </section>
+
+    <section class="card">
+      <h2>References</h2>
+      <div class="row">
+        <input id="bib-path" placeholder="/path/to/references.bib" />
+        <button onclick="importBib()">Import BibTeX</button>
+      </div>
+      <div class="row">
+        <input id="link-cite-id" placeholder="Cite ID" />
+        <input id="link-digest" placeholder="Resource digest" />
+        <button onclick="linkReference()">Link Ref->Resource</button>
+      </div>
+      <div class="row">
+        <button class="secondary" onclick="callApi('GET','/api/refs',null,'out-refs')">List Refs</button>
+        <button class="secondary" onclick="callApi('GET','/api/citations',null,'out-refs')">List Citations</button>
+      </div>
+      <pre id="out-refs"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Extraction</h2>
+      <div class="row">
+        <input id="extract-resource-id" placeholder="Resource ID (optional)" />
+        <input id="extract-digest" placeholder="Resource digest (optional)" />
+        <button onclick="extractRun()">Run Extract</button>
+      </div>
+      <div class="row">
+        <input id="extract-tables-id" placeholder="Resource ID (optional)" />
+        <input id="extract-tables-digest" placeholder="Resource digest (optional)" />
+        <button class="secondary" onclick="extractTables()">List Tables</button>
+      </div>
+      <pre id="out-extract"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Claims</h2>
+      <div class="row">
+        <input id="claims-file" placeholder="Claims file path" />
+        <select id="claims-format">
+          <option value="csv">csv</option>
+          <option value="json">json</option>
+          <option value="md">md</option>
+        </select>
+        <input id="claim-set" placeholder="Claim set name" />
+        <button onclick="importClaims()">Import Claims</button>
+      </div>
+      <div class="row">
+        <input id="claims-list-set" placeholder="Claim set filter (optional)" />
+        <button class="secondary" onclick="listClaims()">List Claims</button>
+        <button class="secondary" onclick="callApi('GET','/api/claim-sets',null,'out-claims')">List Claim Sets</button>
+      </div>
+      <pre id="out-claims"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Binding</h2>
+      <div class="row">
+        <input id="bind-claim-id" placeholder="Claim ID" />
+        <input id="bind-resource-id" placeholder="Resource ID (optional)" />
+        <input id="bind-digest" placeholder="Resource digest (optional)" />
+      </div>
+      <div class="row">
+        <input id="bind-role" placeholder="Role (value-cell/quote/etc.)" />
+      </div>
+      <textarea id="bind-selectors">[{"type":"PageGeometrySelector","pageIndex":0,"boxes":[]},{"type":"TextQuoteSelector","exact":"example"}]</textarea>
+      <div class="row">
+        <button onclick="bindAdd()">Add Binding</button>
+        <button class="secondary" onclick="bindValidate()">Validate Binding</button>
+      </div>
+      <pre id="out-bind"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Verification and Reports</h2>
+      <div class="row">
+        <input id="verify-claim-id" placeholder="Claim ID" />
+        <button onclick="verifyClaim()">Verify Claim</button>
+      </div>
+      <div class="row">
+        <input id="verify-claim-set" placeholder="Claim set" />
+        <button onclick="verifySet()">Verify Set</button>
+      </div>
+      <div class="row">
+        <input id="report-run-id" placeholder="Verification run ID" />
+        <input id="report-json-out" placeholder="json output path (optional)" />
+        <input id="report-md-out" placeholder="md output path (optional)" />
+        <button class="secondary" onclick="reportVerification()">Get Report</button>
+      </div>
+      <pre id="out-verify"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Trace</h2>
+      <div class="row">
+        <input id="trace-claim-id" placeholder="Claim ID" />
+        <button onclick="traceClaim()">Trace Claim</button>
+      </div>
+      <div class="row">
+        <input id="trace-resource-id" placeholder="Resource ID (optional)" />
+        <input id="trace-resource-digest" placeholder="Resource digest (optional)" />
+        <button onclick="traceResource()">Trace Resource</button>
+      </div>
+      <div class="row">
+        <input id="trace-cite-id" placeholder="Cite ID" />
+        <button onclick="traceCitation()">Trace Citation</button>
+      </div>
+      <pre id="out-trace"></pre>
+    </section>
+
+    <section class="card">
+      <h2>CEAPF</h2>
+      <textarea id="ceapf-prop">{"subject":"org:InstitutionZ","predicate":"ceapf:spent","object":{"amount":3.4,"unit":"GBP"}}</textarea>
+      <div class="row">
+        <button onclick="addProposition()">Add Proposition</button>
+        <button class="secondary" onclick="listPropositions()">List Propositions</button>
+      </div>
+      <div class="row">
+        <input id="ceapf-prop-id" placeholder="Proposition ID" />
+        <input id="ceapf-agent" placeholder="Agent" value="person:AuthorX" />
+        <input id="ceapf-modality" placeholder="Modality" value="asserts" />
+        <button onclick="addAssertion()">Add Assertion</button>
+      </div>
+      <div class="row">
+        <input id="ceapf-rel-type" placeholder="Relation type" value="supports" />
+        <input id="ceapf-from-type" placeholder="From type" value="assertion_event" />
+        <input id="ceapf-from-id" placeholder="From ID" />
+        <input id="ceapf-to-type" placeholder="To type" value="proposition" />
+        <input id="ceapf-to-id" placeholder="To ID" />
+        <button onclick="addRelation()">Add Relation</button>
+      </div>
+      <pre id="out-ceapf"></pre>
+    </section>
+
+    <section class="card">
+      <h2>Financial Pipeline</h2>
+      <div class="row">
+        <input id="pipe-root" value="/Volumes/X10/data/Institution" />
+        <input id="pipe-max" placeholder="Max files (optional)" value="25" />
+        <input id="pipe-timeout" placeholder="Extract timeout sec" value="300" />
+        <select id="pipe-skip">
+          <option value="false">extract enabled</option>
+          <option value="true">skip extraction</option>
+        </select>
+        <button onclick="runPipeline()">Run Financial Pass</button>
+      </div>
+      <p class="small">Runs resumably using project state/log files in <code>.stemma/</code>.</p>
+      <pre id="out-pipeline"></pre>
+    </section>
+  </main>
+
+<script>
+async function callApi(method, url, body, outId, isFormData=false) {
+  const opts = { method, headers: {} };
+  if (body !== null && body !== undefined) {
+    if (isFormData) {
+      opts.body = body;
+    } else {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+  }
+  try {
+    const res = await fetch(url, opts);
+    const data = await res.json();
+    document.getElementById(outId).textContent = JSON.stringify(data, null, 2);
+    return data;
+  } catch (e) {
+    document.getElementById(outId).textContent = JSON.stringify({error: String(e)}, null, 2);
+    throw e;
+  }
+}
+
+async function ingestPath() {
+  await callApi('POST', '/api/ingest/path', {
+    path: document.getElementById('ingest-path').value
+  }, 'out-ingest');
+}
+
+async function listResources() {
+  const limit = encodeURIComponent(document.getElementById('resources-limit').value || '20');
+  await callApi('GET', `/api/resources?limit=${limit}`, null, 'out-ingest');
+}
+
+async function importBib() {
+  await callApi('POST', '/api/refs/import-bib', {
+    bib_path: document.getElementById('bib-path').value
+  }, 'out-refs');
+}
+
+async function linkReference() {
+  await callApi('POST', '/api/refs/link-resource', {
+    cite_id: document.getElementById('link-cite-id').value,
+    resource_digest: document.getElementById('link-digest').value
+  }, 'out-refs');
+}
+
+async function extractRun() {
+  await callApi('POST', '/api/extract/run', {
+    resource_id: document.getElementById('extract-resource-id').value || null,
+    resource_digest: document.getElementById('extract-digest').value || null,
+    profile: 'default'
+  }, 'out-extract');
+}
+
+async function extractTables() {
+  const id = encodeURIComponent(document.getElementById('extract-tables-id').value || '');
+  const digest = encodeURIComponent(document.getElementById('extract-tables-digest').value || '');
+  const qs = id ? `resource_id=${id}` : `resource_digest=${digest}`;
+  await callApi('GET', `/api/extract/tables?${qs}`, null, 'out-extract');
+}
+
+async function importClaims() {
+  await callApi('POST', '/api/claims/import', {
+    file_path: document.getElementById('claims-file').value,
+    fmt: document.getElementById('claims-format').value,
+    claim_set: document.getElementById('claim-set').value
+  }, 'out-claims');
+}
+
+async function listClaims() {
+  const set = encodeURIComponent(document.getElementById('claims-list-set').value || '');
+  const url = set ? `/api/claims?claim_set=${set}` : '/api/claims';
+  await callApi('GET', url, null, 'out-claims');
+}
+
+async function bindAdd() {
+  let selectors;
+  try {
+    selectors = JSON.parse(document.getElementById('bind-selectors').value);
+  } catch (e) {
+    document.getElementById('out-bind').textContent = JSON.stringify({error: 'Invalid selectors JSON'}, null, 2);
+    return;
+  }
+  await callApi('POST', '/api/bind/add', {
+    claim_id: document.getElementById('bind-claim-id').value,
+    resource_id: document.getElementById('bind-resource-id').value || null,
+    resource_digest: document.getElementById('bind-digest').value || null,
+    role: document.getElementById('bind-role').value,
+    selectors
+  }, 'out-bind');
+}
+
+async function bindValidate() {
+  await callApi('POST', '/api/bind/validate', {
+    claim_id: document.getElementById('bind-claim-id').value
+  }, 'out-bind');
+}
+
+async function verifyClaim() {
+  await callApi('POST', '/api/verify/claim', {
+    claim_id: document.getElementById('verify-claim-id').value,
+    policy: 'strict'
+  }, 'out-verify');
+}
+
+async function verifySet() {
+  await callApi('POST', '/api/verify/set', {
+    claim_set: document.getElementById('verify-claim-set').value,
+    policy: 'strict'
+  }, 'out-verify');
+}
+
+async function reportVerification() {
+  const run = encodeURIComponent(document.getElementById('report-run-id').value);
+  const jsonOut = encodeURIComponent(document.getElementById('report-json-out').value || '');
+  const mdOut = encodeURIComponent(document.getElementById('report-md-out').value || '');
+  let qs = `run_id=${run}`;
+  if (jsonOut) qs += `&json_out=${jsonOut}`;
+  if (mdOut) qs += `&md_out=${mdOut}`;
+  await callApi('GET', `/api/report/verification?${qs}`, null, 'out-verify');
+}
+
+async function traceClaim() {
+  const claim = encodeURIComponent(document.getElementById('trace-claim-id').value);
+  await callApi('GET', `/api/trace/claim?claim_id=${claim}`, null, 'out-trace');
+}
+
+async function traceResource() {
+  const rid = document.getElementById('trace-resource-id').value;
+  const digest = document.getElementById('trace-resource-digest').value;
+  const qs = rid ? `resource_id=${encodeURIComponent(rid)}` : `resource_digest=${encodeURIComponent(digest)}`;
+  await callApi('GET', `/api/trace/resource?${qs}`, null, 'out-trace');
+}
+
+async function traceCitation() {
+  const cite = encodeURIComponent(document.getElementById('trace-cite-id').value);
+  await callApi('GET', `/api/trace/citation?cite_id=${cite}`, null, 'out-trace');
+}
+
+async function addProposition() {
+  let proposition;
+  try {
+    proposition = JSON.parse(document.getElementById('ceapf-prop').value);
+  } catch (e) {
+    document.getElementById('out-ceapf').textContent = JSON.stringify({error: 'Invalid proposition JSON'}, null, 2);
+    return;
+  }
+  const data = await callApi('POST', '/api/ceapf/proposition', { proposition }, 'out-ceapf');
+  if (data.proposition_id) document.getElementById('ceapf-prop-id').value = data.proposition_id;
+}
+
+async function addAssertion() {
+  const data = await callApi('POST', '/api/ceapf/assertion', {
+    proposition_id: document.getElementById('ceapf-prop-id').value,
+    asserting_agent: document.getElementById('ceapf-agent').value,
+    modality: document.getElementById('ceapf-modality').value,
+    evidence_id: null
+  }, 'out-ceapf');
+  if (data.assertion_id) document.getElementById('ceapf-from-id').value = data.assertion_id;
+}
+
+async function addRelation() {
+  await callApi('POST', '/api/ceapf/relation', {
+    relation_type: document.getElementById('ceapf-rel-type').value,
+    from_node_type: document.getElementById('ceapf-from-type').value,
+    from_node_id: document.getElementById('ceapf-from-id').value,
+    to_node_type: document.getElementById('ceapf-to-type').value,
+    to_node_id: document.getElementById('ceapf-to-id').value || document.getElementById('ceapf-prop-id').value
+  }, 'out-ceapf');
+}
+
+async function listPropositions() {
+  await callApi('GET', '/api/ceapf/propositions', null, 'out-ceapf');
+}
+
+async function runPipeline() {
+  const maxRaw = document.getElementById('pipe-max').value.trim();
+  await callApi('POST', '/api/pipeline/financial-pass', {
+    root: document.getElementById('pipe-root').value,
+    max_files: maxRaw ? Number(maxRaw) : null,
+    skip_extraction: document.getElementById('pipe-skip').value === 'true',
+    extract_timeout_seconds: Number(document.getElementById('pipe-timeout').value || '300')
+  }, 'out-pipeline');
+}
+
+const dz = document.getElementById('dropzone');
+function prevent(e) { e.preventDefault(); e.stopPropagation(); }
+['dragenter','dragover','dragleave','drop'].forEach(evt => dz.addEventListener(evt, prevent));
+['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, () => dz.classList.add('drag')));
+['dragleave','drop'].forEach(evt => dz.addEventListener(evt, () => dz.classList.remove('drag')));
+dz.addEventListener('drop', async (e) => {
+  const files = e.dataTransfer.files;
+  if (!files || !files.length) return;
+  const file = files[0];
+  const fd = new FormData();
+  fd.append('file', file);
+  await callApi('POST', '/api/ingest/upload', fd, 'out-ingest', true);
+});
+</script>
+</body>
+</html>

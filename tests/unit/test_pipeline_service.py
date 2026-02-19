@@ -9,15 +9,15 @@ from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.db.sqlite import initialize_schema
 
 
-def test_financial_pipeline_filters_and_processes(tmp_path: Path) -> None:
+def test_mass_import_pipeline_recurses_and_processes_supported_files(tmp_path: Path) -> None:
     root = tmp_path / "root"
     root.mkdir()
 
-    # Financial candidate
+    # Candidate
     f1 = root / "annual_report_2025.pdf"
     f1.write_text("fake pdf bytes", encoding="utf-8")
 
-    # Non-financial file
+    # Also candidate (supported extension, no keyword requirement)
     f2 = root / "random_note.txt"
     f2.write_text("hello", encoding="utf-8")
 
@@ -49,10 +49,10 @@ def test_financial_pipeline_filters_and_processes(tmp_path: Path) -> None:
 
     stats = service.run(root=root, max_files=10, run_extraction=False)
 
-    assert stats.candidates == 1
+    assert stats.candidates == 2
     assert stats.already_processed == 0
-    assert stats.processed == 1
-    assert stats.ingested == 1
+    assert stats.processed == 2
+    assert stats.ingested == 2
     assert stats.failed == 0
     assert stats.remaining_unprocessed == 0
 

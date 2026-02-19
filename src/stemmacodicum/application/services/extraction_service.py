@@ -4,6 +4,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 from stemmacodicum.core.errors import ExtractionError
 from stemmacodicum.core.hashing import compute_bytes_digest
@@ -25,6 +26,7 @@ from stemmacodicum.infrastructure.parsers.docling_adapter import (
     ParsedBlock,
     ParsedTable,
 )
+from stemmacodicum.application.services.vector_service import VectorIndexingService
 
 
 @dataclass(slots=True)
@@ -39,8 +41,18 @@ class ExtractSummary:
     pages_per_second: float | None = None
     timings: dict[str, float] | None = None
     text_chars: int = 0
+    text_words: int = 0
+    text_sentences: int = 0
+    text_paragraphs: int = 0
     segments_persisted: int = 0
     annotations_persisted: int = 0
+    table_rows_total: int = 0
+    table_cols_total: int = 0
+    table_cells_total: int = 0
+    vector_status: str | None = None
+    vector_chunks_total: int = 0
+    vector_chunks_indexed: int = 0
+    vector_error: str | None = None
 
 
 @dataclass(slots=True)
@@ -89,13 +101,33 @@ class ExtractionService:
         extraction_repo: ExtractionRepo,
         archive_dir: Path,
         docling_runtime_options: DoclingRuntimeOptions | None = None,
+        vector_indexing_service: VectorIndexingService | None = None,
     ) -> None:
         self.resource_repo = resource_repo
         self.extraction_repo = extraction_repo
         self.archive_dir = archive_dir
         self.docling_runtime_options = docling_runtime_options
+        self.vector_indexing_service = vector_indexing_service
 
-    def extract_resource(self, resource_id: str, parser_profile: str = "default") -> ExtractSummary:
+    def extract_resource(
+        self,
+        resource_id: str,
+        parser_profile: str = "default",
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+    ) -> ExtractSummary:
+        def emit(payload: dict[str, object]) -> None:
+            if progress_callback is None:
+                return
+            progress_callback(payload)
+
+        emit(
+            {
+                "stage": "extract",
+                "state": "active",
+                "progress": 4,
+                "detail": "Starting text extraction.",
+            }
+        )
         resource = self.resource_repo.get_by_id(resource_id)
         if resource is None:
             raise ExtractionError(f"Resource not found: {resource_id}")
@@ -111,6 +143,40 @@ class ExtractionService:
             raise ExtractionError(f"Extraction failed for {resource_id}: {exc}") from exc
 
         full_text = parse_result.full_text or ""
+        word_count = len(re.findall(r"\b\w+\b", full_text))
+        sentence_count = len([m.group(0).strip() for m in self._RE_SENTENCE.finditer(full_text) if m.group(0).strip()])
+        paragraph_count = len([p for p in re.split(r"\n\s*\n+", full_text) if p.strip()])
+        table_rows_total = sum(len(t.row_headers) for t in parse_result.tables)
+        table_cols_total = sum(len(t.col_headers) for t in parse_result.tables)
+        table_cells_total = sum(len(t.cells) for t in parse_result.tables)
+        emit(
+            {
+                "stage": "extract",
+                "state": "active",
+                "progress": 58,
+                "detail": "Parsed document text and structure.",
+                "stats": (
+                    f"{parse_result.page_count or 0} pages • "
+                    f"{word_count} words • "
+                    f"{sentence_count} sentences • "
+                    f"{paragraph_count} paragraphs"
+                ),
+            }
+        )
+        emit(
+            {
+                "stage": "tables",
+                "state": "active",
+                "progress": 66,
+                "detail": "Consolidating table structures.",
+                "stats": (
+                    f"{len(parse_result.tables)} tables • "
+                    f"{table_rows_total} rows • "
+                    f"{table_cols_total} cols • "
+                    f"{table_cells_total} cells"
+                ),
+            }
+        )
         segment_specs = self._build_segment_specs(full_text, parse_result.blocks)
         annotation_specs = self._build_annotation_specs(
             full_text=full_text,
@@ -229,6 +295,47 @@ class ExtractionService:
                 )
             persisted_annotations += 1
 
+        emit(
+            {
+                "stage": "extract",
+                "state": "done",
+                "progress": 100,
+                "detail": "Text extraction complete.",
+                "stats": (
+                    f"{word_count} words • "
+                    f"{sentence_count} sentences • "
+                    f"{paragraph_count} paragraphs"
+                ),
+            }
+        )
+        emit(
+            {
+                "stage": "tables",
+                "state": "done",
+                "progress": 100,
+                "detail": "Table and annotation extraction complete.",
+                "stats": (
+                    f"{len(parse_result.tables)} tables • "
+                    f"{persisted_annotations} annotations"
+                ),
+            }
+        )
+
+        vector_status: str | None = None
+        vector_chunks_total = 0
+        vector_chunks_indexed = 0
+        vector_error: str | None = None
+        if self.vector_indexing_service is not None:
+            vector_summary = self.vector_indexing_service.index_extraction(
+                resource_id=resource_id,
+                extraction_run_id=run.id,
+                progress_callback=progress_callback,
+            )
+            vector_status = vector_summary.status
+            vector_chunks_total = vector_summary.chunks_total
+            vector_chunks_indexed = vector_summary.chunks_indexed
+            vector_error = vector_summary.error
+
         return ExtractSummary(
             run_id=run.id,
             resource_id=resource_id,
@@ -246,8 +353,18 @@ class ExtractionService:
             ),
             timings=parse_result.timings,
             text_chars=len(full_text),
+            text_words=word_count,
+            text_sentences=sentence_count,
+            text_paragraphs=paragraph_count,
             segments_persisted=persisted_segments,
             annotations_persisted=persisted_annotations,
+            table_rows_total=table_rows_total,
+            table_cols_total=table_cols_total,
+            table_cells_total=table_cells_total,
+            vector_status=vector_status,
+            vector_chunks_total=vector_chunks_total,
+            vector_chunks_indexed=vector_chunks_indexed,
+            vector_error=vector_error,
         )
 
     def list_tables(self, resource_id: str, limit: int = 100) -> list[ExtractedTable]:

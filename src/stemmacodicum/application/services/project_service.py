@@ -21,7 +21,12 @@ class ProjectService:
     def init_project(self) -> InitResult:
         paths_created: list[Path] = []
 
-        for path in (self.paths.stemma_dir, self.paths.archive_dir):
+        for path in (
+            self.paths.stemma_dir,
+            self.paths.archive_dir,
+            self.paths.vector_dir,
+            self.paths.qdrant_dir,
+        ):
             if not path.exists():
                 paths_created.append(path)
             ensure_directory(path)

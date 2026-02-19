@@ -7,6 +7,7 @@ from pathlib import Path
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.db.sqlite import get_connection
+from stemmacodicum.infrastructure.vector.qdrant_store import QdrantLocalStore
 
 
 @dataclass(slots=True)
@@ -152,6 +153,65 @@ class HealthService:
                         message=f"Quantitative claim without evidence bindings: {row['id']}",
                     )
                 )
+
+        # Check 5: vector indexing health and chunk counts.
+        checks_run += 1
+        with get_connection(self.db_path) as conn:
+            table_exists = conn.execute(
+                """
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table' AND name = 'vector_index_runs'
+                LIMIT 1
+                """
+            ).fetchone()
+            if table_exists:
+                total_runs = int(conn.execute("SELECT COUNT(*) AS c FROM vector_index_runs").fetchone()["c"])
+                failed_runs = int(
+                    conn.execute(
+                        "SELECT COUNT(*) AS c FROM vector_index_runs WHERE status = 'failed'"
+                    ).fetchone()["c"]
+                )
+                distinct_chunks = int(
+                    conn.execute("SELECT COUNT(DISTINCT chunk_id) AS c FROM vector_chunks").fetchone()["c"]
+                )
+                if total_runs > 0 and distinct_chunks == 0:
+                    issues.append(
+                        DoctorIssue(
+                            check="vector_index",
+                            level="warning",
+                            message="Vector index runs exist but no chunks were persisted.",
+                        )
+                    )
+                if failed_runs > 0:
+                    issues.append(
+                        DoctorIssue(
+                            check="vector_index",
+                            level="warning",
+                            message=f"Vector indexing has {failed_runs} failed run(s).",
+                        )
+                    )
+
+                if total_runs > 0 or distinct_chunks > 0:
+                    qdrant_path = self.archive_dir.parent / "vector" / "qdrant"
+                    try:
+                        qdrant_points = QdrantLocalStore(storage_path=qdrant_path).count_points()
+                        if distinct_chunks > 0 and qdrant_points == 0:
+                            issues.append(
+                                DoctorIssue(
+                                    check="vector_index",
+                                    level="warning",
+                                    message="Vector chunks exist in SQLite but Qdrant has zero points.",
+                                )
+                            )
+                    except Exception:
+                        issues.append(
+                            DoctorIssue(
+                                check="vector_index",
+                                level="warning",
+                                message="Vector dependency unavailable or Qdrant store unreadable.",
+                            )
+                        )
 
         return DoctorReport(
             ok=not any(i.level == "error" for i in issues),

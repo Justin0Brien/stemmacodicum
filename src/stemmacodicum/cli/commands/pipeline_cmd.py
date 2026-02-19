@@ -12,12 +12,17 @@ from stemmacodicum.application.services.extraction_service import ExtractionServ
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
 from stemmacodicum.application.services.project_service import ProjectService
+from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.cli.context import CLIContext
 from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.core.errors import ProjectNotInitializedError
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.vector_repo import VectorRepo
+from stemmacodicum.infrastructure.vector.chunking import VectorChunker
+from stemmacodicum.infrastructure.vector.embeddings import EmbeddingConfig, SentenceTransformerEmbedder
+from stemmacodicum.infrastructure.vector.qdrant_store import QdrantLocalStore
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -69,11 +74,20 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
     extraction_repo = ExtractionRepo(ctx.paths.db_path)
 
     ingestion_service = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(ctx.paths.archive_dir))
+    vector_service = VectorIndexingService(
+        resource_repo=resource_repo,
+        extraction_repo=extraction_repo,
+        vector_repo=VectorRepo(ctx.paths.db_path),
+        vector_store=QdrantLocalStore(storage_path=ctx.paths.qdrant_dir),
+        embedder=SentenceTransformerEmbedder(config=EmbeddingConfig()),
+        chunker=VectorChunker(),
+    )
     extraction_service = ExtractionService(
         resource_repo=resource_repo,
         extraction_repo=extraction_repo,
         archive_dir=ctx.paths.archive_dir,
         docling_runtime_options=get_docling_runtime_options(args),
+        vector_indexing_service=vector_service,
     )
 
     state_path = (

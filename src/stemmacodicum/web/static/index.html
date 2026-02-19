@@ -3,9 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Stemma Codicum Web</title>
+  <title>Stemma Codicum</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
     :root {
+      --font-display: "Sora", "Avenir Next", "Trebuchet MS", sans-serif;
+      --font-sans: "IBM Plex Sans", "Source Sans 3", "Gill Sans", sans-serif;
+      --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
       --bg: #f5f7fb;
       --card: #ffffff;
       --text: #1d2736;
@@ -28,6 +32,10 @@
       --help-icon-fg: #1f3555;
       --hero-grad-start: #164e63;
       --hero-grad-end: #1f6f8b;
+      --surface-tint: rgba(255, 255, 255, 0.6);
+      --surface-shadow: 0 16px 36px rgba(20, 42, 70, 0.14);
+      --surface-shadow-soft: 0 8px 22px rgba(20, 42, 70, 0.09);
+      --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.25);
     }
     body[data-theme="harmonious-light"] {
       --bg: #f5f7fb;
@@ -51,6 +59,10 @@
       --help-icon-fg: #1f3555;
       --hero-grad-start: #164e63;
       --hero-grad-end: #1f6f8b;
+      --surface-tint: rgba(255, 255, 255, 0.64);
+      --surface-shadow: 0 16px 36px rgba(20, 42, 70, 0.14);
+      --surface-shadow-soft: 0 8px 22px rgba(20, 42, 70, 0.09);
+      --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.25);
     }
     body[data-theme="restful-dark"] {
       --bg: #10171f;
@@ -74,6 +86,10 @@
       --help-icon-fg: #f6fbff;
       --hero-grad-start: #1a405f;
       --hero-grad-end: #123043;
+      --surface-tint: rgba(255, 255, 255, 0.03);
+      --surface-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
+      --surface-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.24);
+      --focus-ring: 0 0 0 3px rgba(22, 154, 143, 0.3);
     }
     body[data-theme="sunset-paper"] {
       --bg: #f8f2ea;
@@ -97,6 +113,10 @@
       --help-icon-fg: #4a2c2f;
       --hero-grad-start: #7f3b5e;
       --hero-grad-end: #b4532a;
+      --surface-tint: rgba(255, 253, 249, 0.66);
+      --surface-shadow: 0 16px 36px rgba(72, 40, 52, 0.18);
+      --surface-shadow-soft: 0 8px 22px rgba(72, 40, 52, 0.12);
+      --focus-ring: 0 0 0 3px rgba(180, 83, 42, 0.27);
     }
     body[data-theme="forest-mist"] {
       --bg: #eef5f1;
@@ -120,6 +140,10 @@
       --help-icon-fg: #193e36;
       --hero-grad-start: #264f4a;
       --hero-grad-end: #1f8f63;
+      --surface-tint: rgba(251, 255, 253, 0.68);
+      --surface-shadow: 0 16px 36px rgba(19, 52, 44, 0.16);
+      --surface-shadow-soft: 0 8px 22px rgba(19, 52, 44, 0.1);
+      --focus-ring: 0 0 0 3px rgba(31, 143, 99, 0.27);
     }
     body[data-theme="midnight-contrast"] {
       --bg: #090e16;
@@ -143,35 +167,110 @@
       --help-icon-fg: #ffffff;
       --hero-grad-start: #223756;
       --hero-grad-end: #00b3a4;
+      --surface-tint: rgba(255, 255, 255, 0.03);
+      --surface-shadow: 0 16px 36px rgba(0, 0, 0, 0.44);
+      --surface-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.31);
+      --focus-ring: 0 0 0 3px rgba(0, 179, 164, 0.29);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: "Source Sans 3", "Segoe UI", sans-serif;
+      font-family: var(--font-sans);
       color: var(--text);
-      background: radial-gradient(circle at 0% 0%, #d8eff2 0%, var(--bg) 45%);
+      min-height: 100vh;
+      background:
+        radial-gradient(1000px 520px at -10% -20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 60%),
+        radial-gradient(820px 480px at 108% 18%, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 62%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg) 65%, #ffffff) 0%, var(--bg) 100%);
+      position: relative;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.45;
+      background-image:
+        linear-gradient(to right, color-mix(in srgb, var(--border) 26%, transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb, var(--border) 20%, transparent) 1px, transparent 1px);
+      background-size: 42px 42px;
+      z-index: -2;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      width: 44vw;
+      height: 44vw;
+      min-width: 320px;
+      min-height: 320px;
+      border-radius: 999px;
+      right: -16vw;
+      bottom: -18vw;
+      background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%);
+      filter: blur(18px);
+      pointer-events: none;
+      z-index: -1;
     }
     header {
-      padding: 24px;
-      background: linear-gradient(120deg, var(--hero-grad-start), var(--hero-grad-end));
+      padding: 34px 28px 28px;
+      background:
+        linear-gradient(132deg, var(--hero-grad-start), var(--hero-grad-end)),
+        radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.2), transparent 46%);
       color: #fff;
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+    header::after {
+      content: "";
+      position: absolute;
+      inset: auto -18% -36% 36%;
+      height: 340px;
+      background: radial-gradient(circle at center, rgba(255, 255, 255, 0.24), transparent 72%);
+      pointer-events: none;
     }
     .header-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
-      margin-bottom: 6px;
+      gap: 22px;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
     }
-    header h1 { margin: 0; font-size: 28px; }
-    header p { margin: 0; opacity: 0.92; }
+    .brand-block {
+      max-width: 760px;
+    }
+    header h1 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: clamp(28px, 4.8vw, 46px);
+      line-height: 1.05;
+      letter-spacing: 0.01em;
+      text-shadow: 0 6px 20px rgba(4, 18, 40, 0.28);
+    }
+    .hero-subtitle {
+      margin: 10px 0 0;
+      opacity: 0.95;
+      font-size: 15px;
+      line-height: 1.45;
+      max-width: 640px;
+      color: rgba(255, 255, 255, 0.95);
+    }
     .theme-picker {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: rgba(255, 255, 255, 0.95);
+      color: rgba(255, 255, 255, 0.97);
       font-weight: 600;
       font-size: 13px;
+      padding: 8px 10px;
+      border-radius: 12px;
+      background: rgba(9, 26, 42, 0.22);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
     }
     .theme-picker select {
       min-width: 220px;
@@ -185,9 +284,13 @@
       background: #ffffff;
     }
     @media (max-width: 720px) {
+      header {
+        padding: 26px 16px 22px;
+      }
       .header-top {
         flex-direction: column;
         align-items: flex-start;
+        gap: 14px;
       }
       .theme-picker {
         width: 100%;
@@ -198,32 +301,39 @@
       }
     }
     .app-shell {
-      max-width: 1280px;
+      max-width: 1380px;
       margin: 0 auto;
-      padding: 18px;
+      padding: 24px 20px 34px;
       display: grid;
-      grid-template-columns: 260px minmax(0, 1fr);
-      gap: 14px;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 16px;
       align-items: start;
+      position: relative;
     }
     .nav-column {
-      background: var(--card);
+      background: linear-gradient(165deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)) 0%, var(--card) 100%);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
-      padding: 12px;
+      border-radius: 18px;
+      box-shadow: var(--surface-shadow-soft);
+      padding: 14px;
       position: sticky;
-      top: 12px;
-      max-height: calc(100vh - 24px);
+      top: 14px;
+      max-height: calc(100vh - 28px);
       overflow: auto;
+      backdrop-filter: blur(8px);
     }
     .nav-title {
-      margin: 0 0 6px;
-      font-size: 16px;
+      margin: 0 0 4px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-family: var(--font-display);
       color: var(--text);
+      opacity: 0.74;
     }
     .nav-copy {
-      margin: 0 0 10px;
+      margin: 0 0 12px;
+      line-height: 1.35;
     }
     .nav-list {
       display: grid;
@@ -233,76 +343,180 @@
       text-align: left;
       width: 100%;
       border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 10px 12px;
+      font-weight: 600;
+      color: var(--text);
+      background: color-mix(in srgb, var(--card) 94%, var(--surface-tint));
+      transition: transform 120ms ease, background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
+      animation: navSlideIn 220ms ease both;
+    }
+    .nav-list .nav-btn:nth-child(1) { animation-delay: 20ms; }
+    .nav-list .nav-btn:nth-child(2) { animation-delay: 35ms; }
+    .nav-list .nav-btn:nth-child(3) { animation-delay: 50ms; }
+    .nav-list .nav-btn:nth-child(4) { animation-delay: 65ms; }
+    .nav-list .nav-btn:nth-child(5) { animation-delay: 80ms; }
+    .nav-list .nav-btn:nth-child(6) { animation-delay: 95ms; }
+    .nav-list .nav-btn:nth-child(7) { animation-delay: 110ms; }
+    .nav-list .nav-btn:nth-child(8) { animation-delay: 125ms; }
+    .nav-list .nav-btn:nth-child(9) { animation-delay: 140ms; }
+    .nav-list .nav-btn:nth-child(10) { animation-delay: 155ms; }
+    .nav-list .nav-btn:nth-child(11) { animation-delay: 170ms; }
+    .nav-list .nav-btn:nth-child(12) { animation-delay: 185ms; }
+    .nav-list .nav-btn:nth-child(13) { animation-delay: 200ms; }
+    .nav-list .nav-btn:nth-child(14) { animation-delay: 215ms; }
+    .nav-list .nav-btn:nth-child(15) { animation-delay: 230ms; }
+    .nav-list .nav-btn:nth-child(16) { animation-delay: 245ms; }
+    .nav-list .nav-btn:nth-child(17) { animation-delay: 260ms; }
+    .nav-list .nav-btn:nth-child(18) { animation-delay: 275ms; }
+    .nav-list .nav-btn:nth-child(19) { animation-delay: 290ms; }
+    .nav-list .nav-btn:nth-child(20) { animation-delay: 305ms; }
+    .nav-list .nav-btn:nth-child(21) { animation-delay: 320ms; }
+    .nav-list .nav-btn:nth-child(22) { animation-delay: 335ms; }
+    .nav-list .nav-btn:nth-child(23) { animation-delay: 350ms; }
+    .nav-list .nav-btn:nth-child(24) { animation-delay: 365ms; }
+    .nav-list .nav-btn:nth-child(25) { animation-delay: 380ms; }
+    }
+    .nav-btn:hover {
+      transform: translateX(2px);
+      border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+      filter: none;
     }
     .nav-btn.active {
-      background: var(--accent);
-      color: #fff;
-      border-color: transparent;
+      background: linear-gradient(140deg, color-mix(in srgb, var(--accent) 72%, #ffffff 8%), color-mix(in srgb, var(--accent-2) 76%, #ffffff 8%));
+      color: #f8feff;
+      border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.2);
     }
     .workspace {
       min-width: 0;
     }
     .workspace-head {
-      background: var(--card);
+      background: linear-gradient(150deg, color-mix(in srgb, var(--card) 90%, var(--surface-tint)), var(--card));
       border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 12px 14px;
-      margin-bottom: 12px;
-      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
+      border-radius: 18px;
+      padding: 15px 16px;
+      margin-bottom: 14px;
+      box-shadow: var(--surface-shadow-soft);
+      backdrop-filter: blur(8px);
     }
     .workspace-head h2 {
       margin: 0 0 2px;
-      font-size: 18px;
+      font-family: var(--font-display);
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      opacity: 0.72;
     }
     .workspace-head p {
       margin: 0;
-      color: var(--muted);
-      font-size: 13px;
+      color: color-mix(in srgb, var(--text) 72%, var(--muted));
+      font-size: 23px;
+      font-family: var(--font-display);
+      font-weight: 700;
+      letter-spacing: 0.01em;
     }
     .workspace-panel {
       display: none;
     }
     .workspace-panel.active {
       display: block;
+      animation: panelFade 220ms ease;
     }
     .card {
-      background: var(--card);
+      background:
+        linear-gradient(170deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)) 0%, var(--card) 100%);
       border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 4px 20px rgba(20, 42, 70, 0.06);
-      padding: 14px;
+      border-radius: 18px;
+      box-shadow: var(--surface-shadow-soft);
+      padding: 16px;
       position: relative;
+      backdrop-filter: blur(7px);
+      overflow: hidden;
     }
-    .card h2 { margin: 0 0 10px; font-size: 18px; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 40%);
+      opacity: 0.25;
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 24px;
+      font-family: var(--font-display);
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      position: relative;
+      z-index: 1;
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+      position: relative;
+      z-index: 1;
+    }
     input, textarea, button, select {
       font: inherit;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
+      border-radius: 10px;
+      padding: 9px 11px;
+      background: color-mix(in srgb, var(--card) 92%, var(--surface-tint));
+      color: var(--text);
     }
     input, select { flex: 1 1 180px; }
-    textarea { width: 100%; min-height: 86px; }
+    textarea { width: 100%; min-height: 96px; line-height: 1.45; }
+    input:focus,
+    textarea:focus,
+    select:focus,
+    button:focus-visible {
+      outline: none;
+      box-shadow: var(--focus-ring);
+      border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    }
+    input::placeholder,
+    textarea::placeholder {
+      color: color-mix(in srgb, var(--muted) 88%, transparent);
+    }
     button {
-      background: var(--accent);
+      background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent-2) 76%, var(--accent)));
       color: #fff;
       border: none;
       cursor: pointer;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.2);
+      transition: transform 120ms ease, filter 140ms ease, box-shadow 140ms ease;
     }
     button.secondary {
-      background: var(--button-secondary-bg);
+      background: linear-gradient(145deg, var(--button-secondary-bg), color-mix(in srgb, var(--button-secondary-bg) 76%, #000000));
       color: var(--button-secondary-text);
     }
-    button:hover { filter: brightness(1.05); }
+    button:hover {
+      filter: brightness(1.05);
+      transform: translateY(-1px);
+      box-shadow: 0 14px 24px rgba(15, 23, 42, 0.24);
+    }
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+    }
     pre {
       background: var(--pre-bg);
       color: var(--pre-fg);
-      border-radius: 10px;
-      padding: 10px;
+      border-radius: 12px;
+      padding: 12px;
       overflow: auto;
       max-height: none;
-      margin: 8px 0 0;
+      margin: 10px 0 0;
       font-size: 12px;
+      line-height: 1.5;
+      font-family: var(--font-mono);
+      border: 1px solid color-mix(in srgb, var(--pre-fg) 15%, transparent);
     }
     pre[id^="out-"] {
       min-height: 22rem;
@@ -327,10 +541,11 @@
     }
     .db-grid-scroll {
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-radius: 12px;
       overflow: auto;
       max-height: 70vh;
-      background: var(--card);
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-tint) 75%, transparent);
     }
     .db-grid-table {
       width: 100%;
@@ -349,14 +564,14 @@
       position: sticky;
       top: 0;
       z-index: 2;
-      background: var(--card);
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
     }
     .db-grid-table .db-filter-row th {
       top: 35px;
       z-index: 1;
     }
     .db-grid-table tbody tr:nth-child(even) {
-      background: rgba(127, 127, 127, 0.08);
+      background: color-mix(in srgb, var(--accent-2) 10%, transparent);
     }
     .db-sort-btn {
       appearance: none;
@@ -380,19 +595,19 @@
     }
     .inspector-list {
       border: 1px solid var(--border);
-      border-radius: 10px;
-      background: var(--card);
-      padding: 8px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      padding: 10px;
       max-height: 24rem;
       overflow: auto;
-      margin-top: 8px;
+      margin-top: 10px;
     }
     .inspector-card {
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px;
-      margin-bottom: 8px;
-      background: rgba(127, 127, 127, 0.05);
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 10px;
+      background: color-mix(in srgb, var(--accent-2) 8%, transparent);
     }
     .inspector-card:last-child {
       margin-bottom: 0;
@@ -427,23 +642,484 @@
       word-break: break-word;
     }
     .dropzone {
-      border: 2px dashed var(--accent);
-      border-radius: 10px;
-      padding: 16px;
+      border: 2px dashed color-mix(in srgb, var(--accent) 66%, var(--border));
+      border-radius: 12px;
+      padding: 18px;
       text-align: center;
       color: var(--muted);
       background: var(--drop-bg);
+      margin-bottom: 12px;
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+      transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+    }
+    .dropzone.drag {
+      background: var(--drop-drag-bg);
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .import-live {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card) 95%, var(--surface-tint));
+      padding: 12px;
+      margin-bottom: 12px;
+      display: grid;
+      grid-template-columns: 180px minmax(0, 1fr);
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+    .import-live.empty {
+      grid-template-columns: 1fr;
+    }
+    .import-preview {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+      min-height: 232px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 10px;
+    }
+    .import-preview embed,
+    .import-preview iframe {
+      width: 100%;
+      height: 232px;
+      border: 0;
+      background: #fff;
+    }
+    .import-preview img {
+      max-width: 100%;
+      max-height: 232px;
+      object-fit: contain;
+      display: block;
+    }
+    .import-title {
+      margin: 0 0 4px;
+      font-family: var(--font-display);
+      font-size: 16px;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .import-meta {
+      margin: 0 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .import-progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent-2) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent-2) 24%, transparent);
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .import-progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent-2) 72%, var(--accent)));
+      border-radius: inherit;
+      transition: width 180ms ease;
+      position: relative;
+    }
+    .import-progress-bar.active::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.35) 45%, transparent 70%);
+      animation: importShimmer 900ms linear infinite;
+    }
+    .import-status-line {
+      margin: 0 0 8px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+    .import-counters {
+      margin: 0 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 18px;
+    }
+    .import-steps {
+      display: grid;
+      gap: 6px;
       margin-bottom: 10px;
     }
-    .dropzone.drag { background: var(--drop-drag-bg); }
-    .small { color: var(--muted); font-size: 12px; }
+    .import-step {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 7px 9px;
+      background: color-mix(in srgb, var(--card) 92%, var(--surface-tint));
+      font-size: 12px;
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .import-step-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 5px;
+    }
+    .import-step-head strong {
+      font-size: 12px;
+    }
+    .step-progress-track {
+      width: 100%;
+      height: 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--accent-2) 16%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent-2) 24%, transparent);
+      overflow: hidden;
+      margin-bottom: 4px;
+    }
+    .step-progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      transition: width 160ms ease;
+      background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent-2) 72%, var(--accent)));
+      position: relative;
+    }
+    .step-progress-bar.active::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.34) 45%, transparent 70%);
+      animation: importShimmer 900ms linear infinite;
+    }
+    .import-step-detail {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      min-height: 14px;
+    }
+    .import-step .step-badge {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+    }
+    .import-step.pending .step-badge {
+      background: rgba(100, 116, 139, 0.14);
+      border-color: rgba(100, 116, 139, 0.22);
+      color: var(--muted);
+    }
+    .import-step.pending .step-progress-bar {
+      background: rgba(100, 116, 139, 0.32);
+    }
+    .import-step.active .step-badge {
+      background: rgba(14, 116, 144, 0.18);
+      border-color: rgba(14, 116, 144, 0.36);
+      color: #0f6a7d;
+    }
+    .import-step.done .step-badge {
+      background: rgba(20, 150, 90, 0.18);
+      border-color: rgba(20, 150, 90, 0.36);
+      color: #0f7a4f;
+    }
+    .import-step.skipped .step-badge {
+      background: rgba(100, 116, 139, 0.18);
+      border-color: rgba(100, 116, 139, 0.32);
+      color: var(--text);
+    }
+    .import-step.skipped .step-progress-bar {
+      background: rgba(100, 116, 139, 0.5);
+    }
+    .import-step.error .step-badge {
+      background: rgba(180, 35, 24, 0.16);
+      border-color: rgba(180, 35, 24, 0.36);
+      color: #9f1e14;
+    }
+    .import-step.error .step-progress-bar {
+      background: linear-gradient(90deg, #b42318, #9f1e14);
+    }
+    .import-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .import-metric {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 8px;
+      background: color-mix(in srgb, var(--card) 90%, var(--surface-tint));
+    }
+    .import-metric p {
+      margin: 0;
+      line-height: 1.25;
+    }
+    .import-metric .k {
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-family: var(--font-display);
+    }
+    .import-metric .v {
+      font-size: 14px;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+    .import-history-title {
+      margin: 12px 0 7px;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-family: var(--font-display);
+      font-weight: 700;
+    }
+    .import-history {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      padding: 10px;
+      max-height: 17rem;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .import-history-item {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 9px;
+      background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .import-history-item h4 {
+      margin: 0 0 3px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    @keyframes importShimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(200%); }
+    }
+    .small {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      position: relative;
+      z-index: 1;
+    }
     .err { color: var(--error); font-size: 12px; }
+    .metric-grid,
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 12px;
+      margin: 12px 0;
+    }
+    .metric-card {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 11px 12px;
+      background: linear-gradient(160deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)), color-mix(in srgb, var(--accent) 8%, transparent));
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+      position: relative;
+      overflow: hidden;
+    }
+    .metric-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
+      opacity: 0.64;
+    }
+    .metric-label {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.2;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-family: var(--font-display);
+      font-weight: 600;
+    }
+    .metric-value {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid transparent;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .status-ok {
+      background: rgba(20, 150, 90, 0.18);
+      color: #0f7a4f;
+      border-color: rgba(20, 150, 90, 0.36);
+    }
+    .status-warn {
+      background: rgba(217, 119, 6, 0.18);
+      color: #9a5a00;
+      border-color: rgba(217, 119, 6, 0.36);
+    }
+    .status-error {
+      background: rgba(180, 35, 24, 0.16);
+      color: #9f1e14;
+      border-color: rgba(180, 35, 24, 0.36);
+    }
+    .status-neutral {
+      background: rgba(100, 116, 139, 0.18);
+      color: var(--text);
+      border-color: rgba(100, 116, 139, 0.32);
+    }
+    .issue-list {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+    .issue-item {
+      border: 1px solid var(--border);
+      border-left: 4px solid transparent;
+      border-radius: 10px;
+      padding: 10px 11px;
+      background: color-mix(in srgb, var(--card) 88%, var(--surface-tint));
+      font-size: 13px;
+      line-height: 1.35;
+      word-break: break-word;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+    }
+    .issue-item strong {
+      margin-right: 6px;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.02em;
+    }
+    .issue-item.issue-error {
+      border-left-color: #b42318;
+    }
+    .issue-item.issue-warning {
+      border-left-color: #d97706;
+    }
+    .issue-item.issue-info {
+      border-left-color: #475569;
+    }
+    .info-icon {
+      display: inline-flex;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      font-weight: 700;
+      background: var(--help-icon-bg);
+      color: var(--help-icon-fg);
+      cursor: help;
+      user-select: none;
+      line-height: 1;
+      transition: transform 130ms ease, filter 130ms ease;
+    }
+    .info-icon:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.07);
+    }
+    details.raw-json {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--card) 95%, var(--surface-tint));
+      overflow: hidden;
+    }
+    details.raw-json > summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 600;
+      list-style: none;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-family: var(--font-display);
+      padding: 10px 12px;
+      background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+    }
+    details.raw-json > summary::-webkit-details-marker {
+      display: none;
+    }
+    .dashboard-section-title {
+      margin: 13px 0 7px;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-family: var(--font-display);
+    }
+    .vector-card-list {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      padding: 10px;
+      max-height: 22rem;
+      overflow: auto;
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-tint) 75%, transparent);
+    }
+    .vector-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: color-mix(in srgb, var(--accent-2) 9%, transparent);
+      word-break: break-word;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+    }
+    .vector-card h4 {
+      margin: 0 0 5px;
+      font-size: 13px;
+    }
+    .vector-card p {
+      margin: 0;
+      font-size: 12px;
+      color: color-mix(in srgb, var(--muted) 90%, var(--text));
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
     .help-icon {
       position: absolute;
-      top: 10px;
-      right: 10px;
-      width: 28px;
-      height: 28px;
+      top: 12px;
+      right: 12px;
+      width: 30px;
+      height: 30px;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: var(--help-icon-bg);
@@ -454,9 +1130,15 @@
       align-items: center;
       justify-content: center;
       padding: 0;
-      min-width: 28px;
+      min-width: 30px;
+      box-shadow: 0 7px 16px rgba(0, 0, 0, 0.16);
+      transition: transform 140ms ease, filter 140ms ease;
+      z-index: 2;
     }
-    .help-icon:hover { filter: brightness(1.08); }
+    .help-icon:hover {
+      filter: brightness(1.08);
+      transform: translateY(-1px);
+    }
     .help-modal {
       position: fixed;
       inset: 0;
@@ -467,16 +1149,40 @@
       z-index: 999;
       padding: 18px;
     }
-    .help-modal.open { display: flex; }
+    .help-modal.open {
+      display: flex;
+      animation: fadeIn 170ms ease;
+    }
     .help-panel {
       width: min(920px, 100%);
       max-height: 86vh;
       overflow: auto;
-      background: var(--help-panel-bg);
+      background: linear-gradient(170deg, color-mix(in srgb, var(--help-panel-bg) 92%, var(--surface-tint)), var(--help-panel-bg));
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px;
+      border-radius: 14px;
+      padding: 16px;
       box-shadow: 0 24px 60px rgba(12, 25, 41, 0.35);
+      animation: panelFloatIn 190ms ease;
+    }
+    .help-panel::-webkit-scrollbar,
+    .nav-column::-webkit-scrollbar,
+    .vector-card-list::-webkit-scrollbar,
+    .inspector-list::-webkit-scrollbar,
+    .db-grid-scroll::-webkit-scrollbar,
+    pre::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    .help-panel::-webkit-scrollbar-thumb,
+    .nav-column::-webkit-scrollbar-thumb,
+    .vector-card-list::-webkit-scrollbar-thumb,
+    .inspector-list::-webkit-scrollbar-thumb,
+    .db-grid-scroll::-webkit-scrollbar-thumb,
+    pre::-webkit-scrollbar-thumb {
+      background: color-mix(in srgb, var(--accent) 32%, var(--border));
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
     }
     .help-head {
       display: flex;
@@ -491,7 +1197,7 @@
     .help-content ul { margin: 0 0 12px 18px; padding: 0; }
     .help-content li { margin-bottom: 4px; }
     .help-content code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-family: var(--font-mono);
       background: var(--help-code-bg);
       color: var(--help-code-fg);
       border-radius: 4px;
@@ -509,9 +1215,44 @@
       padding: 0;
       border-radius: 0;
     }
+    @keyframes panelFade {
+      from {
+        opacity: 0;
+        transform: translateY(7px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    @keyframes navSlideIn {
+      from {
+        opacity: 0;
+        transform: translateX(-8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    @keyframes panelFloatIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.99);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
     @media (max-width: 980px) {
       .app-shell {
         grid-template-columns: 1fr;
+        padding: 14px 12px 22px;
       }
       .nav-column {
         position: static;
@@ -525,7 +1266,59 @@
       .nav-btn {
         flex: 0 0 auto;
         width: auto;
-        min-width: 170px;
+        min-width: 178px;
+      }
+      .workspace-head p {
+        font-size: 20px;
+      }
+      .card h2 {
+        font-size: 21px;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .workspace-panel.active,
+      .help-panel,
+      .help-modal.open,
+      .nav-btn {
+        animation: none;
+      }
+      button,
+      .help-icon,
+      .nav-btn,
+      .dropzone,
+      .info-icon {
+        transition: none;
+      }
+    }
+    @media (max-width: 640px) {
+      .workspace-head {
+        padding: 13px;
+      }
+      .workspace-head p {
+        font-size: 18px;
+      }
+      .card {
+        padding: 13px;
+      }
+      .metric-grid,
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+      .vector-card-list,
+      .inspector-list {
+        max-height: 18rem;
+      }
+      .import-live {
+        grid-template-columns: 1fr;
+      }
+      .import-preview {
+        min-height: 190px;
+      }
+      .import-preview embed,
+      .import-preview iframe,
+      .import-preview img {
+        height: 190px;
+        max-height: 190px;
       }
     }
   </style>
@@ -533,7 +1326,10 @@
 <body data-theme="harmonious-light">
   <header>
     <div class="header-top">
-      <h1>Stemma Codicum Web</h1>
+      <div class="brand-block">
+        <h1>Stemma Codicum</h1>
+        <p class="hero-subtitle">Source Tracing & Validation.</p>
+      </div>
       <div class="theme-picker">
         <label for="theme-select">Theme</label>
         <select id="theme-select" onchange="setTheme(this.value)">
@@ -545,40 +1341,67 @@
         </select>
       </div>
     </div>
-    <p>CLI-equivalent operations + drag/drop ingest with duplicate detection.</p>
   </header>
   <main class="app-shell">
     <aside class="nav-column">
       <h2 class="nav-title">Functions</h2>
       <p class="small nav-copy">Select a function to open its full panel.</p>
       <div class="nav-list">
+        <button class="secondary nav-btn" type="button" data-pane="dashboard">Home Dashboard</button>
         <button class="secondary nav-btn" type="button" data-pane="project">Project and Health</button>
         <button class="secondary nav-btn" type="button" data-pane="database">Database Explorer</button>
-        <button class="secondary nav-btn" type="button" data-pane="ingest">Ingest</button>
+        <button class="secondary nav-btn" type="button" data-pane="ingest">Import</button>
         <button class="secondary nav-btn" type="button" data-pane="references">References</button>
         <button class="secondary nav-btn" type="button" data-pane="extraction">Extraction</button>
+        <button class="secondary nav-btn" type="button" data-pane="vector">Vector</button>
         <button class="secondary nav-btn" type="button" data-pane="claims">Claims</button>
         <button class="secondary nav-btn" type="button" data-pane="binding">Binding</button>
         <button class="secondary nav-btn" type="button" data-pane="verification">Verification and Reports</button>
         <button class="secondary nav-btn" type="button" data-pane="trace">Trace</button>
         <button class="secondary nav-btn" type="button" data-pane="ceapf">CEAPF</button>
-        <button class="secondary nav-btn" type="button" data-pane="pipeline">Financial Pipeline</button>
       </div>
     </aside>
 
     <section class="workspace">
       <div class="workspace-head">
         <h2 id="workspace-title">Function Workspace</h2>
-        <p id="workspace-subtitle">Project and Health</p>
+        <p id="workspace-subtitle">Home Dashboard</p>
       </div>
+
+      <section class="card workspace-panel" data-pane="dashboard" data-help-key="dashboard">
+      <h2>Home Dashboard</h2>
+      <div class="row">
+        <button onclick="loadDashboard()">Refresh Summary</button>
+        <button class="secondary" onclick="loadDashboard(true)">Refresh + Doctor</button>
+      </div>
+      <p id="dashboard-status" class="small">Load summary to view overall system status.</p>
+      <h3 class="dashboard-section-title">System Snapshot</h3>
+      <div id="dashboard-kpis" class="dashboard-grid"></div>
+      <h3 class="dashboard-section-title">Recent Runs</h3>
+      <div id="dashboard-runs" class="issue-list">
+        <p class="small">No dashboard summary loaded yet.</p>
+      </div>
+      <details class="raw-json">
+        <summary>Raw JSON</summary>
+        <pre id="out-dashboard"></pre>
+      </details>
+      </section>
 
       <section class="card workspace-panel" data-pane="project" data-help-key="project">
       <h2>Project and Health</h2>
       <div class="row">
-        <button onclick="callApi('POST','/api/init',{},'out-project')">Init Project</button>
-        <button class="secondary" onclick="callApi('GET','/api/doctor',null,'out-project')">Doctor</button>
+        <button onclick="runInitProject()">Init Project</button>
+        <button class="secondary" onclick="runDoctor()">Doctor</button>
       </div>
-      <pre id="out-project"></pre>
+      <p id="project-health-status" class="small">Run Doctor to load health diagnostics.</p>
+      <div id="project-health-visual" class="metric-grid"></div>
+      <div id="project-health-issues" class="issue-list">
+        <p class="small">No health issues loaded.</p>
+      </div>
+      <details class="raw-json">
+        <summary>Raw JSON</summary>
+        <pre id="out-project"></pre>
+      </details>
       </section>
 
       <section class="card workspace-panel" data-pane="database" data-help-key="database">
@@ -614,17 +1437,39 @@
       </section>
 
       <section class="card workspace-panel" data-pane="ingest" data-help-key="ingest">
-      <h2>Ingest</h2>
-      <div id="dropzone" class="dropzone">Drag & drop a document here to ingest (dedupe-aware)</div>
+      <h2>Import</h2>
+      <div id="dropzone" class="dropzone">Drag & drop a document here to import (dedupe-aware)</div>
       <div class="row">
         <input id="ingest-path" placeholder="Absolute file path" />
-        <button onclick="ingestPath()">Ingest Path</button>
+        <button onclick="ingestPath()">Import File Path</button>
       </div>
       <div class="row">
         <input id="resources-limit" value="20" />
         <button class="secondary" onclick="listResources()">List Resources</button>
       </div>
-      <pre id="out-ingest"></pre>
+      <div id="import-live" class="import-live empty">
+        <p class="small">Drop a document to begin. This panel will show thumbnail preview, staged progress, extraction/table/vector status, and confirmation metadata.</p>
+      </div>
+      <h3 class="import-history-title">Recent Imports</h3>
+      <div id="import-history" class="import-history">
+        <p class="small">No imports yet.</p>
+      </div>
+      <h3 class="dashboard-section-title">Mass Import (Recursive)</h3>
+      <div class="row">
+        <input id="pipe-root" value="/Volumes/X10/data/Institution" placeholder="Root directory" />
+        <input id="pipe-max" placeholder="Max files (optional)" value="25" />
+        <input id="pipe-timeout" placeholder="Extract timeout sec" value="300" />
+        <select id="pipe-skip">
+          <option value="false">extract enabled</option>
+          <option value="true">skip extraction</option>
+        </select>
+        <button class="secondary" onclick="runMassImport()">Run Mass Import</button>
+      </div>
+      <p class="small">Mass import recursively scans the root path and processes all supported document types.</p>
+      <details class="raw-json">
+        <summary>Raw JSON</summary>
+        <pre id="out-ingest"></pre>
+      </details>
       </section>
 
       <section class="card workspace-panel" data-pane="references" data-help-key="references">
@@ -686,6 +1531,46 @@
       <p id="extract-inspector-copy-status" class="inspector-copy-status"></p>
       <pre id="out-extract"></pre>
       <pre id="out-extract-inspector"></pre>
+      </section>
+
+      <section class="card workspace-panel" data-pane="vector" data-help-key="vector">
+      <h2>Vector Index and Search</h2>
+      <div class="row">
+        <input id="vector-resource-id" placeholder="Resource ID (optional)" />
+        <input id="vector-resource-digest" placeholder="Resource digest (optional)" />
+        <input id="vector-extraction-run-id" placeholder="Extraction run ID (optional)" />
+      </div>
+      <div class="row">
+        <input id="vector-status-limit" value="25" placeholder="Status run limit" />
+        <select id="vector-force">
+          <option value="false">skip if already indexed</option>
+          <option value="true">force re-index</option>
+        </select>
+        <button onclick="vectorIndex()">Index</button>
+        <button class="secondary" onclick="vectorStatus()">Status</button>
+      </div>
+      <div class="row">
+        <input id="vector-backfill-limit-resources" value="100000" placeholder="Backfill limit resources" />
+        <input id="vector-backfill-max-process" placeholder="Backfill max process (optional)" />
+        <button class="secondary" onclick="vectorBackfill()">Backfill</button>
+      </div>
+      <div class="row">
+        <input id="vector-query" placeholder="Semantic query" />
+        <input id="vector-query-limit" value="10" placeholder="Search limit" />
+        <button class="secondary" onclick="vectorSearch()">Search</button>
+      </div>
+      <p id="vector-status-note" class="small">Load status to inspect vector backend health and run history.</p>
+      <div id="vector-summary" class="metric-grid"></div>
+      <div id="vector-runs" class="vector-card-list">
+        <p class="small">No vector runs loaded yet.</p>
+      </div>
+      <div id="vector-search-results" class="vector-card-list">
+        <p class="small">No vector search results yet.</p>
+      </div>
+      <details class="raw-json">
+        <summary>Raw JSON</summary>
+        <pre id="out-vector"></pre>
+      </details>
       </section>
 
       <section class="card workspace-panel" data-pane="claims" data-help-key="claims">
@@ -787,21 +1672,6 @@
       <pre id="out-ceapf"></pre>
       </section>
 
-      <section class="card workspace-panel" data-pane="pipeline" data-help-key="pipeline">
-      <h2>Financial Pipeline</h2>
-      <div class="row">
-        <input id="pipe-root" value="/Volumes/X10/data/Institution" />
-        <input id="pipe-max" placeholder="Max files (optional)" value="25" />
-        <input id="pipe-timeout" placeholder="Extract timeout sec" value="300" />
-        <select id="pipe-skip">
-          <option value="false">extract enabled</option>
-          <option value="true">skip extraction</option>
-        </select>
-        <button onclick="runPipeline()">Run Financial Pass</button>
-      </div>
-      <p class="small">Runs resumably using project state/log files in <code>.stemma/</code>.</p>
-      <pre id="out-pipeline"></pre>
-      </section>
     </section>
   </main>
 
@@ -817,6 +1687,26 @@
 
 <script>
 const HELP_CONTENT = {
+  dashboard: {
+    title: "Home Dashboard",
+    basic: `
+      <p>Use this panel for a single-page summary of core system health and workload state.</p>
+      <ul>
+        <li><code>Refresh Summary</code>: lightweight snapshot (counts + recent runs + vector state).</li>
+        <li><code>Refresh + Doctor</code>: includes full integrity checks.</li>
+      </ul>
+    `,
+    full: `
+      <p>The dashboard is intended for triage and routine checks before deeper workflows.</p>
+      <h4>Recommended cadence</h4>
+      <ul>
+        <li>Use lightweight summary during active work.</li>
+        <li>Use doctor refresh before major ingest/extract batches.</li>
+      </ul>
+      <pre><code>GET /api/dashboard/summary
+GET /api/dashboard/summary?include_doctor=true</code></pre>
+    `,
+  },
   project: {
     title: "Project and Health",
     basic: `
@@ -836,7 +1726,7 @@ const HELP_CONTENT = {
       <h4>When to use</h4>
       <ul>
         <li>Fresh project setup.</li>
-        <li>Before/after long ingestion pipelines.</li>
+        <li>Before/after long import runs.</li>
         <li>To verify DB concurrency settings and archive integrity.</li>
       </ul>
       <h4>Example</h4>
@@ -883,28 +1773,31 @@ Action: View Rows</code></pre>
     `,
   },
   ingest: {
-    title: "Ingest",
+    title: "Import",
     basic: `
       <p>Add source files into immutable archive storage with deduplication.</p>
       <ul>
-        <li>Use drag/drop for quick single-file ingest.</li>
-        <li>Use absolute path ingest for scripted workflows.</li>
+        <li>Use drag/drop for quick single-file import.</li>
+        <li>Use absolute path import for scripted workflows.</li>
+        <li>Use mass import for recursive directory processing.</li>
         <li>Use <code>List Resources</code> to verify digest + metadata.</li>
       </ul>
       <pre><code>Path example:
 /Users/you/downloads/report.pdf</code></pre>
     `,
     full: `
-      <p>Equivalent to <code>stemma ingest ...</code> and <code>stemma resources</code>. The archive is digest-addressed.</p>
+      <p>Equivalent to <code>stemma ingest ...</code>, <code>stemma resources</code>, and bulk import workflows. The archive is digest-addressed.</p>
       <h4>Tips</h4>
       <ul>
         <li>Duplicate file bytes return status <code>duplicate</code> without archive rewrite.</li>
+        <li>Single-file import attempts extraction/vector indexing automatically for extractable media types.</li>
+        <li>Mass import recursively scans a root path and resumes using state/log files under <code>.stemma/</code>.</li>
         <li>Use resources listing to obtain <code>resource.id</code> and digest for downstream steps.</li>
       </ul>
-      <pre><code>Typical pipeline:
-1) Ingest Path
+      <pre><code>Typical flow:
+1) Import file or run mass import
 2) List Resources (limit 20)
-3) Copy resource id or digest into Extraction card</code></pre>
+3) Confirm extraction/vector status in response</code></pre>
     `,
   },
   references: {
@@ -959,6 +1852,28 @@ Digest example: 64-char sha256</code></pre>
 2) List Tables for same digest
 3) Use Inspect Text / Segments / Annotations
 4) Copy table_id into binding selectors if needed</code></pre>
+    `,
+  },
+  vector: {
+    title: "Vector",
+    basic: `
+      <p>Manage vector indexing and semantic search.</p>
+      <ul>
+        <li><code>Index</code>: index latest or specified extraction run for one resource.</li>
+        <li><code>Status</code>: show backend, model, chunk counts, and recent runs.</li>
+        <li><code>Backfill</code>: index missing latest runs in bulk.</li>
+        <li><code>Search</code>: semantic lookup over indexed chunks.</li>
+      </ul>
+    `,
+    full: `
+      <p>This panel wraps <code>/api/vector/index</code>, <code>/api/vector/status</code>, <code>/api/vector/backfill</code>, and <code>/api/vector/search</code>.</p>
+      <h4>Good workflow</h4>
+      <ul>
+        <li>Run extraction first.</li>
+        <li>Index resource or backfill recent candidates.</li>
+        <li>Use status to check chunk/point consistency.</li>
+        <li>Run semantic queries and inspect hit metadata.</li>
+      </ul>
     `,
   },
   claims: {
@@ -1081,31 +1996,6 @@ Digest example: 64-char sha256</code></pre>
 - rebuts
 - undercuts
 - qualifies</code></pre>
-    `,
-  },
-  pipeline: {
-    title: "Financial Pipeline",
-    basic: `
-      <p>Run resumable bulk ingest + extraction over a directory tree.</p>
-      <ul>
-        <li>Set root path and optional max files.</li>
-        <li>Use skip extraction when doing ingest-only passes.</li>
-      </ul>
-      <pre><code>Root example:
-/Volumes/X10/data/Institution</code></pre>
-    `,
-    full: `
-      <p>Use this for production-scale scanning of financial documents.</p>
-      <h4>Behavior notes</h4>
-      <ul>
-        <li>Uses state/log files under <code>.stemma/</code> for resumability.</li>
-        <li>Per-file extraction timeout prevents long hangs.</li>
-        <li>Re-runs process only unprocessed candidates.</li>
-      </ul>
-      <pre><code>Suggested first run:
-- max_files: 25
-- timeout: 300
-- skip_extraction: false</code></pre>
     `,
   },
 };
@@ -1287,6 +2177,388 @@ async function callApi(method, url, body, outId, isFormData=false) {
     }
     throw e;
   }
+}
+
+const HEALTH_FIELD_HELP = {
+  ok: 'Overall result of the full doctor check suite.',
+  checks_run: 'Number of health checks executed in this doctor run.',
+  journal_mode: 'SQLite journal mode. WAL is required for robust concurrent access.',
+  busy_timeout_ms: 'Milliseconds SQLite waits for a lock before failing.',
+  foreign_keys: 'Whether SQLite foreign key constraints are enforced.',
+  synchronous: 'SQLite durability level. Higher values increase durability.',
+  wal_autocheckpoint_pages: 'WAL pages written before automatic checkpoint.',
+  issues: 'Warnings and errors discovered during doctor checks.',
+};
+
+function toSafeInt(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.floor(parsed) : fallback;
+}
+
+function statusClass(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'ok' || normalized === 'healthy' || normalized === 'success' || normalized === 'pass') {
+    return 'status-ok';
+  }
+  if (normalized === 'warning' || normalized === 'warn' || normalized === 'degraded') {
+    return 'status-warn';
+  }
+  if (normalized === 'error' || normalized === 'failed' || normalized === 'fail') {
+    return 'status-error';
+  }
+  return 'status-neutral';
+}
+
+function infoIcon(tooltip) {
+  return `<span class="info-icon" title="${dbEscapeHtml(tooltip || '')}" aria-label="${dbEscapeHtml(tooltip || '')}">?</span>`;
+}
+
+function metricCard(label, valueHtml, helpText='') {
+  return `
+    <article class="metric-card">
+      <p class="metric-label">${dbEscapeHtml(label)}${helpText ? ' ' + infoIcon(helpText) : ''}</p>
+      <p class="metric-value">${valueHtml}</p>
+    </article>
+  `;
+}
+
+function renderIssueList(containerId, issues) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!Array.isArray(issues) || !issues.length) {
+    container.innerHTML = '<p class="small">No issues detected.</p>';
+    return;
+  }
+  container.innerHTML = issues
+    .map((issue) => {
+      const level = String(issue.level || 'info').toLowerCase();
+      const klass = level === 'error' ? 'issue-error' : (level === 'warning' ? 'issue-warning' : 'issue-info');
+      return `<article class="issue-item ${klass}"><strong>${dbEscapeHtml(level)}</strong>${dbEscapeHtml(issue.message || '')}</article>`;
+    })
+    .join('');
+}
+
+function renderProjectHealth(payload) {
+  const statusLine = document.getElementById('project-health-status');
+  const visual = document.getElementById('project-health-visual');
+  if (!statusLine || !visual) return;
+
+  if (!payload || payload.ok === undefined) {
+    statusLine.textContent = 'No health payload loaded.';
+    visual.innerHTML = '';
+    renderIssueList('project-health-issues', []);
+    return;
+  }
+
+  if (payload.db_runtime) {
+    const issues = Array.isArray(payload.issues) ? payload.issues : [];
+    const errorCount = issues.filter((i) => String(i.level || '').toLowerCase() === 'error').length;
+    const warningCount = issues.filter((i) => String(i.level || '').toLowerCase() === 'warning').length;
+    const overall = payload.ok ? (warningCount > 0 ? 'warning' : 'ok') : 'error';
+    statusLine.textContent = `Doctor loaded: ${payload.checks_run || 0} checks, ${errorCount} errors, ${warningCount} warnings.`;
+
+    const runtime = payload.db_runtime || {};
+    const syncCode = Number(runtime.synchronous);
+    const syncName = (
+      syncCode === 0 ? 'OFF' :
+      syncCode === 1 ? 'NORMAL' :
+      syncCode === 2 ? 'FULL' :
+      syncCode === 3 ? 'EXTRA' :
+      `CODE ${dbEscapeHtml(String(syncCode))}`
+    );
+
+    visual.innerHTML = `
+      ${metricCard('Overall', `<span class="status-pill ${statusClass(overall)}">${dbEscapeHtml(overall.toUpperCase())}</span>`, HEALTH_FIELD_HELP.ok)}
+      ${metricCard('Checks Run', dbEscapeHtml(String(payload.checks_run ?? 0)), HEALTH_FIELD_HELP.checks_run)}
+      ${metricCard('Journal Mode', `<span class="status-pill ${statusClass(runtime.journal_mode === 'wal' ? 'ok' : 'warning')}">${dbEscapeHtml(String(runtime.journal_mode || 'unknown').toUpperCase())}</span>`, HEALTH_FIELD_HELP.journal_mode)}
+      ${metricCard('Busy Timeout', `${dbEscapeHtml(String(runtime.busy_timeout_ms ?? 0))} ms`, HEALTH_FIELD_HELP.busy_timeout_ms)}
+      ${metricCard('Foreign Keys', `<span class="status-pill ${statusClass(runtime.foreign_keys ? 'ok' : 'error')}">${runtime.foreign_keys ? 'ENABLED' : 'DISABLED'}</span>`, HEALTH_FIELD_HELP.foreign_keys)}
+      ${metricCard('Synchronous', dbEscapeHtml(syncName), HEALTH_FIELD_HELP.synchronous)}
+      ${metricCard('WAL Auto-checkpoint', `${dbEscapeHtml(String(runtime.wal_autocheckpoint_pages ?? 'n/a'))} pages`, HEALTH_FIELD_HELP.wal_autocheckpoint_pages)}
+      ${metricCard('Issues', dbEscapeHtml(String(issues.length)), HEALTH_FIELD_HELP.issues)}
+    `;
+    renderIssueList('project-health-issues', issues);
+    return;
+  }
+
+  const created = Array.isArray(payload.paths_created) ? payload.paths_created : [];
+  statusLine.textContent = payload.ok
+    ? `Project initialized. ${created.length} path(s) created or repaired.`
+    : 'Project initialization failed.';
+  visual.innerHTML = `
+    ${metricCard('Init Status', `<span class="status-pill ${statusClass(payload.ok ? 'ok' : 'error')}">${payload.ok ? 'READY' : 'FAILED'}</span>`, 'Result of project initialization.')}
+    ${metricCard('Database Path', dbEscapeHtml(String(payload.db_path || 'n/a')), 'SQLite database path used by this project.')}
+    ${metricCard('Paths Created', dbEscapeHtml(String(created.length)), 'Filesystem paths created or repaired by init.')}
+  `;
+  renderIssueList('project-health-issues', []);
+}
+
+async function runInitProject() {
+  const payload = await callApi('POST', '/api/init', {}, 'out-project');
+  renderProjectHealth(payload);
+}
+
+async function runDoctor() {
+  const payload = await callApi('GET', '/api/doctor', null, 'out-project');
+  renderProjectHealth(payload);
+}
+
+function dashboardRunCards(data) {
+  const container = document.getElementById('dashboard-runs');
+  if (!container) return;
+  const extraction = data?.latest?.extraction_run || null;
+  const verification = data?.latest?.verification_run || null;
+  const cards = [];
+  if (extraction) {
+    cards.push(
+      `<article class="issue-item issue-info"><strong>Extraction</strong>run ${dbEscapeHtml(extraction.id)} (${dbEscapeHtml(extraction.status || 'unknown')}) at ${dbEscapeHtml(extraction.created_at || 'n/a')}</article>`
+    );
+  }
+  if (verification) {
+    const counts = verification.result_status_counts || {};
+    const statusSummary = Object.keys(counts).sort().map((k) => `${k}=${counts[k]}`).join(', ') || 'no results';
+    cards.push(
+      `<article class="issue-item issue-info"><strong>Verification</strong>run ${dbEscapeHtml(verification.id)} (${dbEscapeHtml(verification.policy_profile || 'n/a')}) at ${dbEscapeHtml(verification.created_at || 'n/a')} | ${dbEscapeHtml(statusSummary)}</article>`
+    );
+  }
+  if (!cards.length) {
+    container.innerHTML = '<p class="small">No recent extraction or verification runs found.</p>';
+    return;
+  }
+  container.innerHTML = cards.join('');
+}
+
+function renderDashboard(data, includeDoctor) {
+  const statusEl = document.getElementById('dashboard-status');
+  const kpiEl = document.getElementById('dashboard-kpis');
+  if (!statusEl || !kpiEl) return;
+
+  if (!data || data.ok !== true) {
+    statusEl.textContent = 'Failed to load dashboard summary.';
+    kpiEl.innerHTML = '';
+    dashboardRunCards(null);
+    return;
+  }
+
+  const counts = data.counts || {};
+  const vector = data.vector || {};
+  const health = data.health || null;
+  const healthLabel = health
+    ? (health.ok ? (health.warning_count > 0 ? 'WARNING' : 'OK') : 'ERROR')
+    : 'NOT RUN';
+  const healthTone = health
+    ? (health.ok ? (health.warning_count > 0 ? 'warning' : 'ok') : 'error')
+    : 'neutral';
+
+  kpiEl.innerHTML = `
+    ${metricCard('System Health', `<span class="status-pill ${statusClass(healthTone)}">${dbEscapeHtml(healthLabel)}</span>`, 'Doctor status snapshot.')}
+    ${metricCard('Resources', dbEscapeHtml(String(counts.resources ?? 0)), 'Ingested source documents.')}
+    ${metricCard('Claims', dbEscapeHtml(String(counts.claims ?? 0)), 'Claims available for verification.')}
+    ${metricCard('Evidence Bindings', dbEscapeHtml(String(counts.claim_evidence_bindings ?? 0)), 'Claim-to-evidence links.')}
+    ${metricCard('Extraction Runs', dbEscapeHtml(String(counts.extraction_runs ?? 0)), 'Total extraction runs in project history.')}
+    ${metricCard('Verification Runs', dbEscapeHtml(String(counts.verification_runs ?? 0)), 'Total verification runs in project history.')}
+    ${metricCard('Vector Backend', dbEscapeHtml(String(vector.backend || 'n/a')), 'Current vector backend mode.')}
+    ${metricCard('Vector Points', dbEscapeHtml(String(vector.qdrant_points ?? 0)), 'Point count in vector database collection.')}
+  `;
+
+  statusEl.textContent = `Summary refreshed at ${data.generated_at || 'n/a'}${includeDoctor ? ' (doctor included).' : '.'}`;
+  dashboardRunCards(data);
+
+  if (health) {
+    renderProjectHealth(health);
+  }
+}
+
+async function loadDashboard(includeDoctor = false) {
+  const query = includeDoctor ? '?include_doctor=true' : '';
+  const payload = await callApi('GET', `/api/dashboard/summary${query}`, null, 'out-dashboard');
+  renderDashboard(payload, includeDoctor);
+}
+
+function vectorTargetPayload() {
+  const resourceId = (document.getElementById('vector-resource-id').value || '').trim();
+  const resourceDigest = (document.getElementById('vector-resource-digest').value || '').trim();
+  const extractionRunId = (document.getElementById('vector-extraction-run-id').value || '').trim();
+  return {
+    resourceId,
+    resourceDigest,
+    extractionRunId,
+  };
+}
+
+function vectorStatusQuery() {
+  const target = vectorTargetPayload();
+  const limitRaw = document.getElementById('vector-status-limit').value || '25';
+  const limit = Math.max(1, toSafeInt(limitRaw, 25));
+  const params = new URLSearchParams();
+  params.set('limit_runs', String(limit));
+  if (target.resourceId) {
+    params.set('resource_id', target.resourceId);
+  } else if (target.resourceDigest) {
+    params.set('resource_digest', target.resourceDigest);
+  }
+  return params.toString();
+}
+
+function renderVectorStatus(payload) {
+  const note = document.getElementById('vector-status-note');
+  const summary = document.getElementById('vector-summary');
+  const runs = document.getElementById('vector-runs');
+  if (!note || !summary || !runs) return;
+
+  if (!payload || payload.ok !== true) {
+    note.textContent = 'Vector status request failed.';
+    summary.innerHTML = '';
+    runs.innerHTML = '<p class="small">No vector status available.</p>';
+    return;
+  }
+
+  const runList = Array.isArray(payload.runs) ? payload.runs : [];
+  const successCount = runList.filter((r) => r.status === 'success').length;
+  const failedCount = runList.filter((r) => r.status === 'failed').length;
+  const runningCount = runList.filter((r) => r.status === 'running').length;
+  const skippedCount = runList.filter((r) => r.status === 'skipped').length;
+
+  summary.innerHTML = `
+    ${metricCard('Backend', dbEscapeHtml(String(payload.backend || 'n/a')), 'Vector backend currently in use.')}
+    ${metricCard('Collection', dbEscapeHtml(String(payload.collection_name || 'n/a')), 'Qdrant collection name.')}
+    ${metricCard('Embedding Model', dbEscapeHtml(String(payload.embedding_model || 'n/a')), 'Embedding model used for indexing and querying.')}
+    ${metricCard('Chunk Rows', dbEscapeHtml(String(payload.vector_chunk_rows ?? 0)), 'Rows in SQLite vector_chunks table.')}
+    ${metricCard('Distinct Chunks', dbEscapeHtml(String(payload.distinct_chunk_ids ?? 0)), 'Distinct chunk identifiers indexed in SQLite.')}
+    ${metricCard('Vector Points', dbEscapeHtml(String(payload.qdrant_points ?? 0)), 'Point count in vector database.')}
+    ${metricCard('Run Success', dbEscapeHtml(String(successCount)), 'Recent successful vector index runs.')}
+    ${metricCard('Run Failures', dbEscapeHtml(String(failedCount)), 'Recent failed vector index runs.')}
+    ${metricCard('Run Running', dbEscapeHtml(String(runningCount)), 'Recent in-progress vector index runs.')}
+    ${metricCard('Run Skipped', dbEscapeHtml(String(skippedCount)), 'Recent skipped vector index runs.')}
+  `;
+  note.textContent = `Loaded ${runList.length} recent vector run(s).`;
+
+  if (!runList.length) {
+    runs.innerHTML = '<p class="small">No vector runs found.</p>';
+    return;
+  }
+  runs.innerHTML = runList
+    .map((run) => {
+      const tone = run.status === 'success' ? 'ok' : (run.status === 'failed' ? 'error' : (run.status === 'running' ? 'warning' : 'neutral'));
+      const err = run.error_message ? `\nerror: ${run.error_message}` : '';
+      return `
+        <article class="vector-card">
+          <h4><span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(String(run.status || 'unknown').toUpperCase())}</span> ${dbEscapeHtml(run.id || '')}</h4>
+          <p>resource: ${dbEscapeHtml(run.resource_id || 'n/a')}
+extraction_run: ${dbEscapeHtml(run.extraction_run_id || 'n/a')}
+chunks: ${dbEscapeHtml(String(run.chunks_indexed ?? 0))}/${dbEscapeHtml(String(run.chunks_total ?? 0))}
+created: ${dbEscapeHtml(run.created_at || 'n/a')}
+finished: ${dbEscapeHtml(run.finished_at || 'n/a')}${dbEscapeHtml(err)}</p>
+        </article>
+      `;
+    })
+    .join('');
+}
+
+function renderVectorSearch(payload) {
+  const container = document.getElementById('vector-search-results');
+  if (!container) return;
+  if (!payload || payload.ok !== true) {
+    container.innerHTML = '<p class="small">Vector search request failed.</p>';
+    return;
+  }
+  const hits = Array.isArray(payload.hits) ? payload.hits : [];
+  if (!hits.length) {
+    container.innerHTML = '<p class="small">No semantic matches found.</p>';
+    return;
+  }
+  container.innerHTML = hits
+    .map((hit, idx) => `
+      <article class="vector-card">
+        <h4>#${idx + 1} score=${dbEscapeHtml(String(hit.score ?? 'n/a'))}</h4>
+        <p>chunk_id: ${dbEscapeHtml(hit.chunk_id || 'n/a')}
+resource_id: ${dbEscapeHtml(hit.resource_id || 'n/a')}
+extraction_run_id: ${dbEscapeHtml(hit.extraction_run_id || 'n/a')}
+source: ${dbEscapeHtml(hit.source_type || 'n/a')} ${dbEscapeHtml(hit.source_ref || '')}
+page: ${dbEscapeHtml(String(hit.page_index ?? 'n/a'))}
+offsets: ${dbEscapeHtml(String(hit.start_offset ?? 'n/a'))}-${dbEscapeHtml(String(hit.end_offset ?? 'n/a'))}</p>
+        <p>${dbEscapeHtml(String(hit.text_content || ''))}</p>
+      </article>
+    `)
+    .join('');
+}
+
+async function vectorStatus() {
+  const payload = await callApi('GET', `/api/vector/status?${vectorStatusQuery()}`, null, 'out-vector');
+  renderVectorStatus(payload);
+}
+
+async function vectorIndex() {
+  const target = vectorTargetPayload();
+  if (!target.resourceId && !target.resourceDigest) {
+    document.getElementById('out-vector').textContent = JSON.stringify(
+      { error: 'Provide resource ID or resource digest.' },
+      null,
+      2
+    );
+    return;
+  }
+  const payload = await callApi(
+    'POST',
+    '/api/vector/index',
+    {
+      resource_id: target.resourceId || null,
+      resource_digest: target.resourceDigest || null,
+      extraction_run_id: target.extractionRunId || null,
+      force: document.getElementById('vector-force').value === 'true',
+    },
+    'out-vector'
+  );
+  document.getElementById('vector-status-note').textContent = payload.ok
+    ? 'Vector index request completed. Refreshing status...'
+    : 'Vector index request failed.';
+  await vectorStatus();
+}
+
+async function vectorBackfill() {
+  const limitResources = Math.max(1, toSafeInt(document.getElementById('vector-backfill-limit-resources').value, 100000));
+  const maxProcessRaw = (document.getElementById('vector-backfill-max-process').value || '').trim();
+  const maxProcess = maxProcessRaw ? Math.max(1, toSafeInt(maxProcessRaw, 1)) : null;
+  const payload = await callApi(
+    'POST',
+    '/api/vector/backfill',
+    {
+      limit_resources: limitResources,
+      max_process: maxProcess,
+    },
+    'out-vector'
+  );
+  document.getElementById('vector-status-note').textContent = payload.ok
+    ? 'Backfill request completed. Refreshing status...'
+    : 'Backfill request failed.';
+  await vectorStatus();
+}
+
+async function vectorSearch() {
+  const target = vectorTargetPayload();
+  const query = (document.getElementById('vector-query').value || '').trim();
+  const limit = Math.max(1, toSafeInt(document.getElementById('vector-query-limit').value, 10));
+  if (!query) {
+    document.getElementById('out-vector').textContent = JSON.stringify(
+      { error: 'Provide a semantic query string.' },
+      null,
+      2
+    );
+    return;
+  }
+  const payload = await callApi(
+    'POST',
+    '/api/vector/search',
+    {
+      query,
+      limit,
+      resource_id: target.resourceId || null,
+      resource_digest: target.resourceDigest || null,
+      extraction_run_id: target.extractionRunId || null,
+    },
+    'out-vector'
+  );
+  renderVectorSearch(payload);
 }
 
 let dbTables = [];
@@ -1640,15 +2912,941 @@ function dbDescribeTable() {
   });
 }
 
+const IMPORT_STEPS = [
+  { id: 'archive', label: 'Archive & Dedupe' },
+  { id: 'extract', label: 'Text Extraction' },
+  { id: 'tables', label: 'Tables & Annotations' },
+  { id: 'vector', label: 'Vector Index Update' },
+];
+
+let importProgressTimer = null;
+let importCounterTimer = null;
+let importProgressValue = 0;
+let importPreviewUrl = null;
+let importHistoryItems = [];
+
+function importFileSizeText(bytes) {
+  const n = Number(bytes);
+  if (!Number.isFinite(n) || n < 0) return 'unknown size';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function importPathBasename(path) {
+  if (!path) return 'document';
+  const clean = String(path).replace(/\\/g, '/');
+  const parts = clean.split('/');
+  return parts[parts.length - 1] || clean;
+}
+
+function importClearPreviewUrl() {
+  if (importPreviewUrl) {
+    URL.revokeObjectURL(importPreviewUrl);
+    importPreviewUrl = null;
+  }
+}
+
+function importPreviewMarkup(meta) {
+  if (meta && meta.file && meta.file.type && meta.file.type.startsWith('image/')) {
+    importClearPreviewUrl();
+    importPreviewUrl = URL.createObjectURL(meta.file);
+    return `<img src="${importPreviewUrl}" alt="${dbEscapeHtml(meta.file.name || 'import file')}" />`;
+  }
+
+  const name = (meta && meta.name) ? String(meta.name) : '';
+  const looksPdf = (meta && meta.file && meta.file.type === 'application/pdf') || name.toLowerCase().endsWith('.pdf');
+  if (meta && meta.file && looksPdf) {
+    importClearPreviewUrl();
+    importPreviewUrl = URL.createObjectURL(meta.file);
+    return `<embed src="${importPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" />`;
+  }
+
+  const title = dbEscapeHtml(name || 'Document');
+  return `<div><strong>${title}</strong><br /><span class="small">Preview available for dropped PDF/image files.</span></div>`;
+}
+
+function importStepHtml(stepState) {
+  const state = stepState.state || 'pending';
+  const detail = stepState.detail ? dbEscapeHtml(stepState.detail) : '';
+  const stats = stepState.stats ? ` • ${dbEscapeHtml(stepState.stats)}` : '';
+  const progressRaw = Number(stepState.progress);
+  const progress = Number.isFinite(progressRaw)
+    ? Math.max(0, Math.min(100, progressRaw))
+    : (state === 'pending' ? 0 : 100);
+  return `
+    <div class="import-step ${state}">
+      <div class="import-step-head">
+        <strong>${dbEscapeHtml(stepState.label)}</strong>
+        <span class="step-badge">${dbEscapeHtml(state)}</span>
+      </div>
+      <div class="step-progress-track">
+        <div class="step-progress-bar ${state === 'active' ? 'active' : ''}" style="width:${progress}%"></div>
+      </div>
+      <p class="import-step-detail">${detail}${stats}</p>
+    </div>
+  `;
+}
+
+function importRenderHistory() {
+  const el = document.getElementById('import-history');
+  if (!el) return;
+  if (!importHistoryItems.length) {
+    el.innerHTML = '<p class="small">No imports yet.</p>';
+    return;
+  }
+  el.innerHTML = importHistoryItems
+    .map((item) => `
+      <article class="import-history-item">
+        <h4><span class="status-pill ${statusClass(item.statusTone || 'neutral')}">${dbEscapeHtml(item.statusLabel || 'unknown')}</span>${dbEscapeHtml(item.name || 'document')}</h4>
+        <p>${dbEscapeHtml(item.summary || '')}</p>
+      </article>
+    `)
+    .join('');
+}
+
+function importAddHistory(item) {
+  importHistoryItems.unshift(item);
+  if (importHistoryItems.length > 12) importHistoryItems.length = 12;
+  importRenderHistory();
+}
+
+function importStopTimers() {
+  if (importProgressTimer) {
+    clearInterval(importProgressTimer);
+    importProgressTimer = null;
+  }
+  if (importCounterTimer) {
+    clearInterval(importCounterTimer);
+    importCounterTimer = null;
+  }
+}
+
+function importSetProgress(value, active = false) {
+  const bar = document.getElementById('import-progress-bar');
+  if (!bar) return;
+  bar.style.width = `${Math.max(0, Math.min(100, value))}%`;
+  bar.classList.toggle('active', active);
+}
+
+function importRenderLive(meta, opts = {}) {
+  const live = document.getElementById('import-live');
+  if (!live) return;
+  live.classList.remove('empty');
+
+  const stepHtml = Array.isArray(opts.steps) ? opts.steps.map(importStepHtml).join('') : '';
+  const metricHtml = Array.isArray(opts.metrics)
+    ? opts.metrics
+        .map((m) => `
+          <div class="import-metric">
+            <p class="k">${dbEscapeHtml(m.k || '')}</p>
+            <p class="v">${dbEscapeHtml(String(m.v ?? ''))}</p>
+          </div>
+        `)
+        .join('')
+    : '';
+  const actionsHtml = opts.actionsHtml || '';
+
+  live.innerHTML = `
+    <div class="import-preview">${importPreviewMarkup(meta)}</div>
+    <div>
+      <h4 class="import-title">${dbEscapeHtml(opts.title || meta.name || 'Import Job')}</h4>
+      <p class="import-meta">${dbEscapeHtml(opts.meta || '')}</p>
+      <div class="import-progress-track">
+        <div id="import-progress-bar" class="import-progress-bar"></div>
+      </div>
+      <p id="import-status-line" class="import-status-line">${dbEscapeHtml(opts.statusLine || '')}</p>
+      <p id="import-counters" class="import-counters">${dbEscapeHtml(opts.countersLine || '')}</p>
+      <div class="import-steps">${stepHtml}</div>
+      <div class="import-metrics">${metricHtml}</div>
+      ${actionsHtml}
+    </div>
+  `;
+  importSetProgress(opts.progress ?? 0, Boolean(opts.progressActive));
+}
+
+function importStartAnimatedJob(meta) {
+  importStopTimers();
+  importProgressValue = 5;
+  const est = {
+    pages: 0,
+    words: 0,
+    sentences: 0,
+    paragraphs: 0,
+    tables: 0,
+    rows: 0,
+    chunks: 0,
+  };
+  const stepProgress = {
+    archive: 6,
+    extract: 2,
+    tables: 1,
+    vector: 1,
+  };
+  const startMs = Date.now();
+  const startedAt = new Date().toLocaleTimeString();
+  importRenderLive(meta, {
+    title: meta.name || 'Import Job',
+    meta: `${meta.sourceLabel || 'Import'} • started ${startedAt}`,
+    statusLine: 'Uploading and deduplicating document...',
+    countersLine: 'Initializing parser and extraction pipeline...',
+    steps: IMPORT_STEPS.map((s, idx) => ({ ...s, state: idx === 0 ? 'active' : 'pending', progress: idx === 0 ? 8 : 0 })),
+    progress: importProgressValue,
+    progressActive: true,
+  });
+
+  importProgressTimer = setInterval(() => {
+    stepProgress.archive = Math.min(98, stepProgress.archive + (Math.random() * 5.8 + 2.4));
+    stepProgress.extract = Math.min(96, stepProgress.extract + (Math.random() * 4.9 + 1.6));
+    stepProgress.tables = Math.min(95, stepProgress.tables + (Math.random() * 3.8 + 1.2));
+    if (stepProgress.extract > 18 || stepProgress.tables > 14) {
+      stepProgress.vector = Math.min(94, stepProgress.vector + (Math.random() * 3.9 + 1.1));
+    } else {
+      stepProgress.vector = Math.min(20, stepProgress.vector + (Math.random() * 1.1));
+    }
+
+    importProgressValue = Math.min(
+      92,
+      (stepProgress.archive * 0.18)
+      + (stepProgress.extract * 0.34)
+      + (stepProgress.tables * 0.22)
+      + (stepProgress.vector * 0.26)
+    );
+
+    const stageLabel = `Archive ${Math.floor(stepProgress.archive)}% • Text ${Math.floor(stepProgress.extract)}% • Tables ${Math.floor(stepProgress.tables)}% • Vectors ${Math.floor(stepProgress.vector)}%`;
+    const stepStates = IMPORT_STEPS.map((s, idx) => ({
+      ...s,
+      state: (idx === 0 ? stepProgress.archive : (idx === 1 ? stepProgress.extract : (idx === 2 ? stepProgress.tables : stepProgress.vector))) >= 94
+        ? 'done'
+        : 'active',
+      progress: idx === 0
+        ? stepProgress.archive
+        : (idx === 1 ? stepProgress.extract : (idx === 2 ? stepProgress.tables : stepProgress.vector)),
+      detail: idx === 0
+        ? 'Hashing, dedupe check, immutable archive write.'
+        : (idx === 1
+          ? 'Reading pages and parsing canonical text.'
+          : (idx === 2
+            ? 'Building table structures and annotations.'
+            : 'Embedding chunks and updating vector store.')),
+      stats: idx === 1
+        ? `~${est.pages} pages • ~${est.words} words • ~${est.sentences} sentences • ~${est.paragraphs} paragraphs`
+        : (idx === 2
+          ? `~${est.tables} tables • ~${est.rows} rows`
+          : (idx === 3 ? `~${est.chunks} chunks` : '')),
+    }));
+    const status = document.getElementById('import-status-line');
+    if (status) status.textContent = `Running extraction, Docling structure parsing, and vector indexing by default. ${stageLabel}`;
+    const counters = document.getElementById('import-counters');
+    if (counters) {
+      const elapsed = ((Date.now() - startMs) / 1000).toFixed(1);
+      counters.textContent = `Elapsed ${elapsed}s • Pages ~${est.pages} • Words ~${est.words} • Sentences ~${est.sentences} • Paragraphs ~${est.paragraphs} • Tables ~${est.tables} • Rows ~${est.rows} • Vector chunks ~${est.chunks}`;
+    }
+    const steps = document.querySelector('#import-live .import-steps');
+    if (steps) steps.innerHTML = stepStates.map(importStepHtml).join('');
+    importSetProgress(importProgressValue, true);
+  }, 220);
+
+  importCounterTimer = setInterval(() => {
+    est.pages += Math.max(1, Math.floor(Math.random() * 2));
+    est.words += Math.max(90, Math.floor(Math.random() * 240));
+    est.sentences += Math.max(4, Math.floor(Math.random() * 11));
+    est.paragraphs += Math.max(1, Math.floor(Math.random() * 4));
+    est.tables += Math.max(0, Math.floor(Math.random() * 2));
+    est.rows += Math.max(1, Math.floor(Math.random() * 12));
+    est.chunks += Math.max(4, Math.floor(Math.random() * 18));
+  }, 700);
+}
+
+function importStepsFromPayload(payload, vectorPayload) {
+  const extraction = payload?.extraction || {};
+  const summary = extraction.summary || {};
+  const latestVectorRun = Array.isArray(vectorPayload?.runs) && vectorPayload.runs.length
+    ? vectorPayload.runs[0]
+    : null;
+
+  const steps = [];
+  if (payload && payload.ok) {
+    const archiveDetail = payload.status === 'duplicate'
+      ? 'Duplicate detected; existing archive reused.'
+      : 'Document archived and resource record created.';
+    steps.push({
+      ...IMPORT_STEPS[0],
+      state: 'done',
+      progress: 100,
+      detail: archiveDetail,
+      stats: payload?.resource?.digest_sha256 ? `digest ${String(payload.resource.digest_sha256).slice(0, 10)}...` : '',
+    });
+  } else {
+    steps.push({
+      ...IMPORT_STEPS[0],
+      state: 'error',
+      progress: 100,
+      detail: payload?.detail || payload?.error || 'Import failed.',
+    });
+  }
+
+  if (extraction.status === 'extracted') {
+    const pageCount = summary.page_count;
+    const textWords = summary.text_words ?? 0;
+    const textSentences = summary.text_sentences ?? 0;
+    const textParagraphs = summary.text_paragraphs ?? 0;
+    const tableRows = summary.table_rows_total ?? 0;
+    const tableCols = summary.table_cols_total ?? 0;
+    const tableCells = summary.table_cells_total ?? 0;
+    steps.push({
+      ...IMPORT_STEPS[1],
+      state: 'done',
+      progress: 100,
+      detail: pageCount ? `${pageCount} page(s) scanned.` : 'Text extraction completed.',
+      stats: `${textWords} words, ${textSentences} sentences, ${textParagraphs} paragraphs`,
+    });
+    steps.push({
+      ...IMPORT_STEPS[2],
+      state: 'done',
+      progress: 100,
+      detail: `${summary.tables_found ?? 0} tables, ${summary.annotations_persisted ?? 0} annotations.`,
+      stats: `${tableRows} rows, ${tableCols} cols, ${tableCells} cells`,
+    });
+    const vectorState = String(
+      summary.vector_status
+      || extraction?.vector?.status
+      || latestVectorRun?.status
+      || 'skipped'
+    ).toLowerCase();
+    const vectorChunksIndexed = summary.vector_chunks_indexed
+      ?? extraction?.vector?.chunks_indexed
+      ?? latestVectorRun?.chunks_indexed
+      ?? 0;
+    const vectorChunksTotal = summary.vector_chunks_total
+      ?? extraction?.vector?.chunks_total
+      ?? latestVectorRun?.chunks_total
+      ?? 0;
+    const vectorError = summary.vector_error || extraction?.vector?.error || latestVectorRun?.error_message || null;
+    if (vectorState === 'failed') {
+      steps.push({
+        ...IMPORT_STEPS[3],
+        state: 'error',
+        progress: 100,
+        detail: vectorError || 'Vector indexing failed.',
+      });
+    } else if (vectorState === 'success' || vectorState === 'running') {
+      steps.push({
+        ...IMPORT_STEPS[3],
+        state: 'done',
+        progress: 100,
+        detail: `${vectorChunksIndexed}/${vectorChunksTotal} chunks indexed.`,
+        stats: `${vectorPayload?.qdrant_points ?? 0} total vector points`,
+      });
+    } else {
+      steps.push({
+        ...IMPORT_STEPS[3],
+        state: 'skipped',
+        progress: 100,
+        detail: 'Vector indexing not executed.',
+      });
+    }
+    return steps;
+  }
+
+  if (extraction.status === 'failed') {
+    steps.push({
+      ...IMPORT_STEPS[1],
+      state: 'error',
+      progress: 100,
+      detail: extraction.error || 'Extraction failed.',
+    });
+    steps.push({
+      ...IMPORT_STEPS[2],
+      state: 'skipped',
+      progress: 100,
+      detail: 'Skipped due to extraction failure.',
+    });
+    steps.push({
+      ...IMPORT_STEPS[3],
+      state: 'skipped',
+      progress: 100,
+      detail: 'Skipped due to extraction failure.',
+    });
+    return steps;
+  }
+
+  if (extraction.reason === 'already_extracted') {
+    const vectorSummary = extraction.vector || null;
+    const vectorStatus = String(vectorSummary?.status || '').toLowerCase();
+    const vectorRuns = Array.isArray(vectorPayload?.runs) ? vectorPayload.runs : [];
+    steps.push({
+      ...IMPORT_STEPS[1],
+      state: 'done',
+      progress: 100,
+      detail: 'Existing extraction reused.',
+      stats: `run ${extraction.extraction_run_id || 'latest'}`,
+    });
+    steps.push({
+      ...IMPORT_STEPS[2],
+      state: 'done',
+      progress: 100,
+      detail: 'Structured data already available.',
+      stats: `${summary.tables_found ?? 0} tables • ${summary.table_rows_total ?? 0} rows • ${summary.table_cols_total ?? 0} cols • ${summary.table_cells_total ?? 0} cells`,
+    });
+    const hasVectorRuns = vectorRuns.length > 0;
+    const vectorStepState = vectorStatus === 'failed'
+      ? 'error'
+      : ((vectorStatus === 'success' || vectorStatus === 'skipped' || hasVectorRuns) ? 'done' : 'skipped');
+    const vectorDetail = vectorStatus === 'failed'
+      ? (vectorSummary?.error || 'Vector indexing failed while reusing extraction.')
+      : (vectorStatus === 'success'
+        ? `${vectorSummary?.chunks_indexed ?? 0}/${vectorSummary?.chunks_total ?? 0} chunks indexed.`
+        : (vectorStatus === 'skipped'
+          ? 'Existing vector index reused for current extraction.'
+          : (hasVectorRuns ? 'Existing vector runs detected.' : 'No vector runs found for this resource yet.')));
+    steps.push({
+      ...IMPORT_STEPS[3],
+      state: vectorStepState,
+      progress: 100,
+      detail: vectorDetail,
+      stats: (vectorSummary && Number.isFinite(Number(vectorSummary?.chunks_total)))
+        ? `${vectorSummary?.chunks_indexed ?? 0}/${vectorSummary?.chunks_total ?? 0} chunks`
+        : (hasVectorRuns ? `${vectorRuns.length} run(s)` : ''),
+    });
+    return steps;
+  }
+
+  if (extraction.reason === 'media_type_not_extractable') {
+    steps.push({ ...IMPORT_STEPS[1], state: 'skipped', progress: 100, detail: 'Media type is not extractable.' });
+    steps.push({ ...IMPORT_STEPS[2], state: 'skipped', progress: 100, detail: 'No extraction means no table parsing.' });
+    steps.push({ ...IMPORT_STEPS[3], state: 'skipped', progress: 100, detail: 'No extraction means no vector indexing.' });
+    return steps;
+  }
+
+  steps.push({ ...IMPORT_STEPS[1], state: 'skipped', progress: 100, detail: 'Extraction not attempted.' });
+  steps.push({ ...IMPORT_STEPS[2], state: 'skipped', progress: 100, detail: 'Not available.' });
+  steps.push({ ...IMPORT_STEPS[3], state: 'skipped', progress: 100, detail: 'Not available.' });
+  return steps;
+}
+
+function importFinalMetrics(payload, vectorPayload) {
+  const extraction = payload?.extraction || {};
+  const summary = extraction.summary || {};
+  const latestVectorRun = Array.isArray(vectorPayload?.runs) && vectorPayload.runs.length
+    ? vectorPayload.runs[0]
+    : null;
+  const vectorStatus = summary.vector_status || extraction?.vector?.status || latestVectorRun?.status || 'n/a';
+  const vectorChunksIndexed = summary.vector_chunks_indexed
+    ?? extraction?.vector?.chunks_indexed
+    ?? latestVectorRun?.chunks_indexed
+    ?? 0;
+  const vectorChunksTotal = summary.vector_chunks_total
+    ?? extraction?.vector?.chunks_total
+    ?? latestVectorRun?.chunks_total
+    ?? 0;
+  const metrics = [
+    { k: 'Import Status', v: payload?.status || 'unknown' },
+    { k: 'Media Type', v: payload?.resource?.media_type || 'n/a' },
+    { k: 'Pages', v: summary.page_count ?? 0 },
+    { k: 'Words', v: summary.text_words ?? 0 },
+    { k: 'Sentences', v: summary.text_sentences ?? 0 },
+    { k: 'Paragraphs', v: summary.text_paragraphs ?? 0 },
+    { k: 'Tables', v: summary.tables_found ?? 0 },
+    { k: 'Table Rows', v: summary.table_rows_total ?? 0 },
+    { k: 'Table Cols', v: summary.table_cols_total ?? 0 },
+    { k: 'Table Cells', v: summary.table_cells_total ?? 0 },
+    { k: 'Segments', v: summary.segments_persisted ?? 0 },
+    { k: 'Annotations', v: summary.annotations_persisted ?? 0 },
+    { k: 'Vector Status', v: vectorStatus },
+    { k: 'Vector Chunks', v: `${vectorChunksIndexed}/${vectorChunksTotal}` },
+  ];
+  if (vectorPayload && vectorPayload.ok) {
+    metrics.push({ k: 'Vector Runs', v: Array.isArray(vectorPayload.runs) ? vectorPayload.runs.length : 0 });
+    metrics.push({ k: 'Qdrant Points', v: vectorPayload.qdrant_points ?? 0 });
+  }
+  return metrics;
+}
+
+async function importOpenInDatabase(resourceId) {
+  if (!resourceId) return;
+  setActivePane('database');
+  await dbListTables();
+  const select = document.getElementById('db-table-select');
+  if (select) select.value = 'resources';
+  const limit = document.getElementById('db-limit');
+  if (limit) limit.value = '100';
+  const offset = document.getElementById('db-offset');
+  if (offset) offset.value = '0';
+  await dbViewTable();
+  const search = document.getElementById('db-search');
+  if (search) {
+    search.value = resourceId;
+    dbGridState.globalSearch = resourceId;
+    if (dbOutputMode() === 'spreadsheet') dbRenderGrid();
+  }
+}
+
+async function importFinalizeJob(payload, meta) {
+  importStopTimers();
+  importSetProgress(100, false);
+  const basePayload = (payload && typeof payload === 'object') ? payload : {};
+  const resourceId = basePayload?.resource?.id || null;
+  const extractionPayload = (basePayload.extraction && typeof basePayload.extraction === 'object')
+    ? basePayload.extraction
+    : null;
+  const extractionStatus = extractionPayload ? String(extractionPayload.status || '') : '';
+  const needsFallbackExtraction = Boolean(
+    basePayload?.ok
+      && resourceId
+      && (
+        !extractionPayload
+        || !extractionStatus
+        || (extractionStatus === 'skipped' && !extractionPayload.reason)
+      )
+  );
+
+  let finalizedPayload = basePayload;
+  if (needsFallbackExtraction) {
+    const status = document.getElementById('import-status-line');
+    if (status) status.textContent = 'Running extraction pipeline (fallback)...';
+    try {
+      const extractPayload = await callApi(
+        'POST',
+        '/api/extract/run',
+        { resource_id: resourceId, profile: 'default' },
+        null
+      );
+      const extractionSummary = extractPayload?.summary || null;
+      finalizedPayload = {
+        ...basePayload,
+        extraction: extractionSummary
+          ? { attempted: true, status: 'extracted', summary: extractionSummary, source: 'client_fallback' }
+          : { attempted: true, status: 'failed', error: extractPayload?.detail || 'Extraction failed.' },
+      };
+      const runId = extractionSummary?.run_id;
+      if (runId) {
+        const vectorIndex = await callApi(
+          'POST',
+          '/api/vector/index',
+          { resource_id: resourceId, extraction_run_id: runId, force: false },
+          null
+        );
+        if (vectorIndex && vectorIndex.ok && vectorIndex.summary) {
+          const summary = finalizedPayload.extraction?.summary || {};
+          finalizedPayload.extraction.summary = {
+            ...summary,
+            vector_status: vectorIndex.summary.status,
+            vector_chunks_total: vectorIndex.summary.chunks_total,
+            vector_chunks_indexed: vectorIndex.summary.chunks_indexed,
+            vector_error: vectorIndex.summary.error,
+          };
+        }
+      }
+    } catch (e) {
+      finalizedPayload = {
+        ...basePayload,
+        extraction: { attempted: true, status: 'failed', error: String(e), source: 'client_fallback' },
+      };
+    }
+  }
+
+  function hasValue(v) {
+    return v !== undefined && v !== null;
+  }
+
+  function computeTextStats(text) {
+    const content = String(text || '');
+    const words = (content.match(/\b\w+\b/g) || []).length;
+    const sentences = (content.match(/[^.!?\n]+(?:[.!?]+|$)/g) || [])
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+      .length;
+    const paragraphs = content
+      .split(/\n\s*\n+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .length;
+    return { words, sentences, paragraphs };
+  }
+
+  function jsonArrayLength(value) {
+    if (Array.isArray(value)) return value.length;
+    if (typeof value !== 'string') return 0;
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async function enrichExtractionSummary(resourceIdValue, extractionValue) {
+    if (!resourceIdValue || extractionValue?.status !== 'extracted') return extractionValue;
+    const summaryIn = (extractionValue.summary && typeof extractionValue.summary === 'object')
+      ? extractionValue.summary
+      : {};
+    const summary = { ...summaryIn };
+    const runId = summary.run_id;
+
+    const missingTextStats = !hasValue(summary.text_words) || !hasValue(summary.text_sentences) || !hasValue(summary.text_paragraphs);
+    if (missingTextStats || !hasValue(summary.text_chars)) {
+      try {
+        let url = `/api/extract/text?resource_id=${encodeURIComponent(resourceIdValue)}`;
+        if (runId) url += `&extraction_run_id=${encodeURIComponent(runId)}`;
+        const textPayload = await callApi('GET', url, null, null);
+        const doc = textPayload?.document_text || null;
+        if (doc) {
+          const textContent = String(doc.text_content || '');
+          const computed = computeTextStats(textContent);
+          if (!hasValue(summary.text_chars)) summary.text_chars = hasValue(doc.char_count) ? doc.char_count : textContent.length;
+          if (!hasValue(summary.text_words)) summary.text_words = computed.words;
+          if (!hasValue(summary.text_sentences)) summary.text_sentences = computed.sentences;
+          if (!hasValue(summary.text_paragraphs)) summary.text_paragraphs = computed.paragraphs;
+        }
+      } catch (e) {
+      }
+    }
+
+    const missingTableStats = !hasValue(summary.table_rows_total) || !hasValue(summary.table_cols_total) || !hasValue(summary.table_cells_total);
+    if (missingTableStats || !hasValue(summary.tables_found)) {
+      try {
+        const tablesPayload = await callApi(
+          'GET',
+          `/api/extract/tables?resource_id=${encodeURIComponent(resourceIdValue)}&limit=100000`,
+          null,
+          null
+        );
+        const tables = Array.isArray(tablesPayload?.tables) ? tablesPayload.tables : [];
+        if (!hasValue(summary.tables_found)) summary.tables_found = tables.length;
+        if (missingTableStats) {
+          let rows = 0;
+          let cols = 0;
+          let cells = 0;
+          for (const table of tables) {
+            rows += jsonArrayLength(table?.row_headers_json ?? table?.row_headers);
+            cols += jsonArrayLength(table?.col_headers_json ?? table?.col_headers);
+            cells += jsonArrayLength(table?.cells_json ?? table?.cells);
+          }
+          if (!hasValue(summary.table_rows_total)) summary.table_rows_total = rows;
+          if (!hasValue(summary.table_cols_total)) summary.table_cols_total = cols;
+          if (!hasValue(summary.table_cells_total)) summary.table_cells_total = cells;
+        }
+      } catch (e) {
+      }
+    }
+
+    return { ...extractionValue, summary };
+  }
+
+  if (resourceId && finalizedPayload?.extraction) {
+    finalizedPayload = {
+      ...finalizedPayload,
+      extraction: await enrichExtractionSummary(resourceId, finalizedPayload.extraction),
+    };
+  }
+
+  document.getElementById('out-ingest').textContent = JSON.stringify(finalizedPayload, null, 2);
+
+  let vectorPayload = null;
+  if (resourceId) {
+    try {
+      vectorPayload = await callApi('GET', `/api/vector/status?resource_id=${encodeURIComponent(resourceId)}&limit_runs=10`, null, null);
+    } catch (e) {
+      vectorPayload = null;
+    }
+  }
+
+  const steps = importStepsFromPayload(finalizedPayload, vectorPayload);
+  const metrics = importFinalMetrics(finalizedPayload, vectorPayload);
+  const ok = Boolean(finalizedPayload?.ok);
+  const extraction = finalizedPayload?.extraction || {};
+  const summary = extraction.summary || {};
+  const actions = resourceId
+    ? `<div class="row"><button type="button" class="secondary" onclick="importOpenInDatabase('${dbEscapeHtml(resourceId)}')">Open In Database Explorer</button></div>`
+    : '';
+
+  const statusLine = ok
+    ? `Import complete for ${meta.name || 'document'}.`
+    : 'Import failed.';
+  const countersParts = [];
+  if (summary.page_count !== undefined && summary.page_count !== null) countersParts.push(`Pages ${summary.page_count}`);
+  if (summary.text_words !== undefined && summary.text_words !== null) countersParts.push(`Words ${summary.text_words}`);
+  if (summary.text_sentences !== undefined && summary.text_sentences !== null) countersParts.push(`Sentences ${summary.text_sentences}`);
+  if (summary.text_paragraphs !== undefined && summary.text_paragraphs !== null) countersParts.push(`Paragraphs ${summary.text_paragraphs}`);
+  if (summary.tables_found !== undefined && summary.tables_found !== null) countersParts.push(`Tables ${summary.tables_found}`);
+  if (summary.table_rows_total !== undefined && summary.table_rows_total !== null) countersParts.push(`Rows ${summary.table_rows_total}`);
+  if (summary.table_cols_total !== undefined && summary.table_cols_total !== null) countersParts.push(`Cols ${summary.table_cols_total}`);
+  if (summary.table_cells_total !== undefined && summary.table_cells_total !== null) countersParts.push(`Cells ${summary.table_cells_total}`);
+  if (summary.vector_chunks_total !== undefined && summary.vector_chunks_total !== null) {
+    countersParts.push(`Vector chunks ${summary.vector_chunks_indexed ?? 0}/${summary.vector_chunks_total}`);
+  }
+  if (!countersParts.length && extraction.reason === 'already_extracted' && extraction?.vector) {
+    countersParts.push(`Existing extraction reused`);
+    if (extraction.vector.chunks_total !== undefined && extraction.vector.chunks_total !== null) {
+      countersParts.push(`Vector chunks ${extraction.vector.chunks_indexed ?? 0}/${extraction.vector.chunks_total}`);
+    }
+    if (extraction.vector.status) {
+      countersParts.push(`Vector status ${extraction.vector.status}`);
+    }
+  }
+  const counters = countersParts.length
+    ? countersParts.join(' • ')
+    : (extraction.reason === 'media_type_not_extractable'
+      ? 'No extraction/vectorization for this media type.'
+      : 'No extraction summary available.');
+
+  importRenderLive(meta, {
+    title: meta.name || 'Import Job',
+    meta: `${meta.sourceLabel || 'Import'} • ${finalizedPayload?.resource?.id || 'no resource id'}`,
+    statusLine,
+    countersLine: counters,
+    steps,
+    metrics,
+    actionsHtml: actions,
+    progress: 100,
+    progressActive: false,
+  });
+
+  const doneTone = ok ? (steps.some((s) => s.state === 'error') ? 'error' : 'ok') : 'error';
+  importAddHistory({
+    statusTone: doneTone,
+    statusLabel: ok ? 'completed' : 'failed',
+    name: meta.name || finalizedPayload?.uploaded_filename || finalizedPayload?.resource?.original_filename || 'document',
+    summary: resourceId
+      ? `resource=${resourceId} • vector=${summary.vector_status || extraction.status || 'n/a'}`
+      : (finalizedPayload?.detail || finalizedPayload?.error || 'No resource id'),
+  });
+}
+
+function importStreamInitStepState() {
+  const map = {};
+  IMPORT_STEPS.forEach((step) => {
+    map[step.id] = { state: 'pending', progress: 0, detail: '', stats: '' };
+  });
+  return map;
+}
+
+function importStreamStepArray(stepMap) {
+  return IMPORT_STEPS.map((step) => ({
+    ...step,
+    ...(stepMap[step.id] || { state: 'pending', progress: 0, detail: '', stats: '' }),
+  }));
+}
+
+function importStreamOverallProgress(stepMap) {
+  const weights = { archive: 0.2, extract: 0.35, tables: 0.2, vector: 0.25 };
+  let total = 0;
+  let used = 0;
+  Object.entries(weights).forEach(([stage, weight]) => {
+    const step = stepMap[stage];
+    if (!step) return;
+    const raw = Number(step.progress);
+    const value = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+    total += value * weight;
+    used += weight;
+  });
+  if (!used) return 0;
+  return Math.max(0, Math.min(100, Math.round(total / used)));
+}
+
+function importRenderStreamLive(meta, stepMap, statusLine, countersLine='') {
+  importRenderLive(meta, {
+    title: meta.name || 'Import Job',
+    meta: `${meta.sourceLabel || 'Import'} • streaming backend progress`,
+    statusLine: statusLine || 'Import running...',
+    countersLine: countersLine || '',
+    steps: importStreamStepArray(stepMap),
+    metrics: [],
+    progress: importStreamOverallProgress(stepMap),
+    progressActive: true,
+  });
+}
+
+function importApplyStreamStage(stepMap, stagePayload) {
+  const stage = stagePayload?.stage;
+  if (!stage || !stepMap[stage]) return;
+  stepMap[stage] = {
+    ...stepMap[stage],
+    state: stagePayload?.state || stepMap[stage].state || 'pending',
+    progress: Number.isFinite(Number(stagePayload?.progress))
+      ? Number(stagePayload.progress)
+      : stepMap[stage].progress,
+    detail: stagePayload?.detail || stepMap[stage].detail || '',
+    stats: stagePayload?.stats || stepMap[stage].stats || '',
+  };
+}
+
+function importParseSseFrame(frame) {
+  if (!frame || !frame.trim()) return null;
+  let event = 'message';
+  const dataLines = [];
+  frame.split(/\r?\n/).forEach((line) => {
+    if (line.startsWith('event:')) {
+      event = line.slice(6).trim();
+      return;
+    }
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  });
+  const dataRaw = dataLines.join('\n');
+  let data;
+  try {
+    data = dataRaw ? JSON.parse(dataRaw) : {};
+  } catch {
+    data = { detail: dataRaw };
+  }
+  return { event, data };
+}
+
+async function importOpenStream(url, opts) {
+  const attempts = candidateApiUrls(url);
+  let lastPayload = null;
+  for (const attemptUrl of attempts) {
+    const res = await fetch(attemptUrl, opts);
+    if (res.status === 404) {
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      lastPayload = contentType.includes('application/json') ? await res.json() : { detail: await res.text() };
+      continue;
+    }
+    if (!res.ok) {
+      const contentType = (res.headers.get('content-type') || '').toLowerCase();
+      const payload = contentType.includes('application/json') ? await res.json() : { detail: await res.text() };
+      throw new Error(payload?.detail || `HTTP ${res.status}`);
+    }
+    return res;
+  }
+  throw new Error(lastPayload?.detail || `Stream endpoint not found for ${url}`);
+}
+
+async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=false, fallbackRequestFn=null) {
+  const stepMap = importStreamInitStepState();
+  importStopTimers();
+  importRenderStreamLive(meta, stepMap, 'Starting import...');
+
+  const opts = { method: 'POST', headers: { Accept: 'text/event-stream' } };
+  if (body !== null && body !== undefined) {
+    if (isFormData) {
+      opts.body = body;
+    } else {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+  }
+
+  let finalPayload = null;
+  let statusLine = 'Import running...';
+  let countersLine = '';
+
+  try {
+    const response = await importOpenStream(streamUrl, opts);
+    if (!response.body) throw new Error('Streaming response body is unavailable.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let done = false;
+    while (!done) {
+      const read = await reader.read();
+      done = Boolean(read.done);
+      buffer += decoder.decode(read.value || new Uint8Array(), { stream: !done });
+
+      let split = buffer.indexOf('\n\n');
+      while (split >= 0) {
+        const frame = buffer.slice(0, split);
+        buffer = buffer.slice(split + 2);
+        split = buffer.indexOf('\n\n');
+
+        const parsed = importParseSseFrame(frame);
+        if (!parsed) continue;
+        const { event, data } = parsed;
+        if (event === 'stage') {
+          importApplyStreamStage(stepMap, data || {});
+          const stageLabel = (data?.stage || '').replace(/^\w/, (c) => c.toUpperCase());
+          statusLine = data?.detail || (stageLabel ? `${stageLabel} in progress...` : statusLine);
+          countersLine = data?.stats || countersLine;
+          importRenderStreamLive(meta, stepMap, statusLine, countersLine);
+          continue;
+        }
+        if (event === 'payload') {
+          finalPayload = data || null;
+          continue;
+        }
+        if (event === 'error') {
+          throw new Error(data?.error || data?.detail || 'Import stream failed.');
+        }
+      }
+    }
+  } catch (e) {
+    if (fallbackRequestFn) {
+      return importRunWithVisuals(meta, fallbackRequestFn);
+    }
+    throw e;
+  }
+
+  if (!finalPayload) {
+    if (fallbackRequestFn) {
+      return importRunWithVisuals(meta, fallbackRequestFn);
+    }
+    throw new Error('Import stream finished without a payload.');
+  }
+  await importFinalizeJob(finalPayload, meta);
+}
+
+async function importRunWithVisuals(meta, requestFn) {
+  importStartAnimatedJob(meta);
+  try {
+    const payload = await requestFn();
+    await importFinalizeJob(payload, meta);
+  } catch (e) {
+    importStopTimers();
+    const message = String(e);
+    importRenderLive(meta, {
+      title: meta.name || 'Import Job',
+      meta: `${meta.sourceLabel || 'Import'} • failed`,
+      statusLine: 'Import failed before completion.',
+      countersLine: '',
+      steps: [
+        { ...IMPORT_STEPS[0], state: 'error', detail: message },
+        { ...IMPORT_STEPS[1], state: 'skipped', detail: 'Skipped' },
+        { ...IMPORT_STEPS[2], state: 'skipped', detail: 'Skipped' },
+        { ...IMPORT_STEPS[3], state: 'skipped', detail: 'Skipped' },
+      ],
+      metrics: [],
+      progress: 100,
+      progressActive: false,
+    });
+    document.getElementById('out-ingest').textContent = JSON.stringify({ error: message }, null, 2);
+    importAddHistory({
+      statusTone: 'error',
+      statusLabel: 'failed',
+      name: meta.name || 'document',
+      summary: message,
+    });
+  }
+}
+
 async function ingestPath() {
-  await callApi('POST', '/api/ingest/path', {
-    path: document.getElementById('ingest-path').value
-  }, 'out-ingest');
+  const path = (document.getElementById('ingest-path').value || '').trim();
+  if (!path) {
+    document.getElementById('out-ingest').textContent = JSON.stringify({ error: 'Provide an absolute file path.' }, null, 2);
+    return;
+  }
+  await importRunWithStreamVisuals(
+    { name: importPathBasename(path), sourceLabel: 'Path Import', path },
+    '/api/ingest/path/stream',
+    { path },
+    false,
+    () => callApi('POST', '/api/ingest/path', { path }, null)
+  );
 }
 
 async function listResources() {
   const limit = encodeURIComponent(document.getElementById('resources-limit').value || '20');
-  await callApi('GET', `/api/resources?limit=${limit}`, null, 'out-ingest');
+  const payload = await callApi('GET', `/api/resources?limit=${limit}`, null, 'out-ingest');
+  if (!payload || payload.ok !== true || !Array.isArray(payload.resources)) return;
+  importHistoryItems = payload.resources.slice(0, 12).map((r) => ({
+    statusTone: 'neutral',
+    statusLabel: 'resource',
+    name: r.original_filename || r.id,
+    summary: `id=${r.id} • digest=${String(r.digest_sha256 || '').slice(0, 12)}...`,
+  }));
+  importRenderHistory();
 }
 
 async function importBib() {
@@ -2040,14 +4238,86 @@ async function listPropositions() {
   await callApi('GET', '/api/ceapf/propositions', null, 'out-ceapf');
 }
 
-async function runPipeline() {
+async function runMassImport() {
   const maxRaw = document.getElementById('pipe-max').value.trim();
-  await callApi('POST', '/api/pipeline/financial-pass', {
-    root: document.getElementById('pipe-root').value,
-    max_files: maxRaw ? Number(maxRaw) : null,
-    skip_extraction: document.getElementById('pipe-skip').value === 'true',
-    extract_timeout_seconds: Number(document.getElementById('pipe-timeout').value || '300')
-  }, 'out-pipeline');
+  const root = (document.getElementById('pipe-root').value || '').trim();
+  if (!root) {
+    document.getElementById('out-ingest').textContent = JSON.stringify({ error: 'Provide a root path for mass import.' }, null, 2);
+    return;
+  }
+  importStartAnimatedJob({
+    name: importPathBasename(root),
+    sourceLabel: 'Mass Import',
+  });
+  let payload;
+  try {
+    payload = await callApi('POST', '/api/import/mass', {
+      root,
+      max_files: maxRaw ? Number(maxRaw) : null,
+      skip_extraction: document.getElementById('pipe-skip').value === 'true',
+      extract_timeout_seconds: Number(document.getElementById('pipe-timeout').value || '300')
+    }, 'out-ingest');
+  } catch (e) {
+    importStopTimers();
+    const message = String(e);
+    importRenderLive(
+      { name: importPathBasename(root), sourceLabel: 'Mass Import' },
+      {
+        title: `Mass Import: ${importPathBasename(root)}`,
+        meta: 'Recursive import run failed.',
+        statusLine: 'Mass import failed before completion.',
+        countersLine: '',
+        steps: [
+          { ...IMPORT_STEPS[0], state: 'error', detail: message },
+          { ...IMPORT_STEPS[1], state: 'skipped', detail: 'Skipped' },
+          { ...IMPORT_STEPS[2], state: 'skipped', detail: 'Skipped' },
+          { ...IMPORT_STEPS[3], state: 'skipped', detail: 'Skipped' },
+        ],
+        metrics: [],
+        progress: 100,
+        progressActive: false,
+      }
+    );
+    importAddHistory({
+      statusTone: 'error',
+      statusLabel: 'failed',
+      name: importPathBasename(root),
+      summary: message,
+    });
+    return;
+  }
+  importStopTimers();
+
+  const stats = payload?.stats || {};
+  importRenderLive(
+    { name: importPathBasename(root), sourceLabel: 'Mass Import' },
+    {
+      title: `Mass Import: ${importPathBasename(root)}`,
+      meta: 'Recursive import run complete.',
+      statusLine: payload?.ok ? 'Mass import completed.' : 'Mass import failed.',
+      countersLine: `Processed ${stats.processed ?? 0} file(s), extracted ${stats.extracted ?? 0}, failures ${stats.failed ?? 0}.`,
+      steps: [
+        { ...IMPORT_STEPS[0], state: 'done', detail: `${stats.ingested ?? 0} ingested, ${stats.duplicates ?? 0} duplicates.` },
+        { ...IMPORT_STEPS[1], state: (stats.extracted ?? 0) > 0 ? 'done' : 'skipped', detail: `${stats.extracted ?? 0} extracted.` },
+        { ...IMPORT_STEPS[2], state: 'done', detail: 'Batch summaries written to log/state files.' },
+        { ...IMPORT_STEPS[3], state: 'done', detail: 'Vector indexing occurs for extracted resources.' },
+      ],
+      metrics: [
+        { k: 'Candidates', v: stats.candidates ?? 0 },
+        { k: 'Processed', v: stats.processed ?? 0 },
+        { k: 'Extracted', v: stats.extracted ?? 0 },
+        { k: 'Failed', v: stats.failed ?? 0 },
+      ],
+      progress: 100,
+      progressActive: false,
+    }
+  );
+  importAddHistory({
+    statusTone: payload?.ok ? ((stats.failed ?? 0) > 0 ? 'warn' : 'ok') : 'error',
+    statusLabel: payload?.ok ? 'mass run' : 'failed',
+    name: importPathBasename(root),
+    summary: `processed=${stats.processed ?? 0} extracted=${stats.extracted ?? 0} failed=${stats.failed ?? 0}`,
+  });
 }
 
 const dz = document.getElementById('dropzone');
@@ -2059,9 +4329,24 @@ dz.addEventListener('drop', async (e) => {
   const files = e.dataTransfer.files;
   if (!files || !files.length) return;
   const file = files[0];
-  const fd = new FormData();
-  fd.append('file', file);
-  await callApi('POST', '/api/ingest/upload', fd, 'out-ingest', true);
+  const streamFd = new FormData();
+  streamFd.append('file', file);
+  await importRunWithStreamVisuals(
+    {
+      name: file.name || 'Dropped File',
+      sourceLabel: 'Drag-and-drop Import',
+      file,
+      sizeBytes: file.size,
+    },
+    '/api/ingest/upload/stream',
+    streamFd,
+    true,
+    async () => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return callApi('POST', '/api/ingest/upload', fd, null, true);
+    }
+  );
 });
 
 document.getElementById('help-modal').addEventListener('click', (e) => {
@@ -2073,6 +4358,8 @@ installHelpButtons();
 initDbExplorer();
 initResizableOutputs();
 dbListTables();
+loadDashboard();
+vectorStatus();
 </script>
 </body>
 </html>

@@ -11,6 +11,7 @@ from typing import Callable
 from stemmacodicum.application.services.extraction_service import ExtractionService
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
+from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
 
 
 @dataclass(slots=True)
@@ -28,18 +29,7 @@ class PipelineStats:
     state_entries_after: int
 
 
-class FinancialPipelineService:
-    FINANCIAL_KEYWORDS = (
-        "financial",
-        "annual report",
-        "report and accounts",
-        "accounts",
-        "account",
-        "statement",
-        "statements",
-        "funding",
-        "audit",
-    )
+class BatchImportService:
 
     ALLOWED_EXTENSIONS = {
         ".pdf",
@@ -49,17 +39,29 @@ class FinancialPipelineService:
         ".xlsx",
         ".csv",
         ".txt",
+        ".rst",
+        ".adoc",
+        ".tex",
         ".html",
         ".htm",
+        ".xml",
+        ".xhtml",
+        ".svg",
+        ".fb2",
+        ".dita",
+        ".dbk",
+        ".pptx",
+        ".odt",
+        ".ods",
+        ".odp",
+        ".odg",
+        ".epub",
+        ".oxps",
+        ".3mf",
         ".md",
     }
 
-    EXTRACTABLE_MEDIA_TYPES = {
-        "application/pdf",
-        "text/markdown",
-        "text/plain",
-        "text/csv",
-    }
+    EXTRACTABLE_MEDIA_TYPES = set(DoclingAdapter.SUPPORTED_MEDIA_TYPES)
 
     def __init__(
         self,
@@ -75,7 +77,7 @@ class FinancialPipelineService:
         self.state_path = state_path
         self.log_path = log_path
 
-    def find_financial_candidates(self, root: Path) -> list[Path]:
+    def find_candidates(self, root: Path) -> list[Path]:
         root = root.expanduser().resolve()
         files = [p for p in root.rglob("*") if p.is_file()]
 
@@ -83,11 +85,13 @@ class FinancialPipelineService:
         for path in files:
             if path.suffix.lower() not in self.ALLOWED_EXTENSIONS:
                 continue
-            probe = str(path.relative_to(root)).lower().replace("_", " ").replace("-", " ")
-            if any(k in probe for k in self.FINANCIAL_KEYWORDS):
-                matched.append(path)
+            matched.append(path)
 
         return sorted(matched)
+
+    # Backward-compatible alias while external callers migrate naming.
+    def find_financial_candidates(self, root: Path) -> list[Path]:
+        return self.find_candidates(root)
 
     def load_state(self) -> set[str]:
         if not self.state_path.exists():
@@ -117,7 +121,7 @@ class FinancialPipelineService:
         extract_timeout_seconds: int | None = 300,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
     ) -> PipelineStats:
-        candidates = self.find_financial_candidates(root)
+        candidates = self.find_candidates(root)
         processed_set = self.load_state()
         state_entries_before = len(processed_set)
 
@@ -179,7 +183,10 @@ class FinancialPipelineService:
                 parse_elapsed_seconds: float | None = None
                 page_count: int | None = None
                 pages_per_second: float | None = None
-                if run_extraction and ingest.resource.media_type in self.EXTRACTABLE_MEDIA_TYPES:
+                if run_extraction and DoclingAdapter.supports(
+                    ingest.resource.media_type,
+                    ingest.resource.original_filename,
+                ):
                     already = self.extraction_repo.list_recent_runs(ingest.resource.id, limit=1)
                     if already:
                         skipped_extraction += 1
@@ -278,6 +285,10 @@ class FinancialPipelineService:
         if callback is None:
             return
         callback(payload)
+
+
+# Backward-compatible export.
+FinancialPipelineService = BatchImportService
 
 
 @contextmanager

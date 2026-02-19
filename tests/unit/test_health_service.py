@@ -28,7 +28,7 @@ def test_doctor_passes_for_basic_clean_state(tmp_path: Path) -> None:
 
     report = HealthService(db_path=db_path, archive_dir=archive_dir).run_doctor()
     assert report.ok is True
-    assert report.checks_run == 4
+    assert report.checks_run == 5
     assert report.db_runtime["journal_mode"] == "wal"
     assert report.db_runtime["foreign_keys"] is True
     assert int(report.db_runtime["busy_timeout_ms"]) >= 30_000

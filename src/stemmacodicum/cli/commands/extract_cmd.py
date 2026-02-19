@@ -10,11 +10,17 @@ from rich.table import Table
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
 from stemmacodicum.application.services.project_service import ProjectService
+from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.cli.context import CLIContext
 from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
 from stemmacodicum.core.errors import ProjectNotInitializedError, ValidationError
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.vector_repo import VectorRepo
+from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
+from stemmacodicum.infrastructure.vector.chunking import VectorChunker
+from stemmacodicum.infrastructure.vector.embeddings import EmbeddingConfig, SentenceTransformerEmbedder
+from stemmacodicum.infrastructure.vector.qdrant_store import QdrantLocalStore
 
 
 def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -119,6 +125,14 @@ def _make_service(args: argparse.Namespace, ctx: CLIContext) -> tuple[Extraction
 def _create_service(args: argparse.Namespace, ctx: CLIContext) -> ExtractionService:
     resource_repo = ResourceRepo(ctx.paths.db_path)
     extraction_repo = ExtractionRepo(ctx.paths.db_path)
+    vector_service = VectorIndexingService(
+        resource_repo=resource_repo,
+        extraction_repo=extraction_repo,
+        vector_repo=VectorRepo(ctx.paths.db_path),
+        vector_store=QdrantLocalStore(storage_path=ctx.paths.qdrant_dir),
+        embedder=SentenceTransformerEmbedder(config=EmbeddingConfig()),
+        chunker=VectorChunker(),
+    )
     service = ExtractionService(
         resource_repo=resource_repo,
         extraction_repo=extraction_repo,
@@ -126,6 +140,7 @@ def _create_service(args: argparse.Namespace, ctx: CLIContext) -> ExtractionServ
         docling_runtime_options=get_docling_runtime_options(args)
         if hasattr(args, "docling_auto_tune")
         else None,
+        vector_indexing_service=vector_service,
     )
     return service
 
@@ -174,6 +189,9 @@ def run_extract(args: argparse.Namespace, ctx: CLIContext) -> int:
                         else "Rate: n/a"
                     ),
                     (f"Top timings: {timing_summary}" if timing_summary else "Top timings: n/a"),
+                    (f"Vector index status: {summary.vector_status}" if summary.vector_status else "Vector index status: disabled"),
+                    f"Vector chunks indexed: {summary.vector_chunks_indexed}/{summary.vector_chunks_total}",
+                    (f"Vector error: {summary.vector_error}" if summary.vector_error else "Vector error: none"),
                 ]
             ),
             title="Extraction Summary",
@@ -319,13 +337,6 @@ def run_backfill(args: argparse.Namespace, ctx: CLIContext) -> int:
     resource_repo = ResourceRepo(ctx.paths.db_path)
     extraction_repo = ExtractionRepo(ctx.paths.db_path)
 
-    extractable_media_types = {
-        "application/pdf",
-        "text/markdown",
-        "text/plain",
-        "text/csv",
-    }
-
     resources = resource_repo.list(limit=args.limit_resources)
     scanned = 0
     processed = 0
@@ -346,7 +357,7 @@ def run_backfill(args: argparse.Namespace, ctx: CLIContext) -> int:
             scanned += 1
             progress.update(task, description=f"Backfilling {resource.original_filename}")
 
-            if resource.media_type not in extractable_media_types:
+            if not DoclingAdapter.supports(resource.media_type, resource.original_filename):
                 skipped += 1
                 continue
 

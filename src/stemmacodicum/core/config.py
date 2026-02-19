@@ -11,6 +11,8 @@ class AppPaths:
     stemma_dir: Path
     db_path: Path
     archive_dir: Path
+    vector_dir: Path
+    qdrant_dir: Path
 
 
 DEFAULT_STEMMA_DIRNAME = ".stemma"
@@ -30,4 +32,6 @@ def load_paths(project_root: Path | None = None) -> AppPaths:
         stemma_dir=stemma_dir,
         db_path=stemma_dir / "stemma.db",
         archive_dir=stemma_dir / "archive",
+        vector_dir=stemma_dir / "vector",
+        qdrant_dir=stemma_dir / "vector" / "qdrant",
     )

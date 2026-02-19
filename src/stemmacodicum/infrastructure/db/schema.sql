@@ -272,6 +272,49 @@ CREATE TABLE IF NOT EXISTS argument_relations (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS vector_index_runs (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    extraction_run_id TEXT NOT NULL,
+    vector_backend TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    embedding_model TEXT NOT NULL,
+    embedding_dim INTEGER,
+    chunking_version TEXT NOT NULL,
+    status TEXT NOT NULL,
+    chunks_total INTEGER NOT NULL DEFAULT 0,
+    chunks_indexed INTEGER NOT NULL DEFAULT 0,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS vector_chunks (
+    id TEXT PRIMARY KEY,
+    vector_index_run_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    extraction_run_id TEXT NOT NULL,
+    chunk_id TEXT NOT NULL,
+    vector_point_id TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    source_ref TEXT,
+    page_index INTEGER,
+    start_offset INTEGER,
+    end_offset INTEGER,
+    token_count_est INTEGER,
+    embedding_dim INTEGER NOT NULL,
+    vector_backend TEXT NOT NULL,
+    collection_name TEXT NOT NULL,
+    text_digest_sha256 TEXT NOT NULL,
+    text_content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (vector_index_run_id) REFERENCES vector_index_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT
+);
+
 CREATE INDEX IF NOT EXISTS idx_extraction_runs_resource_created
 ON extraction_runs(resource_id, created_at DESC);
 
@@ -292,6 +335,21 @@ ON text_annotation_spans(annotation_id, span_order);
 
 CREATE INDEX IF NOT EXISTS idx_text_annotation_relations_resource_type
 ON text_annotation_relations(resource_id, relation_type);
+
+CREATE INDEX IF NOT EXISTS idx_vector_index_runs_resource_created
+ON vector_index_runs(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_vector_index_runs_extraction_created
+ON vector_index_runs(extraction_run_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_resource_created
+ON vector_chunks(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_extraction_chunk
+ON vector_chunks(extraction_run_id, chunk_id);
+
+CREATE INDEX IF NOT EXISTS idx_vector_chunks_point
+ON vector_chunks(vector_point_id);
 
 CREATE TRIGGER IF NOT EXISTS block_delete_resources
 BEFORE DELETE ON resources
@@ -417,4 +475,16 @@ CREATE TRIGGER IF NOT EXISTS block_delete_argument_relations
 BEFORE DELETE ON argument_relations
 BEGIN
     SELECT RAISE(ABORT, 'DELETE disabled for argument_relations');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_vector_index_runs
+BEFORE DELETE ON vector_index_runs
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for vector_index_runs');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_vector_chunks
+BEFORE DELETE ON vector_chunks
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for vector_chunks');
 END;

@@ -19,6 +19,7 @@ from stemmacodicum.cli.commands import (
     resources_cmd,
     pipeline_cmd,
     trace_cmd,
+    vector_cmd,
     verify_cmd,
     web_cmd,
 )
@@ -57,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_cmd.register(subparsers)
     ceapf_cmd.register(subparsers)
     pipeline_cmd.register(subparsers)
+    vector_cmd.register(subparsers)
     web_cmd.register(subparsers)
 
     return parser

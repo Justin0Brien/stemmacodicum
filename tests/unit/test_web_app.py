@@ -14,6 +14,8 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
         stemma_dir=project_root / ".stemma",
         db_path=project_root / ".stemma" / "stemma.db",
         archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
     )
 
     app = create_app(paths)
@@ -28,7 +30,10 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     source.write_text("| Item | Value |\n|---|---:|\n| Cash | 5631 |\n", encoding="utf-8")
     r = client.post("/api/ingest/path", json={"path": str(source)})
     assert r.status_code == 200
-    assert r.json()["status"] in {"ingested", "duplicate"}
+    ingest_payload = r.json()
+    assert ingest_payload["status"] in {"ingested", "duplicate"}
+    assert "extraction" in ingest_payload
+    assert ingest_payload["extraction"]["status"] in {"extracted", "skipped", "failed"}
 
     # Upload ingest and dedupe check
     files = {"file": ("upload.txt", b"hello world", "text/plain")}
@@ -39,14 +44,40 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r1.json()["status"] in {"ingested", "duplicate"}
     assert r2.json()["status"] in {"ingested", "duplicate"}
 
+    # Stream ingest (SSE) by path
+    r = client.post("/api/ingest/path/stream", json={"path": str(source)})
+    assert r.status_code == 200
+    stream_text = r.text
+    assert "event: stage" in stream_text
+    assert "event: payload" in stream_text
+    assert '"ok": true' in stream_text
+
+    # Stream ingest (SSE) by upload
+    stream_files = {"file": ("upload-stream.txt", b"stream hello", "text/plain")}
+    r = client.post("/api/ingest/upload/stream", files=stream_files)
+    assert r.status_code == 200
+    stream_text = r.text
+    assert "event: stage" in stream_text
+    assert "event: payload" in stream_text
+    assert '"ok": true' in stream_text
+
     # Resource listing
     r = client.get("/api/resources?limit=10")
     assert r.status_code == 200
     assert r.json()["count"] >= 1
+    resource_payload = r.json()["resources"][0]
+    resource_id = resource_payload["id"]
+
+    # Import now auto-attempts extraction+vector indexing; confirm vector status exists.
+    r = client.get(f"/api/vector/status?resource_id={resource_id}")
+    assert r.status_code == 200
+    assert "runs" in r.json()
 
     # Extract run on first resource
-    resource_id = r.json()["resources"][0]["id"]
     r = client.post("/api/extract/run", json={"resource_id": resource_id})
+    assert r.status_code == 200
+
+    r = client.get(f"/api/vector/status?resource_id={resource_id}")
     assert r.status_code == 200
 
     r = client.get(f"/api/extract/text?resource_id={resource_id}")
@@ -95,6 +126,20 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert "db_runtime" in payload
     assert payload["db_runtime"]["journal_mode"] == "wal"
 
+    r = client.get("/api/dashboard/summary")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["ok"] is True
+    assert "counts" in payload
+    assert "vector" in payload
+    assert payload["health"] is None
+
+    r = client.get("/api/dashboard/summary?include_doctor=true")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["ok"] is True
+    assert payload["health"]["db_runtime"]["journal_mode"] == "wal"
+
     # Database explorer APIs
     r = client.get("/api/db/tables")
     assert r.status_code == 200
@@ -112,13 +157,22 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     r = client.get(f"/api/db/table/?name={first_table}&limit=10&offset=0")
     assert r.status_code == 200
 
-    # Financial pipeline (controlled fixture)
+    # Mass import endpoint (controlled fixture)
     fin_root = tmp_path / "institution"
     fin_root.mkdir(parents=True, exist_ok=True)
     (fin_root / "annual_report_2024.pdf").write_text("fake", encoding="utf-8")
+    r = client.post(
+        "/api/import/mass",
+        json={"root": str(fin_root), "max_files": 5, "skip_extraction": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["stats"]["processed"] >= 1
+
+    # Legacy pipeline alias remains available.
     r = client.post(
         "/api/pipeline/financial-pass",
         json={"root": str(fin_root), "max_files": 5, "skip_extraction": True},
     )
     assert r.status_code == 200
-    assert r.json()["stats"]["processed"] >= 1
+    assert r.json()["stats"]["processed"] >= 0
+    assert r.json()["stats"]["already_processed"] >= 1

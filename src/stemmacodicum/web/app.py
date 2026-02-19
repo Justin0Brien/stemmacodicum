@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import json
+import queue
 import tempfile
+import threading
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 from stemmacodicum.application.services.ceapf_service import CEAPFService
@@ -21,8 +24,10 @@ from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.application.services.reference_service import ReferenceService
 from stemmacodicum.application.services.reporting_service import ReportingService
 from stemmacodicum.application.services.trace_service import TraceService
+from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.application.services.verification_service import VerificationService
 from stemmacodicum.core.config import AppPaths
+from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.citation_repo import CitationRepo
 from stemmacodicum.infrastructure.db.repos.claim_repo import ClaimRepo
@@ -30,8 +35,13 @@ from stemmacodicum.infrastructure.db.repos.evidence_repo import EvidenceRepo
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.reference_repo import ReferenceRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.vector_repo import VectorRepo
 from stemmacodicum.infrastructure.db.repos.verification_repo import VerificationRepo
+from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
 from stemmacodicum.infrastructure.db.sqlite import get_connection
+from stemmacodicum.infrastructure.vector.chunking import VectorChunker
+from stemmacodicum.infrastructure.vector.embeddings import EmbeddingConfig, SentenceTransformerEmbedder
+from stemmacodicum.infrastructure.vector.qdrant_store import QdrantLocalStore
 
 
 class IngestPathRequest(BaseModel):
@@ -103,6 +113,26 @@ class PipelineRequest(BaseModel):
     extract_timeout_seconds: int | None = 300
 
 
+class VectorSearchRequest(BaseModel):
+    query: str
+    limit: int = 10
+    resource_id: str | None = None
+    resource_digest: str | None = None
+    extraction_run_id: str | None = None
+
+
+class VectorIndexRequest(BaseModel):
+    resource_id: str | None = None
+    resource_digest: str | None = None
+    extraction_run_id: str | None = None
+    force: bool = False
+
+
+class VectorBackfillRequest(BaseModel):
+    limit_resources: int = 100000
+    max_process: int | None = None
+
+
 def _jsonable(value: Any) -> Any:
     if is_dataclass(value):
         return asdict(value)
@@ -118,7 +148,7 @@ def _quote_identifier(name: str) -> str:
 
 
 def create_app(paths: AppPaths) -> FastAPI:
-    app = FastAPI(title="Stemma Codicum Web", version="0.1.0")
+    app = FastAPI(title="Stemma Codicum", version="0.1.0")
 
     app.add_middleware(
         CORSMiddleware,
@@ -130,6 +160,7 @@ def create_app(paths: AppPaths) -> FastAPI:
 
     project_service = ProjectService(paths)
     project_service.init_project()
+    vector_service_cache: VectorIndexingService | None = None
 
     def get_resource_repo() -> ResourceRepo:
         return ResourceRepo(paths.db_path)
@@ -154,7 +185,21 @@ def create_app(paths: AppPaths) -> FastAPI:
             resource_repo=get_resource_repo(),
             extraction_repo=get_extraction_repo(),
             archive_dir=paths.archive_dir,
+            vector_indexing_service=get_vector_service(),
         )
+
+    def get_vector_service() -> VectorIndexingService:
+        nonlocal vector_service_cache
+        if vector_service_cache is None:
+            vector_service_cache = VectorIndexingService(
+                resource_repo=get_resource_repo(),
+                extraction_repo=get_extraction_repo(),
+                vector_repo=VectorRepo(paths.db_path),
+                vector_store=QdrantLocalStore(storage_path=paths.qdrant_dir),
+                embedder=SentenceTransformerEmbedder(config=EmbeddingConfig()),
+                chunker=VectorChunker(),
+            )
+        return vector_service_cache
 
     def get_reference_service() -> ReferenceService:
         return ReferenceService(
@@ -185,6 +230,224 @@ def create_app(paths: AppPaths) -> FastAPI:
     def get_reporting_service() -> ReportingService:
         return ReportingService(get_verification_repo())
 
+    def emit_stage(
+        progress_callback: Callable[[dict[str, object]], None] | None,
+        *,
+        stage: str,
+        state: str,
+        progress: int,
+        detail: str,
+        stats: str | None = None,
+    ) -> None:
+        if progress_callback is None:
+            return
+        payload: dict[str, object] = {
+            "stage": stage,
+            "state": state,
+            "progress": max(0, min(100, int(progress))),
+            "detail": detail,
+        }
+        if stats:
+            payload["stats"] = stats
+        progress_callback(payload)
+
+    def maybe_extract_after_import(
+        resource_id: str,
+        media_type: str,
+        original_filename: str | None = None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+    ) -> dict[str, Any]:
+        if not DoclingAdapter.supports(media_type, original_filename):
+            emit_stage(
+                progress_callback,
+                stage="extract",
+                state="skipped",
+                progress=100,
+                detail="Media type is not extractable.",
+            )
+            emit_stage(
+                progress_callback,
+                stage="tables",
+                state="skipped",
+                progress=100,
+                detail="No extraction means no table parsing.",
+            )
+            emit_stage(
+                progress_callback,
+                stage="vector",
+                state="skipped",
+                progress=100,
+                detail="No extraction means no vector indexing.",
+            )
+            return {"attempted": False, "status": "skipped", "reason": "media_type_not_extractable"}
+
+        existing = get_extraction_repo().list_recent_runs(resource_id, limit=1)
+        if existing:
+            emit_stage(
+                progress_callback,
+                stage="extract",
+                state="done",
+                progress=100,
+                detail="Existing extraction reused.",
+                stats=f"run {existing[0].id}",
+            )
+            emit_stage(
+                progress_callback,
+                stage="tables",
+                state="done",
+                progress=100,
+                detail="Structured extraction data already available.",
+            )
+            vector_summary: dict[str, Any] | None = None
+            try:
+                vector_summary = _jsonable(
+                    get_vector_service().index_extraction(
+                        resource_id=resource_id,
+                        extraction_run_id=existing[0].id,
+                        force=False,
+                        progress_callback=progress_callback,
+                    )
+                )
+            except Exception as exc:
+                vector_summary = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "chunks_total": 0,
+                    "chunks_indexed": 0,
+                }
+            return {
+                "attempted": False,
+                "status": "skipped",
+                "reason": "already_extracted",
+                "extraction_run_id": existing[0].id,
+                "vector": vector_summary,
+            }
+
+        try:
+            summary = get_extraction_service().extract_resource(
+                resource_id,
+                progress_callback=progress_callback,
+            )
+        except Exception as exc:
+            emit_stage(
+                progress_callback,
+                stage="extract",
+                state="error",
+                progress=100,
+                detail=f"Extraction failed: {exc}",
+            )
+            emit_stage(
+                progress_callback,
+                stage="tables",
+                state="skipped",
+                progress=100,
+                detail="Skipped due to extraction failure.",
+            )
+            emit_stage(
+                progress_callback,
+                stage="vector",
+                state="skipped",
+                progress=100,
+                detail="Skipped due to extraction failure.",
+            )
+            return {"attempted": True, "status": "failed", "error": str(exc)}
+        return {
+            "attempted": True,
+            "status": "extracted",
+            "summary": _jsonable(summary),
+        }
+
+    def _sse_event(event: str, payload: dict[str, Any]) -> str:
+        return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=True)}\n\n"
+
+    def _stream_import_job(
+        runner: Callable[[Callable[[dict[str, object]], None]], dict[str, Any]]
+    ) -> StreamingResponse:
+        event_queue: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
+
+        def emit(event: str, payload: dict[str, Any]) -> None:
+            event_queue.put((event, payload))
+
+        def worker() -> None:
+            try:
+                emit(
+                    "stage",
+                    {
+                        "stage": "archive",
+                        "state": "active",
+                        "progress": 10,
+                        "detail": "Hashing file and running dedupe checks.",
+                    },
+                )
+                payload = runner(lambda update: emit("stage", dict(update)))
+                emit("payload", payload)
+                emit("done", {"ok": True})
+            except Exception as exc:
+                emit("error", {"error": str(exc)})
+            finally:
+                event_queue.put(None)
+
+        def iterator() -> Iterator[str]:
+            while True:
+                item = event_queue.get()
+                if item is None:
+                    break
+                event, payload = item
+                yield _sse_event(event, payload)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return StreamingResponse(
+            iterator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    def _run_import_file(
+        *,
+        file_path: Path,
+        source_uri: str | None,
+        uploaded_filename: str | None,
+        progress_callback: Callable[[dict[str, object]], None] | None = None,
+    ) -> dict[str, Any]:
+        result = get_ingestion_service().ingest_file(file_path, source_uri=source_uri)
+        archive_detail = (
+            "Duplicate detected; existing archive reused."
+            if result.status == "duplicate"
+            else "Document archived and resource record created."
+        )
+        archive_stats = (
+            f"digest {str(result.resource.digest_sha256)[:10]}..."
+            if result.resource.digest_sha256
+            else None
+        )
+        emit_stage(
+            progress_callback,
+            stage="archive",
+            state="done",
+            progress=100,
+            detail=archive_detail,
+            stats=archive_stats,
+        )
+        extraction = maybe_extract_after_import(
+            resource_id=result.resource.id,
+            media_type=result.resource.media_type,
+            original_filename=result.resource.original_filename,
+            progress_callback=progress_callback,
+        )
+        payload: dict[str, Any] = {
+            "ok": True,
+            "status": result.status,
+            "resource": _jsonable(result.resource),
+            "extraction": extraction,
+        }
+        if uploaded_filename:
+            payload["uploaded_filename"] = uploaded_filename
+        return payload
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         page = Path(__file__).resolve().parent / "static" / "index.html"
@@ -203,9 +466,31 @@ def create_app(paths: AppPaths) -> FastAPI:
     def api_ingest_path(req: IngestPathRequest) -> dict[str, Any]:
         try:
             result = get_ingestion_service().ingest_file(Path(req.path), source_uri=req.source_uri)
+            extraction = maybe_extract_after_import(
+                resource_id=result.resource.id,
+                media_type=result.resource.media_type,
+                original_filename=result.resource.original_filename,
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"ok": True, "status": result.status, "resource": _jsonable(result.resource)}
+        return {
+            "ok": True,
+            "status": result.status,
+            "resource": _jsonable(result.resource),
+            "extraction": extraction,
+        }
+
+    @app.post("/api/ingest/path/stream")
+    def api_ingest_path_stream(req: IngestPathRequest) -> StreamingResponse:
+        source_path = Path(req.path).expanduser().resolve()
+        return _stream_import_job(
+            lambda progress_callback: _run_import_file(
+                file_path=source_path,
+                source_uri=req.source_uri,
+                uploaded_filename=None,
+                progress_callback=progress_callback,
+            )
+        )
 
     @app.post("/api/ingest/upload")
     async def api_ingest_upload(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -221,17 +506,52 @@ def create_app(paths: AppPaths) -> FastAPI:
                 temp_path,
                 source_uri=f"upload:{file.filename or temp_path.name}",
             )
+            extraction = maybe_extract_after_import(
+                resource_id=result.resource.id,
+                media_type=result.resource.media_type,
+                original_filename=result.resource.original_filename,
+            )
             return {
                 "ok": True,
                 "status": result.status,
                 "resource": _jsonable(result.resource),
                 "uploaded_filename": file.filename,
+                "extraction": extraction,
             }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         finally:
             if temp_path and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
+
+    @app.post("/api/ingest/upload/stream")
+    async def api_ingest_upload_stream(file: UploadFile = File(...)) -> StreamingResponse:
+        suffix = Path(file.filename or "upload.bin").suffix
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                temp_path = Path(tmp.name)
+                content = await file.read()
+                tmp.write(content)
+        except Exception as exc:
+            if temp_path and temp_path.exists():
+                temp_path.unlink(missing_ok=True)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        def runner(progress_callback: Callable[[dict[str, object]], None]) -> dict[str, Any]:
+            assert temp_path is not None
+            try:
+                return _run_import_file(
+                    file_path=temp_path,
+                    source_uri=f"upload:{file.filename or temp_path.name}",
+                    uploaded_filename=file.filename,
+                    progress_callback=progress_callback,
+                )
+            finally:
+                if temp_path.exists():
+                    temp_path.unlink(missing_ok=True)
+
+        return _stream_import_job(runner)
 
     @app.get("/api/resources")
     def api_resources(limit: int = Query(default=100, ge=1, le=100000)) -> dict[str, Any]:
@@ -335,6 +655,121 @@ def create_app(paths: AppPaths) -> FastAPI:
     ) -> dict[str, Any]:
         return _db_table_payload(name=name, limit=limit, offset=offset)
 
+    @app.get("/api/dashboard/summary")
+    def api_dashboard_summary(include_doctor: bool = Query(default=False)) -> dict[str, Any]:
+        with get_connection(paths.db_path) as conn:
+            counts = {
+                "resources": int(conn.execute("SELECT COUNT(*) AS c FROM resources").fetchone()["c"]),
+                "citations": int(conn.execute("SELECT COUNT(*) AS c FROM citations").fetchone()["c"]),
+                "references": int(conn.execute("SELECT COUNT(*) AS c FROM reference_entries").fetchone()["c"]),
+                "claims": int(conn.execute("SELECT COUNT(*) AS c FROM claims").fetchone()["c"]),
+                "evidence_items": int(conn.execute("SELECT COUNT(*) AS c FROM evidence_items").fetchone()["c"]),
+                "claim_evidence_bindings": int(
+                    conn.execute("SELECT COUNT(*) AS c FROM claim_evidence_bindings").fetchone()["c"]
+                ),
+                "extraction_runs": int(conn.execute("SELECT COUNT(*) AS c FROM extraction_runs").fetchone()["c"]),
+                "verification_runs": int(conn.execute("SELECT COUNT(*) AS c FROM verification_runs").fetchone()["c"]),
+                "vector_index_runs": int(conn.execute("SELECT COUNT(*) AS c FROM vector_index_runs").fetchone()["c"]),
+                "vector_chunks": int(conn.execute("SELECT COUNT(*) AS c FROM vector_chunks").fetchone()["c"]),
+            }
+
+            latest_extraction_row = conn.execute(
+                """
+                SELECT id, resource_id, parser_name, status, created_at
+                FROM extraction_runs
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            latest_verification_row = conn.execute(
+                """
+                SELECT id, claim_set_id, policy_profile, created_at
+                FROM verification_runs
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+
+            verification_status_counts: dict[str, int] = {}
+            if latest_verification_row is not None:
+                rows = conn.execute(
+                    """
+                    SELECT status, COUNT(*) AS c
+                    FROM verification_results
+                    WHERE run_id = ?
+                    GROUP BY status
+                    ORDER BY status ASC
+                    """,
+                    (str(latest_verification_row["id"]),),
+                ).fetchall()
+                verification_status_counts = {str(row["status"]): int(row["c"]) for row in rows}
+
+        vector_payload = get_vector_service().status(limit_runs=25)
+        run_status_counts: dict[str, int] = {}
+        for run in vector_payload.get("runs", []):
+            status = str(run.get("status") or "unknown")
+            run_status_counts[status] = run_status_counts.get(status, 0) + 1
+
+        health_payload: dict[str, Any] | None = None
+        if include_doctor:
+            report = HealthService(paths.db_path, paths.archive_dir).run_doctor()
+            issues = [_jsonable(i) for i in report.issues]
+            health_payload = {
+                "ok": report.ok,
+                "checks_run": report.checks_run,
+                "warning_count": sum(1 for i in report.issues if i.level == "warning"),
+                "error_count": sum(1 for i in report.issues if i.level == "error"),
+                "db_runtime": _jsonable(report.db_runtime),
+                "issues": issues,
+            }
+
+        return {
+            "ok": True,
+            "generated_at": now_utc_iso(),
+            "project": {
+                "root": str(paths.project_root),
+                "db_path": str(paths.db_path),
+                "archive_dir": str(paths.archive_dir),
+                "qdrant_dir": str(paths.qdrant_dir),
+            },
+            "counts": counts,
+            "latest": {
+                "extraction_run": (
+                    {
+                        "id": latest_extraction_row["id"],
+                        "resource_id": latest_extraction_row["resource_id"],
+                        "parser_name": latest_extraction_row["parser_name"],
+                        "status": latest_extraction_row["status"],
+                        "created_at": latest_extraction_row["created_at"],
+                    }
+                    if latest_extraction_row
+                    else None
+                ),
+                "verification_run": (
+                    {
+                        "id": latest_verification_row["id"],
+                        "claim_set_id": latest_verification_row["claim_set_id"],
+                        "policy_profile": latest_verification_row["policy_profile"],
+                        "created_at": latest_verification_row["created_at"],
+                        "result_status_counts": verification_status_counts,
+                    }
+                    if latest_verification_row
+                    else None
+                ),
+            },
+            "vector": {
+                "backend": vector_payload.get("backend"),
+                "collection_name": vector_payload.get("collection_name"),
+                "embedding_model": vector_payload.get("embedding_model"),
+                "vector_chunk_rows": vector_payload.get("vector_chunk_rows"),
+                "distinct_chunk_ids": vector_payload.get("distinct_chunk_ids"),
+                "qdrant_points": vector_payload.get("qdrant_points"),
+                "run_status_counts": run_status_counts,
+                "runs": vector_payload.get("runs", []),
+            },
+            "health": health_payload,
+        }
+
     @app.post("/api/refs/import-bib")
     def api_refs_import_bib(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         path = payload.get("bib_path")
@@ -378,6 +813,79 @@ def create_app(paths: AppPaths) -> FastAPI:
                 raise ValueError("Provide resource_id or resource_digest")
 
             summary = get_extraction_service().extract_resource(resource_id, parser_profile=req.profile)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "summary": _jsonable(summary)}
+
+    @app.post("/api/vector/index")
+    def api_vector_index(req: VectorIndexRequest) -> dict[str, Any]:
+        try:
+            if req.resource_id:
+                resource_id = req.resource_id
+            elif req.resource_digest:
+                resource = get_resource_repo().get_by_digest(req.resource_digest)
+                if resource is None:
+                    raise ValueError(f"Resource digest not found: {req.resource_digest}")
+                resource_id = resource.id
+            else:
+                raise ValueError("Provide resource_id or resource_digest")
+
+            if req.extraction_run_id:
+                summary = get_vector_service().index_extraction(
+                    resource_id=resource_id,
+                    extraction_run_id=req.extraction_run_id,
+                    force=req.force,
+                )
+            else:
+                summary = get_vector_service().index_latest_for_resource(resource_id=resource_id, force=req.force)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "summary": _jsonable(summary)}
+
+    @app.post("/api/vector/search")
+    def api_vector_search(req: VectorSearchRequest) -> dict[str, Any]:
+        try:
+            resource_id = req.resource_id
+            if resource_id is None and req.resource_digest:
+                resource = get_resource_repo().get_by_digest(req.resource_digest)
+                if resource is None:
+                    raise ValueError(f"Resource digest not found: {req.resource_digest}")
+                resource_id = resource.id
+            hits = get_vector_service().search(
+                query=req.query,
+                limit=req.limit,
+                resource_id=resource_id,
+                extraction_run_id=req.extraction_run_id,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "count": len(hits), "hits": hits}
+
+    @app.get("/api/vector/status")
+    def api_vector_status(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        limit_runs: int = Query(default=50, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        try:
+            resolved_resource_id = resource_id
+            if resolved_resource_id is None and resource_digest:
+                resource = get_resource_repo().get_by_digest(resource_digest)
+                if resource is None:
+                    raise ValueError(f"Resource digest not found: {resource_digest}")
+                resolved_resource_id = resource.id
+            payload = get_vector_service().status(resource_id=resolved_resource_id, limit_runs=limit_runs)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, **payload}
+
+    @app.post("/api/vector/backfill")
+    def api_vector_backfill(req: VectorBackfillRequest) -> dict[str, Any]:
+        try:
+            summary = get_vector_service().backfill_latest(
+                limit_resources=req.limit_resources,
+                max_process=req.max_process,
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "summary": _jsonable(summary)}
@@ -676,14 +1184,13 @@ def create_app(paths: AppPaths) -> FastAPI:
             ],
         }
 
-    @app.post("/api/pipeline/financial-pass")
-    def api_pipeline(req: PipelineRequest) -> dict[str, Any]:
+    def run_mass_import(req: PipelineRequest) -> dict[str, Any]:
         pipeline = FinancialPipelineService(
             ingestion_service=get_ingestion_service(),
             extraction_service=get_extraction_service(),
             extraction_repo=get_extraction_repo(),
-            state_path=paths.stemma_dir / "financial_pass_state.json",
-            log_path=paths.stemma_dir / "financial_pass.log.jsonl",
+            state_path=paths.stemma_dir / "mass_import_state.json",
+            log_path=paths.stemma_dir / "mass_import.log.jsonl",
         )
         try:
             stats = pipeline.run(
@@ -696,5 +1203,13 @@ def create_app(paths: AppPaths) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         return {"ok": True, "stats": _jsonable(stats)}
+
+    @app.post("/api/import/mass")
+    def api_import_mass(req: PipelineRequest) -> dict[str, Any]:
+        return run_mass_import(req)
+
+    @app.post("/api/pipeline/financial-pass")
+    def api_pipeline_legacy(req: PipelineRequest) -> dict[str, Any]:
+        return run_mass_import(req)
 
     return app

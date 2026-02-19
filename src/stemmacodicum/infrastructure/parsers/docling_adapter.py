@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import logging
 import os
@@ -7,9 +8,12 @@ import platform
 import re
 import subprocess
 import time
+import zipfile
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
 from stemmacodicum.core.hashing import compute_bytes_digest
 
@@ -111,12 +115,106 @@ class ParseResult:
     timings: dict[str, float] | None = None
 
 
+class _HTMLTableTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.text_chunks: list[str] = []
+        self.tables: list[list[list[str]]] = []
+        self._in_table = False
+        self._current_table: list[list[str]] | None = None
+        self._current_row: list[str] | None = None
+        self._in_cell = False
+        self._cell_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        normalized = tag.lower()
+        if normalized == "table":
+            self._in_table = True
+            self._current_table = []
+            return
+        if normalized == "tr" and self._in_table:
+            self._current_row = []
+            return
+        if normalized in {"td", "th"} and self._current_row is not None:
+            self._in_cell = True
+            self._cell_parts = []
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(data.split())
+        if not text:
+            return
+        self.text_chunks.append(text)
+        if self._in_cell:
+            self._cell_parts.append(text)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized = tag.lower()
+        if normalized in {"td", "th"} and self._in_cell:
+            value = " ".join(self._cell_parts).strip()
+            if self._current_row is not None:
+                self._current_row.append(value)
+            self._in_cell = False
+            self._cell_parts = []
+            return
+        if normalized == "tr" and self._current_row is not None:
+            if any(cell.strip() for cell in self._current_row):
+                if self._current_table is None:
+                    self._current_table = []
+                self._current_table.append(self._current_row)
+            self._current_row = None
+            return
+        if normalized == "table" and self._in_table:
+            if self._current_table:
+                self.tables.append(self._current_table)
+            self._in_table = False
+            self._current_table = None
+
+
 class DoclingAdapter:
     """
     Parser adapter with two modes:
     - Markdown/plaintext table extraction (always available).
     - PDF extraction via docling (optional, if installed).
     """
+
+    TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".rst", ".adoc", ".tex"}
+    HTML_EXTENSIONS = {".html", ".htm", ".xhtml"}
+    XML_EXTENSIONS = {".xml", ".svg", ".fb2", ".dita", ".dbk"}
+    OOXML_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
+    ODF_EXTENSIONS = {".odt", ".ods", ".odp", ".odg"}
+    ZIP_XML_EXTENSIONS = {".epub", ".oxps", ".3mf"}
+
+    SUPPORTED_EXTENSIONS = {
+        ".pdf",
+        *TEXT_EXTENSIONS,
+        *HTML_EXTENSIONS,
+        *XML_EXTENSIONS,
+        *OOXML_EXTENSIONS,
+        *ODF_EXTENSIONS,
+        *ZIP_XML_EXTENSIONS,
+    }
+
+    SUPPORTED_MEDIA_TYPES = {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "text/html",
+        "application/xhtml+xml",
+        "application/xml",
+        "text/xml",
+        "image/svg+xml",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.text",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+        "application/vnd.oasis.opendocument.graphics",
+        "application/epub+zip",
+        "application/oxps",
+        "model/3mf",
+    }
 
     def __init__(
         self,
@@ -126,7 +224,19 @@ class DoclingAdapter:
         self.profile = profile
         self.runtime_options = runtime_options or DoclingRuntimeOptions()
 
+    @classmethod
+    def supports(cls, media_type: str | None, file_name: str | None = None) -> bool:
+        normalized_media = (media_type or "").strip().lower()
+        if normalized_media in cls.SUPPORTED_MEDIA_TYPES:
+            return True
+        if file_name:
+            suffix = Path(file_name).suffix.lower()
+            if suffix in cls.SUPPORTED_EXTENSIONS:
+                return True
+        return False
+
     def parse_resource(self, file_path: Path, media_type: str) -> ParseResult:
+        suffix = file_path.suffix.lower()
         if media_type == "application/pdf":
             try:
                 return self._parse_pdf_docling(file_path)
@@ -135,10 +245,30 @@ class DoclingAdapter:
                     "Docling is not installed. Install docling to extract PDF tables."
                 ) from exc
 
-        if media_type in {"text/markdown", "text/plain", "text/csv"}:
+        if media_type == "text/csv" or suffix == ".csv":
+            return self._parse_csv_text(file_path, media_type)
+
+        if media_type in {"text/markdown", "text/plain"} or suffix in self.TEXT_EXTENSIONS:
             return self._parse_text_tables(file_path, media_type)
 
-        # Fallback to plain-text scanner for unknown text-like types.
+        if media_type in {"text/html", "application/xhtml+xml"} or suffix in self.HTML_EXTENSIONS:
+            return self._parse_html_markup(file_path, media_type)
+
+        if media_type in {"application/xml", "text/xml", "image/svg+xml"} or suffix in self.XML_EXTENSIONS:
+            return self._parse_xml_markup(file_path, media_type)
+
+        if suffix == ".docx":
+            return self._parse_docx(file_path)
+        if suffix == ".xlsx":
+            return self._parse_xlsx(file_path)
+        if suffix == ".pptx":
+            return self._parse_pptx(file_path)
+        if suffix in self.ODF_EXTENSIONS:
+            return self._parse_odf(file_path, suffix=suffix)
+        if suffix in self.ZIP_XML_EXTENSIONS:
+            return self._parse_zip_xml_bundle(file_path, suffix=suffix)
+
+        # Last-resort fallback for unknown but text-like resources.
         return self._parse_text_tables(file_path, media_type)
 
     def _parse_pdf_docling(self, file_path: Path) -> ParseResult:
@@ -268,6 +398,280 @@ class DoclingAdapter:
             timings=timing_totals,
         )
 
+    def _parse_csv_text(self, file_path: Path, media_type: str) -> ParseResult:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+        rows = list(csv.reader(text.splitlines()))
+        tables: list[ParsedTable] = []
+        if rows:
+            table = self._rows_to_parsed_table(rows, page_index=0, caption=file_path.name)
+            if table is not None:
+                tables.append(table)
+        full_text = "\n".join(" | ".join(row) for row in rows) if rows else text
+        config = {"profile": self.profile, "mode": "csv", "media_type": media_type}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="csv-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_html_markup(self, file_path: Path, media_type: str) -> ParseResult:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+        extractor = _HTMLTableTextExtractor()
+        extractor.feed(text)
+        tables: list[ParsedTable] = []
+        for idx, rows in enumerate(extractor.tables):
+            table = self._rows_to_parsed_table(rows, page_index=idx, caption=f"HTML Table {idx + 1}")
+            if table is not None:
+                tables.append(table)
+        full_text = "\n".join(extractor.text_chunks).strip()
+        if not full_text:
+            full_text = text
+        config = {"profile": self.profile, "mode": "html", "media_type": media_type}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="html-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_xml_markup(self, file_path: Path, media_type: str) -> ParseResult:
+        root = ET.parse(file_path).getroot()
+        text_parts = [" ".join(str(chunk).split()) for chunk in root.itertext() if str(chunk).strip()]
+        full_text = "\n".join(text_parts)
+        tables = self._extract_xml_tables(root)
+        config = {"profile": self.profile, "mode": "xml", "media_type": media_type}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="xml-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_docx(self, file_path: Path) -> ParseResult:
+        with zipfile.ZipFile(file_path, "r") as archive:
+            doc_xml = archive.read("word/document.xml")
+        root = ET.fromstring(doc_xml)
+        text_parts = [self._joined_text(node) for node in root.iter() if self._local_tag(node.tag) == "p"]
+        full_text = "\n".join(part for part in text_parts if part)
+        tables: list[ParsedTable] = []
+        table_idx = 0
+        for tbl in root.iter():
+            if self._local_tag(tbl.tag) != "tbl":
+                continue
+            rows: list[list[str]] = []
+            for tr in tbl:
+                if self._local_tag(tr.tag) != "tr":
+                    continue
+                row: list[str] = []
+                for tc in tr:
+                    if self._local_tag(tc.tag) != "tc":
+                        continue
+                    row.append(self._joined_text(tc))
+                if any(cell.strip() for cell in row):
+                    rows.append(row)
+            table = self._rows_to_parsed_table(rows, page_index=table_idx, caption=f"DOCX Table {table_idx + 1}")
+            if table is not None:
+                tables.append(table)
+                table_idx += 1
+        config = {"profile": self.profile, "mode": "docx_zipxml"}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="docx-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_xlsx(self, file_path: Path) -> ParseResult:
+        with zipfile.ZipFile(file_path, "r") as archive:
+            names = archive.namelist()
+            shared_strings: list[str] = []
+            if "xl/sharedStrings.xml" in names:
+                shared_root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+                for si in shared_root.iter():
+                    if self._local_tag(si.tag) != "si":
+                        continue
+                    shared_strings.append(self._joined_text(si))
+
+            sheet_names = sorted(
+                name for name in names if name.startswith("xl/worksheets/") and name.endswith(".xml")
+            )
+            tables: list[ParsedTable] = []
+            text_parts: list[str] = []
+            for idx, sheet_name in enumerate(sheet_names):
+                sheet_root = ET.fromstring(archive.read(sheet_name))
+                grid: dict[int, dict[int, str]] = {}
+                max_col = 0
+                max_row = 0
+                row_counter = 0
+                for row_node in sheet_root.iter():
+                    if self._local_tag(row_node.tag) != "row":
+                        continue
+                    row_counter += 1
+                    logical_row = int(row_node.attrib.get("r", row_counter))
+                    row_map = grid.setdefault(logical_row, {})
+                    max_row = max(max_row, logical_row)
+                    cell_seq = 0
+                    for cell in row_node:
+                        if self._local_tag(cell.tag) != "c":
+                            continue
+                        cell_seq += 1
+                        ref = cell.attrib.get("r")
+                        col_idx = self._cell_ref_to_col_index(ref) if ref else cell_seq
+                        col_idx = max(1, col_idx)
+                        max_col = max(max_col, col_idx)
+                        row_map[col_idx] = self._worksheet_cell_value(cell, shared_strings)
+                rows: list[list[str]] = []
+                for row_num in range(1, max_row + 1):
+                    row_values: list[str] = []
+                    row_map = grid.get(row_num, {})
+                    for col_num in range(1, max_col + 1):
+                        row_values.append(str(row_map.get(col_num, "")))
+                    if any(v.strip() for v in row_values):
+                        rows.append(row_values)
+                        text_parts.append(" | ".join(row_values))
+                table = self._rows_to_parsed_table(rows, page_index=idx, caption=sheet_name)
+                if table is not None:
+                    tables.append(table)
+            full_text = "\n".join(text_parts)
+        config = {"profile": self.profile, "mode": "xlsx_zipxml"}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="xlsx-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=max(1, len(tables)),
+            timings=None,
+        )
+
+    def _parse_pptx(self, file_path: Path) -> ParseResult:
+        with zipfile.ZipFile(file_path, "r") as archive:
+            slide_names = sorted(
+                name for name in archive.namelist() if name.startswith("ppt/slides/slide") and name.endswith(".xml")
+            )
+            slides: list[str] = []
+            for slide_name in slide_names:
+                root = ET.fromstring(archive.read(slide_name))
+                parts = [node.text or "" for node in root.iter() if self._local_tag(node.tag) == "t"]
+                slide_text = " ".join(part.strip() for part in parts if part and part.strip())
+                if slide_text:
+                    slides.append(slide_text)
+            full_text = "\n\n".join(slides)
+        config = {"profile": self.profile, "mode": "pptx_zipxml"}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="pptx-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=[],
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=max(1, len(slides)),
+            timings=None,
+        )
+
+    def _parse_odf(self, file_path: Path, *, suffix: str) -> ParseResult:
+        with zipfile.ZipFile(file_path, "r") as archive:
+            if "content.xml" not in archive.namelist():
+                raise RuntimeError(f"ODF package missing content.xml: {file_path.name}")
+            root = ET.fromstring(archive.read("content.xml"))
+        text_parts = [" ".join(str(chunk).split()) for chunk in root.itertext() if str(chunk).strip()]
+        full_text = "\n".join(text_parts)
+        tables = self._extract_xml_tables(root)
+        config = {"profile": self.profile, "mode": f"odf_{suffix.lstrip('.')}"}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="odf-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_zip_xml_bundle(self, file_path: Path, *, suffix: str) -> ParseResult:
+        with zipfile.ZipFile(file_path, "r") as archive:
+            names = sorted(archive.namelist())
+            tables: list[ParsedTable] = []
+            text_parts: list[str] = []
+            page_index = 0
+            for name in names:
+                lower = name.lower()
+                if lower.endswith((".html", ".htm", ".xhtml")):
+                    text = archive.read(name).decode("utf-8", errors="replace")
+                    extractor = _HTMLTableTextExtractor()
+                    extractor.feed(text)
+                    if extractor.text_chunks:
+                        text_parts.append("\n".join(extractor.text_chunks))
+                    for rows in extractor.tables:
+                        table = self._rows_to_parsed_table(rows, page_index=page_index, caption=name)
+                        if table is not None:
+                            tables.append(table)
+                            page_index += 1
+                    continue
+                if not lower.endswith(".xml"):
+                    continue
+                try:
+                    root = ET.fromstring(archive.read(name))
+                except Exception:
+                    continue
+                node_text = self._joined_text(root)
+                if node_text:
+                    text_parts.append(node_text)
+                for table in self._extract_xml_tables(root):
+                    table.page_index = page_index
+                    if not table.caption:
+                        table.caption = name
+                    tables.append(table)
+                    page_index += 1
+
+        full_text = "\n\n".join(text_parts)
+        config = {"profile": self.profile, "mode": f"zip_xml_{suffix.lstrip('.')}"}
+        blocks = self._default_blocks_for_text(full_text)
+        return ParseResult(
+            parser_name="zip-xml-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=tables,
+            full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=max(1, len(text_parts)),
+            timings=None,
+        )
+
     def _parse_text_tables(self, file_path: Path, media_type: str) -> ParseResult:
         text = file_path.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
@@ -295,6 +699,107 @@ class DoclingAdapter:
             page_count=1,
             timings=None,
         )
+
+    @staticmethod
+    def _rows_to_parsed_table(
+        rows: list[list[str]],
+        *,
+        page_index: int,
+        caption: str | None,
+    ) -> ParsedTable | None:
+        normalized_rows = [list(row) for row in rows if any(str(cell).strip() for cell in row)]
+        if not normalized_rows:
+            return None
+        header = [str(cell).strip() for cell in normalized_rows[0]]
+        body = [[str(cell).strip() for cell in row] for row in normalized_rows[1:]]
+        row_headers = [row[0] if row else "" for row in body]
+        cells: list[ParsedCell] = []
+        for r_idx, row in enumerate(body):
+            for c_idx, value in enumerate(row):
+                cells.append(ParsedCell(row_index=r_idx, col_index=c_idx, value=value))
+        return ParsedTable(
+            page_index=page_index,
+            caption=caption,
+            row_headers=row_headers,
+            col_headers=header,
+            cells=cells,
+            bbox=None,
+        )
+
+    @staticmethod
+    def _local_tag(tag: str) -> str:
+        if "}" in tag:
+            return tag.split("}", 1)[1]
+        return tag
+
+    @classmethod
+    def _joined_text(cls, node: ET.Element) -> str:
+        parts = []
+        for chunk in node.itertext():
+            compact = " ".join(str(chunk).split())
+            if compact:
+                parts.append(compact)
+        return " ".join(parts).strip()
+
+    @classmethod
+    def _extract_xml_tables(cls, root: ET.Element) -> list[ParsedTable]:
+        tables: list[ParsedTable] = []
+        table_idx = 0
+        table_tags = {"table"}
+        row_tags = {"tr", "row", "table-row"}
+        cell_tags = {"td", "th", "cell", "table-cell", "covered-table-cell", "entry"}
+        for candidate in root.iter():
+            if cls._local_tag(candidate.tag) not in table_tags:
+                continue
+            rows: list[list[str]] = []
+            for row_node in candidate.iter():
+                if cls._local_tag(row_node.tag) not in row_tags:
+                    continue
+                row: list[str] = []
+                for cell_node in row_node:
+                    if cls._local_tag(cell_node.tag) not in cell_tags:
+                        continue
+                    row.append(cls._joined_text(cell_node))
+                if any(cell.strip() for cell in row):
+                    rows.append(row)
+            table = cls._rows_to_parsed_table(rows, page_index=table_idx, caption=f"XML Table {table_idx + 1}")
+            if table is not None:
+                tables.append(table)
+                table_idx += 1
+        return tables
+
+    @classmethod
+    def _worksheet_cell_value(cls, cell_node: ET.Element, shared_strings: list[str]) -> str:
+        cell_type = (cell_node.attrib.get("t") or "").strip().lower()
+        if cell_type == "inlineStr":
+            for child in cell_node:
+                if cls._local_tag(child.tag) == "is":
+                    return cls._joined_text(child)
+        value_text = ""
+        for child in cell_node:
+            if cls._local_tag(child.tag) == "v":
+                value_text = (child.text or "").strip()
+                break
+        if cell_type == "s":
+            try:
+                idx = int(value_text)
+                if 0 <= idx < len(shared_strings):
+                    return shared_strings[idx]
+            except ValueError:
+                return value_text
+        return value_text
+
+    @staticmethod
+    def _cell_ref_to_col_index(cell_ref: str | None) -> int:
+        if not cell_ref:
+            return 0
+        letters = "".join(ch for ch in cell_ref if ch.isalpha()).upper()
+        if not letters:
+            return 0
+        total = 0
+        for ch in letters:
+            total = total * 26 + (ord(ch) - ord("A") + 1)
+        return total
 
     @staticmethod
     def _extract_docling_text(result: Any) -> str:

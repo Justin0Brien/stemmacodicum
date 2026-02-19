@@ -27,6 +27,8 @@ Initial foundation is implemented:
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
+# For local vector indexing + semantic search:
+pip install -e ".[vector]"
 
 stemma init
 stemma ingest /path/to/report.pdf
@@ -52,6 +54,9 @@ stemma ceapf add-proposition --json '{"subject":"org:X","predicate":"ceapf:asser
 stemma ceapf add-assertion --proposition-id <uuid> --agent person:AuthorX --modality asserts
 stemma ceapf add-relation --type supports --from-type assertion_event --from-id <id> --to-type proposition --to-id <id>
 stemma pipeline financial-pass --root /Volumes/X10/data/Institution
+stemma vector status
+stemma vector search --query "cash at bank"
+stemma vector migrate-server --url http://127.0.0.1:6333 --drop-existing
 stemma web --host 127.0.0.1 --port 8765
 ```
 
@@ -66,5 +71,17 @@ stemma extract run --resource-digest <sha256> --docling-device mps --docling-thr
 `stemma extract run` now shows live spinner/timing output, and `stemma pipeline financial-pass` shows live overall progress plus verbose per-document logs by default.
 
 SQLite runs in WAL mode with lock wait timeouts, so you can run ingestion/extraction in one terminal while reading or editing data from another terminal or the web GUI.
+
+Extraction now triggers vector indexing by default. By default this uses local Qdrant storage under `.stemma/vector/qdrant`.
+For higher-performance/concurrent access, run a Qdrant server and migrate with:
+
+```bash
+docker run -d --name stemma-qdrant -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.16.2
+stemma vector migrate-server --url http://127.0.0.1:6333 --drop-existing
+```
+
+Migration writes `.stemma/vector/qdrant_url.txt`, which activates server mode for future CLI/web runs.
+When server mode is active and the URL is local (`127.0.0.1`/`localhost`), Stemma auto-starts the Docker container if needed
+(`stemma-qdrant`, restart policy `unless-stopped` by default).
 
 The web GUI includes a per-card `?` help icon (single popup with Basic then Comprehensive guidance) and a Database Explorer card to inspect tables, schema, and sample rows.

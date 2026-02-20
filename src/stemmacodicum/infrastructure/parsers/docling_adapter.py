@@ -341,14 +341,15 @@ class DoclingAdapter:
                     cells.append(ParsedCell(row_index=max(r_idx - 1, 0), col_index=c_idx, value=value))
 
             caption = getattr(table, "caption", None)
+            page_index, bbox = self._extract_table_geometry(table, fallback_index=idx)
             tables.append(
                 ParsedTable(
-                    page_index=idx,
+                    page_index=page_index,
                     caption=caption,
                     row_headers=row_headers,
                     col_headers=col_headers,
                     cells=cells,
-                    bbox=None,
+                    bbox=bbox,
                 )
             )
 
@@ -934,6 +935,105 @@ class DoclingAdapter:
     def _split_pipe_row(line: str) -> list[str]:
         row = line.strip().strip("|")
         return [part.strip() for part in row.split("|")]
+
+    @classmethod
+    def _extract_table_geometry(cls, table: Any, fallback_index: int) -> tuple[int, dict[str, float] | None]:
+        page_index = cls._extract_page_index_hint(table)
+        bbox = cls._extract_bbox_hint(table)
+
+        provenance = getattr(table, "prov", None) or getattr(table, "provenance", None) or []
+        if isinstance(provenance, (list, tuple)):
+            for item in provenance:
+                if page_index is None:
+                    page_index = cls._extract_page_index_hint(item)
+                if bbox is None:
+                    bbox = cls._extract_bbox_hint(item)
+                    if bbox is None:
+                        bbox = cls._extract_bbox_hint(getattr(item, "bbox", None))
+
+        if page_index is None:
+            page_index = fallback_index
+        return page_index, bbox
+
+    @classmethod
+    def _extract_page_index_hint(cls, value: object) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, dict):
+            if "page_index" in value:
+                n = cls._as_int(value.get("page_index"))
+                return n if n is not None and n >= 0 else None
+            if "page_no" in value:
+                n = cls._as_int(value.get("page_no"))
+                return (n - 1) if n is not None and n >= 1 else None
+            if "page" in value:
+                n = cls._as_int(value.get("page"))
+                return (n - 1) if n is not None and n >= 1 else None
+            return None
+
+        direct_idx = cls._as_int(getattr(value, "page_index", None))
+        if direct_idx is not None and direct_idx >= 0:
+            return direct_idx
+        direct_no = cls._as_int(getattr(value, "page_no", None))
+        if direct_no is not None and direct_no >= 1:
+            return direct_no - 1
+        direct_page = cls._as_int(getattr(value, "page", None))
+        if direct_page is not None and direct_page >= 1:
+            return direct_page - 1
+        return None
+
+    @classmethod
+    def _extract_bbox_hint(cls, value: object) -> dict[str, float] | None:
+        if value is None:
+            return None
+
+        if isinstance(value, dict):
+            x0 = cls._as_float(value.get("x0", value.get("left", value.get("l"))))
+            y0 = cls._as_float(value.get("y0", value.get("top", value.get("t"))))
+            x1 = cls._as_float(value.get("x1", value.get("right", value.get("r"))))
+            y1 = cls._as_float(value.get("y1", value.get("bottom", value.get("b"))))
+            if None not in {x0, y0, x1, y1}:
+                if x1 < x0:
+                    x0, x1 = x1, x0
+                if y1 < y0:
+                    y0, y1 = y1, y0
+                return {"x0": float(x0), "y0": float(y0), "x1": float(x1), "y1": float(y1)}
+            if "bbox" in value:
+                return cls._extract_bbox_hint(value.get("bbox"))
+            return None
+
+        nested = getattr(value, "bbox", None)
+        if nested is not None and nested is not value:
+            nested_box = cls._extract_bbox_hint(nested)
+            if nested_box is not None:
+                return nested_box
+
+        x0 = cls._as_float(getattr(value, "x0", getattr(value, "left", getattr(value, "l", None))))
+        y0 = cls._as_float(getattr(value, "y0", getattr(value, "top", getattr(value, "t", None))))
+        x1 = cls._as_float(getattr(value, "x1", getattr(value, "right", getattr(value, "r", None))))
+        y1 = cls._as_float(getattr(value, "y1", getattr(value, "bottom", getattr(value, "b", None))))
+        if None in {x0, y0, x1, y1}:
+            return None
+        if x1 < x0:
+            x0, x1 = x1, x0
+        if y1 < y0:
+            y0, y1 = y1, y0
+        return {"x0": float(x0), "y0": float(y0), "x1": float(x1), "y1": float(y1)}
+
+    @staticmethod
+    def _as_float(value: object) -> float | None:
+        try:
+            n = float(value)  # type: ignore[arg-type]
+        except Exception:
+            return None
+        return n if n == n else None
+
+    @staticmethod
+    def _as_int(value: object) -> int | None:
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except Exception:
+            return None
 
     @staticmethod
     def _find_caption(lines: list[str], start_idx: int) -> str | None:

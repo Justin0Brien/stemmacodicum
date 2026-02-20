@@ -1,12 +1,13 @@
+import time
 from pathlib import Path
 
-from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.application.services.extraction_service import ExtractionService, _PdfSubprocessCrashError
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.db.sqlite import initialize_schema
-from stemmacodicum.infrastructure.parsers.docling_adapter import ParsedCell, ParsedTable
+from stemmacodicum.infrastructure.parsers.docling_adapter import ParseResult, ParsedCell, ParsedTable
 
 
 def _bootstrap(tmp_path: Path) -> tuple[ResourceRepo, ExtractionRepo, Path]:
@@ -92,3 +93,97 @@ def test_extract_resource_persists_tables_and_text_layers(tmp_path: Path) -> Non
     dump = service.build_dump(ingested.resource.id)
     assert dump["document_text"] is not None
     assert len(dump["tables"]) == 1
+
+
+def test_extract_resource_emits_heartbeat_progress_during_parse(tmp_path: Path, monkeypatch) -> None:
+    resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
+
+    source = tmp_path / "report.md"
+    source.write_text("Paragraph one.\n\nParagraph two with numbers 1234.", encoding="utf-8")
+
+    ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    ingested = ingest.ingest_file(source)
+
+    parse_result = ParseResult(
+        parser_name="stub-parser",
+        parser_version="1.0",
+        config_digest="cfg",
+        tables=[],
+        full_text="Paragraph one. Paragraph two with numbers 1234.",
+        blocks=[],
+        elapsed_seconds=1.2,
+        page_count=1,
+        timings={},
+    )
+
+    def slow_parse_resource(_self, _file_path, _media_type):
+        time.sleep(1.25)
+        return parse_result
+
+    monkeypatch.setattr(
+        "stemmacodicum.infrastructure.parsers.docling_adapter.DoclingAdapter.parse_resource",
+        slow_parse_resource,
+    )
+
+    service = ExtractionService(
+        resource_repo=resource_repo,
+        extraction_repo=extraction_repo,
+        archive_dir=archive_dir,
+    )
+    events: list[dict[str, object]] = []
+    service.extract_resource(
+        ingested.resource.id,
+        progress_callback=lambda payload: events.append(dict(payload)),
+    )
+
+    extract_active = [e for e in events if e.get("stage") == "extract" and e.get("state") == "active"]
+    assert any("Starting text extraction" in str(e.get("detail", "")) for e in extract_active)
+    assert any("parser running" in str(e.get("stats", "")) for e in extract_active)
+
+
+def test_extract_resource_retries_when_pdf_worker_crashes(tmp_path: Path, monkeypatch) -> None:
+    resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
+
+    source = tmp_path / "sample.pdf"
+    source.write_bytes(b"%PDF-1.5\n%fake\n")
+
+    ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    ingested = ingest.ingest_file(source)
+
+    parse_result = ParseResult(
+        parser_name="stub-parser",
+        parser_version="1.0",
+        config_digest="cfg",
+        tables=[],
+        full_text="A short paragraph for restart testing.",
+        blocks=[],
+        elapsed_seconds=1.0,
+        page_count=1,
+        timings={},
+    )
+
+    service = ExtractionService(
+        resource_repo=resource_repo,
+        extraction_repo=extraction_repo,
+        archive_dir=archive_dir,
+    )
+
+    attempts = {"count": 0}
+
+    def flaky_pdf_worker_attempt(*_args, **_kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise _PdfSubprocessCrashError("parser worker terminated by signal 11 (SIGSEGV)")
+        return parse_result
+
+    monkeypatch.setattr(service, "_run_pdf_parse_subprocess_attempt", flaky_pdf_worker_attempt)
+
+    events: list[dict[str, object]] = []
+    summary = service.extract_resource(
+        ingested.resource.id,
+        progress_callback=lambda payload: events.append(dict(payload)),
+    )
+
+    assert attempts["count"] == 2
+    assert summary.text_chars > 0
+    assert any("restarting" in str(e.get("detail", "")).lower() for e in events)

@@ -191,6 +191,8 @@ Key resource fields:
 | `media_type` | MIME type (auto-detected from file extension) |
 | `original_filename` | Original file name at ingest time |
 | `source_uri` | Optional URI recording where the file came from |
+| `download_url` | Primary detected download URL (e.g., macOS where-from metadata) |
+| `download_urls_json` | JSON array of all discovered source URLs for audit trail |
 | `archived_relpath` | Relative path within `.stemma/archive/` |
 | `size_bytes` | File size |
 | `ingested_at` | UTC ISO-8601 timestamp |

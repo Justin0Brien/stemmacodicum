@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS resources (
     media_type TEXT NOT NULL,
     original_filename TEXT NOT NULL,
     source_uri TEXT,
+    download_url TEXT,
+    download_urls_json TEXT,
     archived_relpath TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     ingested_at TEXT NOT NULL
@@ -315,6 +317,27 @@ CREATE TABLE IF NOT EXISTS vector_chunks (
     FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS import_jobs (
+    id TEXT PRIMARY KEY,
+    queue_name TEXT NOT NULL DEFAULT 'default',
+    source_kind TEXT NOT NULL,
+    source_uri TEXT,
+    original_filename TEXT NOT NULL,
+    staged_relpath TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    detail TEXT,
+    progress_json TEXT,
+    payload_json TEXT,
+    resource_id TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_extraction_runs_resource_created
 ON extraction_runs(resource_id, created_at DESC);
 
@@ -350,6 +373,12 @@ ON vector_chunks(extraction_run_id, chunk_id);
 
 CREATE INDEX IF NOT EXISTS idx_vector_chunks_point
 ON vector_chunks(vector_point_id);
+
+CREATE INDEX IF NOT EXISTS idx_import_jobs_queue_status_created
+ON import_jobs(queue_name, status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_import_jobs_queue_updated
+ON import_jobs(queue_name, updated_at DESC);
 
 CREATE TRIGGER IF NOT EXISTS block_delete_resources
 BEFORE DELETE ON resources

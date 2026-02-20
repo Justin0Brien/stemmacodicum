@@ -4,130 +4,148 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Stemma Codicum</title>
+  <meta name="theme-color" content="#1d4ed8" />
+  <meta name="msapplication-TileColor" content="#1d4ed8" />
+  <meta name="msapplication-TileImage" content="/static/icons/mstile-150x150.png" />
+  <meta name="msapplication-config" content="/browserconfig.xml" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Stemma Codicum" />
+  <!-- Standard favicon support -->
+  <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+  <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+  <!-- PNG favicon for modern browsers -->
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png" />
+  <link rel="icon" type="image/png" sizes="48x48" href="/static/icons/favicon-48x48.png" />
+  <!-- Apple touch icon for Safari bookmarks and home screen -->
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png" />
+  <!-- Web manifest for PWA support -->
+  <link rel="manifest" href="/site.webmanifest" />
   <style>
-    @import url("https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap");
     :root {
-      --font-display: "Sora", "Avenir Next", "Trebuchet MS", sans-serif;
-      --font-sans: "IBM Plex Sans", "Source Sans 3", "Gill Sans", sans-serif;
-      --font-mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
-      --bg: #f5f7fb;
+      --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --bg: #f4f6f9;
       --card: #ffffff;
-      --text: #1d2736;
-      --muted: #5a6475;
-      --accent: #0f766e;
-      --accent-2: #164e63;
-      --border: #d6dee8;
+      --text: #111827;
+      --muted: #5f6b7a;
+      --accent: #2563eb;
+      --accent-2: #1d4ed8;
+      --border: #dbe3ee;
       --error: #b42318;
-      --button-secondary-bg: #334155;
-      --button-secondary-text: #ffffff;
-      --pre-bg: #0b1727;
-      --pre-fg: #d7ebff;
-      --drop-bg: #f0fdfb;
-      --drop-drag-bg: #dcfce7;
-      --help-overlay: rgba(7, 16, 28, 0.62);
+      --button-secondary-bg: #e5ebf5;
+      --button-secondary-text: #1f2a38;
+      --pre-bg: #0f172a;
+      --pre-fg: #dbeafe;
+      --drop-bg: #f8fafd;
+      --drop-drag-bg: #eef2f8;
+      --help-overlay: rgba(8, 12, 18, 0.54);
       --help-panel-bg: #ffffff;
-      --help-code-bg: #eef2f7;
-      --help-code-fg: #1d2736;
-      --help-icon-bg: #e8eef8;
-      --help-icon-fg: #1f3555;
-      --hero-grad-start: #164e63;
-      --hero-grad-end: #1f6f8b;
-      --surface-tint: rgba(255, 255, 255, 0.6);
-      --surface-shadow: 0 16px 36px rgba(20, 42, 70, 0.14);
-      --surface-shadow-soft: 0 8px 22px rgba(20, 42, 70, 0.09);
-      --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.25);
+      --help-code-bg: #eef2f8;
+      --help-code-fg: #111827;
+      --help-icon-bg: #edf1f7;
+      --help-icon-fg: #334155;
+      --hero-grad-start: #f9fbfe;
+      --hero-grad-end: #f9fbfe;
+      --surface-tint: rgba(255, 255, 255, 0.9);
+      --surface-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+      --surface-shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.05);
+      --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.22);
     }
     body[data-theme="harmonious-light"] {
-      --bg: #f5f7fb;
+      --bg: #f4f6f9;
       --card: #ffffff;
-      --text: #1d2736;
-      --muted: #5a6475;
-      --accent: #0f766e;
-      --accent-2: #164e63;
-      --border: #d6dee8;
-      --button-secondary-bg: #334155;
-      --button-secondary-text: #ffffff;
-      --pre-bg: #0b1727;
-      --pre-fg: #d7ebff;
-      --drop-bg: #f0fdfb;
-      --drop-drag-bg: #dcfce7;
-      --help-overlay: rgba(7, 16, 28, 0.62);
+      --text: #111827;
+      --muted: #5f6b7a;
+      --accent: #2563eb;
+      --accent-2: #1d4ed8;
+      --border: #dbe3ee;
+      --button-secondary-bg: #e5ebf5;
+      --button-secondary-text: #1f2a38;
+      --pre-bg: #0f172a;
+      --pre-fg: #dbeafe;
+      --drop-bg: #f8fafd;
+      --drop-drag-bg: #eef2f8;
+      --help-overlay: rgba(8, 12, 18, 0.54);
       --help-panel-bg: #ffffff;
-      --help-code-bg: #eef2f7;
-      --help-code-fg: #1d2736;
-      --help-icon-bg: #e8eef8;
-      --help-icon-fg: #1f3555;
-      --hero-grad-start: #164e63;
-      --hero-grad-end: #1f6f8b;
-      --surface-tint: rgba(255, 255, 255, 0.64);
-      --surface-shadow: 0 16px 36px rgba(20, 42, 70, 0.14);
-      --surface-shadow-soft: 0 8px 22px rgba(20, 42, 70, 0.09);
-      --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.25);
+      --help-code-bg: #eef2f8;
+      --help-code-fg: #111827;
+      --help-icon-bg: #edf1f7;
+      --help-icon-fg: #334155;
+      --hero-grad-start: #f9fbfe;
+      --hero-grad-end: #f9fbfe;
+      --surface-tint: rgba(255, 255, 255, 0.9);
+      --surface-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+      --surface-shadow-soft: 0 2px 8px rgba(15, 23, 42, 0.05);
+      --focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.22);
     }
     body[data-theme="restful-dark"] {
-      --bg: #10171f;
-      --card: #17212d;
-      --text: #e9eef7;
-      --muted: #a5b3c5;
-      --accent: #169a8f;
-      --accent-2: #1a405f;
-      --border: #2e3d50;
-      --button-secondary-bg: #2a3b50;
-      --button-secondary-text: #e9eef7;
-      --pre-bg: #0a111b;
-      --pre-fg: #d7e8ff;
-      --drop-bg: #12272b;
-      --drop-drag-bg: #15363a;
-      --help-overlay: rgba(4, 8, 13, 0.74);
-      --help-panel-bg: #17212d;
-      --help-code-bg: #243445;
-      --help-code-fg: #e9eef7;
-      --help-icon-bg: #2c3f56;
-      --help-icon-fg: #f6fbff;
-      --hero-grad-start: #1a405f;
-      --hero-grad-end: #123043;
-      --surface-tint: rgba(255, 255, 255, 0.03);
-      --surface-shadow: 0 16px 36px rgba(0, 0, 0, 0.35);
-      --surface-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.24);
-      --focus-ring: 0 0 0 3px rgba(22, 154, 143, 0.3);
+      --bg: #0d1117;
+      --card: #151b23;
+      --text: #e6edf5;
+      --muted: #99a8bb;
+      --accent: #5b8cff;
+      --accent-2: #7c89ff;
+      --border: #273142;
+      --button-secondary-bg: #202a39;
+      --button-secondary-text: #dce6f5;
+      --pre-bg: #0a0f16;
+      --pre-fg: #d8e5f8;
+      --drop-bg: #111a25;
+      --drop-drag-bg: #172230;
+      --help-overlay: rgba(2, 5, 9, 0.76);
+      --help-panel-bg: #151b23;
+      --help-code-bg: #1f2937;
+      --help-code-fg: #e6edf5;
+      --help-icon-bg: #273244;
+      --help-icon-fg: #f4f8ff;
+      --hero-grad-start: #151b23;
+      --hero-grad-end: #151b23;
+      --surface-tint: rgba(255, 255, 255, 0.02);
+      --surface-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+      --surface-shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.22);
+      --focus-ring: 0 0 0 3px rgba(91, 140, 255, 0.34);
     }
     body[data-theme="sunset-paper"] {
-      --bg: #f8f2ea;
-      --card: #fffdf9;
-      --text: #2e1f22;
-      --muted: #6f5a5f;
-      --accent: #b4532a;
-      --accent-2: #7f3b5e;
-      --border: #e8d8cd;
-      --button-secondary-bg: #5d4b57;
-      --button-secondary-text: #fff9f6;
-      --pre-bg: #2a1f2b;
-      --pre-fg: #f3e8ff;
-      --drop-bg: #fff4ea;
-      --drop-drag-bg: #ffe8d6;
-      --help-overlay: rgba(35, 18, 24, 0.58);
-      --help-panel-bg: #fffdf9;
-      --help-code-bg: #f8ece5;
-      --help-code-fg: #2e1f22;
-      --help-icon-bg: #f4dfd0;
-      --help-icon-fg: #4a2c2f;
-      --hero-grad-start: #7f3b5e;
-      --hero-grad-end: #b4532a;
-      --surface-tint: rgba(255, 253, 249, 0.66);
-      --surface-shadow: 0 16px 36px rgba(72, 40, 52, 0.18);
-      --surface-shadow-soft: 0 8px 22px rgba(72, 40, 52, 0.12);
-      --focus-ring: 0 0 0 3px rgba(180, 83, 42, 0.27);
+      --bg: #f8f4ee;
+      --card: #fffdfa;
+      --text: #30262c;
+      --muted: #6f6168;
+      --accent: #c35c2c;
+      --accent-2: #9f4a24;
+      --border: #eadfd5;
+      --button-secondary-bg: #eee4dd;
+      --button-secondary-text: #3f343a;
+      --pre-bg: #2e242e;
+      --pre-fg: #f4e8f2;
+      --drop-bg: #fcf4eb;
+      --drop-drag-bg: #f8ebde;
+      --help-overlay: rgba(30, 17, 20, 0.62);
+      --help-panel-bg: #fffdfa;
+      --help-code-bg: #f6ece6;
+      --help-code-fg: #30262c;
+      --help-icon-bg: #f2e4d8;
+      --help-icon-fg: #594146;
+      --hero-grad-start: #fffdfa;
+      --hero-grad-end: #fffdfa;
+      --surface-tint: rgba(255, 253, 250, 0.92);
+      --surface-shadow: 0 8px 20px rgba(66, 42, 49, 0.1);
+      --surface-shadow-soft: 0 3px 10px rgba(66, 42, 49, 0.07);
+      --focus-ring: 0 0 0 3px rgba(195, 92, 44, 0.24);
     }
     body[data-theme="forest-mist"] {
-      --bg: #eef5f1;
+      --bg: #f1f6f3;
       --card: #fbfffd;
-      --text: #1d312a;
-      --muted: #4d6a62;
+      --text: #1f302a;
+      --muted: #526860;
       --accent: #1f8f63;
-      --accent-2: #264f4a;
-      --border: #cfe0d8;
-      --button-secondary-bg: #355a53;
-      --button-secondary-text: #f3fffb;
+      --accent-2: #197552;
+      --border: #d2e2d9;
+      --button-secondary-bg: #e2efe8;
+      --button-secondary-text: #264138;
       --pre-bg: #132b26;
       --pre-fg: #c8f2e7;
       --drop-bg: #effaf5;
@@ -135,42 +153,42 @@
       --help-overlay: rgba(12, 28, 24, 0.58);
       --help-panel-bg: #fbfffd;
       --help-code-bg: #e5f3ed;
-      --help-code-fg: #1d312a;
+      --help-code-fg: #1f302a;
       --help-icon-bg: #d9ebe4;
       --help-icon-fg: #193e36;
-      --hero-grad-start: #264f4a;
-      --hero-grad-end: #1f8f63;
-      --surface-tint: rgba(251, 255, 253, 0.68);
-      --surface-shadow: 0 16px 36px rgba(19, 52, 44, 0.16);
-      --surface-shadow-soft: 0 8px 22px rgba(19, 52, 44, 0.1);
+      --hero-grad-start: #fbfffd;
+      --hero-grad-end: #fbfffd;
+      --surface-tint: rgba(251, 255, 253, 0.9);
+      --surface-shadow: 0 8px 20px rgba(19, 52, 44, 0.09);
+      --surface-shadow-soft: 0 3px 10px rgba(19, 52, 44, 0.07);
       --focus-ring: 0 0 0 3px rgba(31, 143, 99, 0.27);
     }
     body[data-theme="midnight-contrast"] {
-      --bg: #090e16;
-      --card: #131b28;
-      --text: #f5f9ff;
-      --muted: #b9c5d9;
-      --accent: #00b3a4;
-      --accent-2: #223756;
-      --border: #33465f;
-      --button-secondary-bg: #394d68;
-      --button-secondary-text: #f5f9ff;
-      --pre-bg: #03070f;
-      --pre-fg: #ecf5ff;
-      --drop-bg: #102228;
-      --drop-drag-bg: #16353c;
+      --bg: #0b1018;
+      --card: #141c28;
+      --text: #f0f4fb;
+      --muted: #a9b6ca;
+      --accent: #7a88ff;
+      --accent-2: #5970ff;
+      --border: #293648;
+      --button-secondary-bg: #212c3e;
+      --button-secondary-text: #edf3ff;
+      --pre-bg: #080c14;
+      --pre-fg: #e9f1ff;
+      --drop-bg: #111a28;
+      --drop-drag-bg: #172235;
       --help-overlay: rgba(0, 0, 0, 0.78);
-      --help-panel-bg: #131b28;
-      --help-code-bg: #2a3f5b;
-      --help-code-fg: #f5f9ff;
-      --help-icon-bg: #304760;
+      --help-panel-bg: #141c28;
+      --help-code-bg: #243246;
+      --help-code-fg: #f0f4fb;
+      --help-icon-bg: #2b3b50;
       --help-icon-fg: #ffffff;
-      --hero-grad-start: #223756;
-      --hero-grad-end: #00b3a4;
-      --surface-tint: rgba(255, 255, 255, 0.03);
-      --surface-shadow: 0 16px 36px rgba(0, 0, 0, 0.44);
-      --surface-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.31);
-      --focus-ring: 0 0 0 3px rgba(0, 179, 164, 0.29);
+      --hero-grad-start: #141c28;
+      --hero-grad-end: #141c28;
+      --surface-tint: rgba(255, 255, 255, 0.02);
+      --surface-shadow: 0 10px 24px rgba(0, 0, 0, 0.36);
+      --surface-shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.26);
+      --focus-ring: 0 0 0 3px rgba(122, 136, 255, 0.3);
     }
     * { box-sizing: border-box; }
     body {
@@ -178,10 +196,7 @@
       font-family: var(--font-sans);
       color: var(--text);
       min-height: 100vh;
-      background:
-        radial-gradient(1000px 520px at -10% -20%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 60%),
-        radial-gradient(820px 480px at 108% 18%, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 62%),
-        linear-gradient(180deg, color-mix(in srgb, var(--bg) 65%, #ffffff) 0%, var(--bg) 100%);
+      background: var(--bg);
       position: relative;
       overflow-x: hidden;
     }
@@ -190,107 +205,96 @@
       position: fixed;
       inset: 0;
       pointer-events: none;
-      opacity: 0.45;
-      background-image:
-        linear-gradient(to right, color-mix(in srgb, var(--border) 26%, transparent) 1px, transparent 1px),
-        linear-gradient(to bottom, color-mix(in srgb, var(--border) 20%, transparent) 1px, transparent 1px);
-      background-size: 42px 42px;
+      opacity: 0.11;
+      background: radial-gradient(1200px 560px at 14% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 64%);
       z-index: -2;
     }
     body::after {
-      content: "";
-      position: fixed;
-      width: 44vw;
-      height: 44vw;
-      min-width: 320px;
-      min-height: 320px;
-      border-radius: 999px;
-      right: -16vw;
-      bottom: -18vw;
-      background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%);
-      filter: blur(18px);
-      pointer-events: none;
-      z-index: -1;
+      content: none;
     }
     header {
-      padding: 34px 28px 28px;
-      background:
-        linear-gradient(132deg, var(--hero-grad-start), var(--hero-grad-end)),
-        radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.2), transparent 46%);
-      color: #fff;
+      padding: 10px 16px 8px;
+      background: color-mix(in srgb, var(--card) 98%, var(--bg));
+      color: var(--text);
       position: relative;
       overflow: hidden;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      border-bottom: 1px solid var(--border);
     }
     header::after {
-      content: "";
-      position: absolute;
-      inset: auto -18% -36% 36%;
-      height: 340px;
-      background: radial-gradient(circle at center, rgba(255, 255, 255, 0.24), transparent 72%);
-      pointer-events: none;
+      content: none;
     }
     .header-top {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 22px;
-      margin-bottom: 10px;
+      gap: 12px;
+      margin-bottom: 2px;
       position: relative;
       z-index: 1;
     }
     .brand-block {
       max-width: 760px;
     }
+    .brand-identity {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .app-icon {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      display: block;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.22));
+      opacity: 0.98;
+    }
     header h1 {
       margin: 0;
       font-family: var(--font-display);
-      font-size: clamp(28px, 4.8vw, 46px);
+      font-size: clamp(18px, 2.4vw, 24px);
       line-height: 1.05;
-      letter-spacing: 0.01em;
-      text-shadow: 0 6px 20px rgba(4, 18, 40, 0.28);
+      letter-spacing: 0;
+      font-weight: 650;
     }
     .hero-subtitle {
-      margin: 10px 0 0;
-      opacity: 0.95;
-      font-size: 15px;
-      line-height: 1.45;
+      margin: 2px 0 0;
+      font-size: 12px;
+      line-height: 1.2;
       max-width: 640px;
-      color: rgba(255, 255, 255, 0.95);
+      color: var(--muted);
     }
     .theme-picker {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: rgba(255, 255, 255, 0.97);
-      font-weight: 600;
-      font-size: 13px;
-      padding: 8px 10px;
-      border-radius: 12px;
-      background: rgba(9, 26, 42, 0.22);
-      backdrop-filter: blur(6px);
-      border: 1px solid rgba(255, 255, 255, 0.24);
-      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+      color: var(--muted);
+      font-weight: 500;
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      border: 1px solid var(--border);
+      box-shadow: var(--surface-shadow-soft);
     }
     .theme-picker select {
-      min-width: 220px;
-      border-color: rgba(255, 255, 255, 0.32);
-      background: rgba(255, 255, 255, 0.14);
-      color: #ffffff;
-      padding: 6px 10px;
+      min-width: 152px;
+      border-color: var(--border);
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+      color: var(--text);
+      padding: 4px 8px;
     }
     .theme-picker select option {
-      color: #0f172a;
-      background: #ffffff;
+      color: var(--text);
+      background: var(--card);
     }
     @media (max-width: 720px) {
       header {
-        padding: 26px 16px 22px;
+        padding: 10px 12px 8px;
       }
       .header-top {
         flex-direction: column;
         align-items: flex-start;
-        gap: 14px;
+        gap: 8px;
       }
       .theme-picker {
         width: 100%;
@@ -299,55 +303,65 @@
         min-width: 0;
         width: 100%;
       }
+      .brand-identity {
+        gap: 8px;
+      }
+      .app-icon {
+        width: 30px;
+        height: 30px;
+      }
     }
     .app-shell {
-      max-width: 1380px;
-      margin: 0 auto;
-      padding: 24px 20px 34px;
+      max-width: none;
+      margin: 0;
+      padding: 10px 14px 16px 274px;
       display: grid;
-      grid-template-columns: 280px minmax(0, 1fr);
-      gap: 16px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
       align-items: start;
       position: relative;
     }
     .nav-column {
-      background: linear-gradient(165deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)) 0%, var(--card) 100%);
+      background: color-mix(in srgb, var(--card) 98%, var(--surface-tint));
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 10px;
       box-shadow: var(--surface-shadow-soft);
-      padding: 14px;
-      position: sticky;
-      top: 14px;
-      max-height: calc(100vh - 28px);
+      padding: 10px;
+      position: fixed;
+      top: 74px;
+      left: 10px;
+      bottom: 10px;
+      width: 248px;
+      max-height: none;
       overflow: auto;
-      backdrop-filter: blur(8px);
+      z-index: 10;
     }
     .nav-title {
       margin: 0 0 4px;
       font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-family: var(--font-display);
+      font-weight: 500;
       color: var(--text);
-      opacity: 0.74;
+      opacity: 0.84;
     }
     .nav-copy {
-      margin: 0 0 12px;
-      line-height: 1.35;
+      margin: 0 0 8px;
+      font-size: 11px;
+      line-height: 1.25;
     }
     .nav-list {
       display: grid;
-      gap: 8px;
+      gap: 6px;
     }
     .nav-btn {
       text-align: left;
       width: 100%;
       border: 1px solid var(--border);
-      border-radius: 11px;
-      padding: 10px 12px;
-      font-weight: 600;
+      border-radius: 8px;
+      padding: 7px 9px;
+      font-size: 12px;
+      font-weight: 400;
       color: var(--text);
-      background: color-mix(in srgb, var(--card) 94%, var(--surface-tint));
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
       transition: transform 120ms ease, background 170ms ease, border-color 170ms ease, box-shadow 170ms ease;
       animation: navSlideIn 220ms ease both;
     }
@@ -376,46 +390,41 @@
     .nav-list .nav-btn:nth-child(23) { animation-delay: 350ms; }
     .nav-list .nav-btn:nth-child(24) { animation-delay: 365ms; }
     .nav-list .nav-btn:nth-child(25) { animation-delay: 380ms; }
-    }
     .nav-btn:hover {
-      transform: translateX(2px);
+      transform: translateX(1px);
       border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
-      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
       filter: none;
     }
     .nav-btn.active {
-      background: linear-gradient(140deg, color-mix(in srgb, var(--accent) 72%, #ffffff 8%), color-mix(in srgb, var(--accent-2) 76%, #ffffff 8%));
-      color: #f8feff;
-      border-color: color-mix(in srgb, var(--accent) 58%, transparent);
-      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.2);
+      background: var(--accent);
+      color: #f8fbff;
+      border-color: color-mix(in srgb, var(--accent) 78%, transparent);
+      box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 28%, transparent);
     }
     .workspace {
       min-width: 0;
     }
     .workspace-head {
-      background: linear-gradient(150deg, color-mix(in srgb, var(--card) 90%, var(--surface-tint)), var(--card));
+      background: color-mix(in srgb, var(--card) 98%, var(--surface-tint));
       border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 15px 16px;
-      margin-bottom: 14px;
+      border-radius: 10px;
+      padding: 9px 12px;
+      margin-bottom: 8px;
       box-shadow: var(--surface-shadow-soft);
-      backdrop-filter: blur(8px);
     }
     .workspace-head h2 {
-      margin: 0 0 2px;
-      font-family: var(--font-display);
-      font-size: 15px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      opacity: 0.72;
+      margin: 0 0 1px;
+      font-size: 12px;
+      font-weight: 500;
+      opacity: 0.8;
     }
     .workspace-head p {
       margin: 0;
       color: color-mix(in srgb, var(--text) 72%, var(--muted));
-      font-size: 23px;
-      font-family: var(--font-display);
+      font-size: 18px;
       font-weight: 700;
-      letter-spacing: 0.01em;
+      letter-spacing: 0;
     }
     .workspace-panel {
       display: none;
@@ -425,47 +434,40 @@
       animation: panelFade 220ms ease;
     }
     .card {
-      background:
-        linear-gradient(170deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)) 0%, var(--card) 100%);
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
       border: 1px solid var(--border);
-      border-radius: 18px;
+      border-radius: 10px;
       box-shadow: var(--surface-shadow-soft);
-      padding: 16px;
+      padding: 12px;
       position: relative;
-      backdrop-filter: blur(7px);
-      overflow: hidden;
+      overflow: visible;
     }
     .card::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 8%, transparent), transparent 40%);
-      opacity: 0.25;
+      content: none;
     }
     .card h2 {
-      margin: 0 0 12px;
-      font-size: 24px;
-      font-family: var(--font-display);
-      letter-spacing: -0.01em;
+      margin: 0 0 10px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0;
       line-height: 1.1;
       position: relative;
       z-index: 1;
     }
     .row {
       display: flex;
-      gap: 10px;
+      gap: 8px;
       flex-wrap: wrap;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       position: relative;
       z-index: 1;
     }
     input, textarea, button, select {
       font: inherit;
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 9px 11px;
-      background: color-mix(in srgb, var(--card) 92%, var(--surface-tint));
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
       color: var(--text);
     }
     input, select { flex: 1 1 180px; }
@@ -483,44 +485,45 @@
       color: color-mix(in srgb, var(--muted) 88%, transparent);
     }
     button {
-      background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent-2) 76%, var(--accent)));
+      background: var(--accent);
       color: #fff;
-      border: none;
+      border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent);
       cursor: pointer;
       font-weight: 600;
-      letter-spacing: 0.01em;
-      box-shadow: 0 10px 20px rgba(15, 23, 42, 0.2);
+      letter-spacing: 0;
+      box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 20%, transparent);
       transition: transform 120ms ease, filter 140ms ease, box-shadow 140ms ease;
     }
     button.secondary {
-      background: linear-gradient(145deg, var(--button-secondary-bg), color-mix(in srgb, var(--button-secondary-bg) 76%, #000000));
+      background: var(--button-secondary-bg);
       color: var(--button-secondary-text);
+      border-color: color-mix(in srgb, var(--button-secondary-text) 14%, var(--border));
     }
     button:hover {
-      filter: brightness(1.05);
+      filter: brightness(1.02);
       transform: translateY(-1px);
-      box-shadow: 0 14px 24px rgba(15, 23, 42, 0.24);
+      box-shadow: 0 8px 16px rgba(15, 23, 42, 0.12);
     }
     button:active {
       transform: translateY(0);
-      box-shadow: 0 6px 16px rgba(15, 23, 42, 0.2);
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.09);
     }
     pre {
       background: var(--pre-bg);
       color: var(--pre-fg);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: 8px;
+      padding: 10px;
       overflow: auto;
       max-height: none;
       margin: 10px 0 0;
-      font-size: 12px;
+      font-size: 11px;
       line-height: 1.5;
       font-family: var(--font-mono);
       border: 1px solid color-mix(in srgb, var(--pre-fg) 15%, transparent);
     }
     pre[id^="out-"] {
-      min-height: 22rem;
-      height: 22rem;
+      min-height: 18rem;
+      height: 18rem;
       resize: vertical;
     }
     .db-grid-controls input,
@@ -544,8 +547,7 @@
       border-radius: 12px;
       overflow: auto;
       max-height: 70vh;
-      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
-      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-tint) 75%, transparent);
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
     }
     .db-grid-table {
       width: 100%;
@@ -596,8 +598,8 @@
     .inspector-list {
       border: 1px solid var(--border);
       border-radius: 12px;
-      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
-      padding: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 12px;
       max-height: 24rem;
       overflow: auto;
       margin-top: 10px;
@@ -605,9 +607,9 @@
     .inspector-card {
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 10px;
+      padding: 11px;
       margin-bottom: 10px;
-      background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
     }
     .inspector-card:last-child {
       margin-bottom: 0;
@@ -642,14 +644,13 @@
       word-break: break-word;
     }
     .dropzone {
-      border: 2px dashed color-mix(in srgb, var(--accent) 66%, var(--border));
-      border-radius: 12px;
-      padding: 18px;
+      border: 1.5px dashed color-mix(in srgb, var(--accent) 42%, var(--border));
+      border-radius: 10px;
+      padding: 14px;
       text-align: center;
       color: var(--muted);
       background: var(--drop-bg);
-      margin-bottom: 12px;
-      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent);
+      margin-bottom: 10px;
       transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
     }
     .dropzone.drag {
@@ -659,24 +660,91 @@
     }
     .import-live {
       border: 1px solid var(--border);
-      border-radius: 12px;
-      background: color-mix(in srgb, var(--card) 95%, var(--surface-tint));
-      padding: 12px;
-      margin-bottom: 12px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 10px;
+      margin-bottom: 10px;
       display: grid;
-      grid-template-columns: 180px minmax(0, 1fr);
-      gap: 12px;
+      grid-template-columns: 186px minmax(0, 1fr);
+      gap: 10px;
       position: relative;
       z-index: 1;
+    }
+    .import-live.current-focus {
+      border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+      background: color-mix(in srgb, var(--accent) 7%, var(--card));
     }
     .import-live.empty {
       grid-template-columns: 1fr;
     }
-    .import-preview {
+    .import-queue {
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: color-mix(in srgb, var(--accent-2) 10%, transparent);
-      min-height: 232px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 8px;
+      margin-bottom: 10px;
+      max-height: 16.5rem;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      position: relative;
+      z-index: 1;
+    }
+    .import-queue-head {
+      margin: 0 0 2px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0;
+      font-weight: 500;
+    }
+    .import-queue-item {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 8px 9px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .import-queue-item.processing {
+      border-color: color-mix(in srgb, var(--accent) 52%, var(--border));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent);
+      background: color-mix(in srgb, var(--accent) 10%, var(--card));
+    }
+    .import-queue-item.done {
+      border-color: color-mix(in srgb, #14965a 45%, var(--border));
+    }
+    .import-queue-item.failed {
+      border-color: color-mix(in srgb, #b42318 48%, var(--border));
+      background: color-mix(in srgb, #b42318 8%, var(--card));
+    }
+    .import-queue-item-head {
+      margin: 0 0 3px;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      justify-content: space-between;
+    }
+    .import-queue-item-meta {
+      margin: 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+    .import-queue-item-detail {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .import-preview {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      min-height: 210px;
       overflow: hidden;
       display: flex;
       align-items: center;
@@ -699,10 +767,68 @@
       object-fit: contain;
       display: block;
     }
+    .import-preview-pdf {
+      width: 100%;
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+    }
+    .import-preview-pdf-canvas-wrap {
+      width: min(178px, 100%);
+      min-height: 222px;
+      position: relative;
+      display: grid;
+      place-items: center;
+      background: #0f172a;
+      border-radius: 8px;
+      border: 1px solid rgba(15, 23, 42, 0.25);
+      overflow: hidden;
+      box-shadow: 0 8px 18px rgba(2, 6, 23, 0.28);
+    }
+    .import-preview-pdf-canvas {
+      display: block;
+      position: relative;
+      z-index: 1;
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 220px;
+      background: #ffffff;
+    }
+    .import-preview-pdf-placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 10px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #e2e8f0;
+      text-align: center;
+      word-break: break-word;
+      background: rgba(15, 23, 42, 0.58);
+      z-index: 2;
+    }
+    .import-preview-pdf-title {
+      margin: 0;
+      max-width: 178px;
+      font-size: 10px;
+      line-height: 1.25;
+      color: var(--muted);
+      word-break: break-word;
+      text-align: center;
+    }
+    .import-preview-caption {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: 0;
+    }
     .import-title {
       margin: 0 0 4px;
-      font-family: var(--font-display);
       font-size: 16px;
+      font-weight: 600;
       line-height: 1.2;
       word-break: break-word;
     }
@@ -751,14 +877,14 @@
     }
     .import-steps {
       display: grid;
-      gap: 6px;
-      margin-bottom: 10px;
+      gap: 8px;
+      margin-bottom: 12px;
     }
     .import-step {
       border: 1px solid var(--border);
       border-radius: 9px;
-      padding: 7px 9px;
-      background: color-mix(in srgb, var(--card) 92%, var(--surface-tint));
+      padding: 8px 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
       font-size: 12px;
       line-height: 1.3;
       word-break: break-word;
@@ -807,10 +933,10 @@
     .import-step .step-badge {
       border-radius: 999px;
       padding: 2px 8px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
       border: 1px solid transparent;
     }
     .import-step.pending .step-badge {
@@ -850,45 +976,44 @@
     .import-metrics {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 8px;
-      margin-bottom: 10px;
+      gap: 10px;
+      margin-bottom: 12px;
     }
     .import-metric {
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 7px 8px;
-      background: color-mix(in srgb, var(--card) 90%, var(--surface-tint));
+      padding: 9px 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
     }
     .import-metric p {
       margin: 0;
       line-height: 1.25;
     }
     .import-metric .k {
-      font-size: 10px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0;
+      text-transform: none;
       color: var(--muted);
-      font-family: var(--font-display);
+      font-weight: 500;
     }
     .import-metric .v {
-      font-size: 14px;
-      font-weight: 700;
+      font-size: 16px;
+      font-weight: 600;
       margin-top: 2px;
     }
     .import-history-title {
       margin: 12px 0 7px;
-      font-size: 11px;
+      font-size: 13px;
       color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      font-family: var(--font-display);
-      font-weight: 700;
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 600;
     }
     .import-history {
       border: 1px solid var(--border);
       border-radius: 12px;
-      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
-      padding: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 12px;
       max-height: 17rem;
       overflow: auto;
       display: grid;
@@ -899,8 +1024,8 @@
     .import-history-item {
       border: 1px solid var(--border);
       border-radius: 9px;
-      padding: 8px 9px;
-      background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+      padding: 9px 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
       font-size: 12px;
       line-height: 1.35;
       word-break: break-word;
@@ -908,10 +1033,165 @@
     .import-history-item h4 {
       margin: 0 0 3px;
       font-size: 12px;
-      font-weight: 700;
+      font-weight: 600;
       display: flex;
       align-items: center;
       gap: 6px;
+    }
+    .viewer-toolbar {
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .viewer-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .viewer-toggle input {
+      accent-color: var(--accent);
+    }
+    .doc-viewer-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+    .doc-viewer-stage {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      min-height: 480px;
+      padding: 8px;
+    }
+    .doc-viewer-scroll {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 460px;
+      overflow: auto;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--page-bg) 90%, var(--card));
+      border: 1px solid var(--border);
+      cursor: default;
+    }
+    .doc-viewer-scroll.pan-enabled {
+      cursor: grab;
+    }
+    .doc-viewer-scroll.pan-enabled.panning {
+      cursor: grabbing;
+    }
+    #viewer-pdf-canvas {
+      display: none;
+      margin: 0 auto;
+      background: #fff;
+      box-shadow: 0 10px 22px rgba(2, 6, 23, 0.16);
+    }
+    #viewer-overlay-canvas {
+      display: none;
+      position: absolute;
+      pointer-events: none;
+      z-index: 3;
+      border: 0;
+    }
+    .doc-viewer-fallback {
+      min-height: 450px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 10px;
+    }
+    .doc-viewer-fallback iframe,
+    .doc-viewer-fallback object {
+      width: 100%;
+      min-height: 440px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .doc-viewer-fallback img {
+      max-width: 100%;
+      max-height: 620px;
+      border-radius: 8px;
+      box-shadow: 0 8px 20px rgba(2, 6, 23, 0.14);
+    }
+    .doc-viewer-side {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      padding: 10px;
+      display: grid;
+      gap: 10px;
+      min-height: 480px;
+      align-content: start;
+    }
+    .viewer-overlay-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 9px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      cursor: pointer;
+    }
+    .viewer-overlay-item.active {
+      border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+    }
+    .viewer-overlay-item h4 {
+      margin: 0 0 4px;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .viewer-overlay-item p {
+      margin: 0;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--muted);
+      word-break: break-word;
+    }
+    .viewer-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 360px;
+      font-size: 12px;
+    }
+    .viewer-table th,
+    .viewer-table td {
+      border: 1px solid var(--border);
+      padding: 4px 6px;
+      vertical-align: top;
+      text-align: left;
+      word-break: break-word;
+    }
+    .viewer-table thead th {
+      background: color-mix(in srgb, var(--card) 82%, var(--surface-tint));
+      font-weight: 600;
+    }
+    .viewer-table td.viewer-cell-active {
+      background: color-mix(in srgb, var(--accent) 14%, var(--card));
+      outline: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
+      outline-offset: -1px;
+    }
+    .viewer-annotation-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 9px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      font-size: 11px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    .viewer-annotation-item h4 {
+      margin: 0 0 3px;
+      font-size: 12px;
+      line-height: 1.3;
+    }
+    .viewer-annotation-item p {
+      margin: 0;
+      color: var(--muted);
     }
     @keyframes importShimmer {
       0% { transform: translateX(-100%); }
@@ -933,39 +1213,34 @@
       margin: 12px 0;
     }
     .metric-card {
-      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
       border-radius: 12px;
-      padding: 11px 12px;
-      background: linear-gradient(160deg, color-mix(in srgb, var(--card) 92%, var(--surface-tint)), color-mix(in srgb, var(--accent) 8%, transparent));
-      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+      padding: 12px 14px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      box-shadow: 0 2px 7px rgba(0, 0, 0, 0.05);
       position: relative;
       overflow: hidden;
     }
     .metric-card::before {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 4px;
-      background: linear-gradient(180deg, var(--accent), var(--accent-2));
-      opacity: 0.64;
+      content: none;
     }
     .metric-label {
       margin: 0 0 6px;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
       line-height: 1.2;
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      font-family: var(--font-display);
-      font-weight: 600;
+      text-transform: none;
+      letter-spacing: 0;
+      font-family: var(--font-sans);
+      font-weight: 500;
     }
     .metric-value {
       margin: 0;
-      font-size: 20px;
-      font-weight: 700;
+      font-size: 24px;
+      font-weight: 600;
       line-height: 1.2;
       word-break: break-word;
     }
@@ -975,10 +1250,10 @@
       border-radius: 999px;
       padding: 4px 10px;
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 600;
       border: 1px solid transparent;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      letter-spacing: 0;
+      text-transform: none;
     }
     .status-ok {
       background: rgba(20, 150, 90, 0.18);
@@ -1010,17 +1285,18 @@
       border-left: 4px solid transparent;
       border-radius: 10px;
       padding: 10px 11px;
-      background: color-mix(in srgb, var(--card) 88%, var(--surface-tint));
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
       font-size: 13px;
       line-height: 1.35;
       word-break: break-word;
-      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
     }
     .issue-item strong {
       margin-right: 6px;
-      text-transform: uppercase;
+      text-transform: none;
       font-size: 11px;
-      letter-spacing: 0.02em;
+      letter-spacing: 0;
+      font-weight: 600;
     }
     .issue-item.issue-error {
       border-left-color: #b42318;
@@ -1030,6 +1306,165 @@
     }
     .issue-item.issue-info {
       border-left-color: #475569;
+    }
+    .dashboard-storage-panel {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 10px;
+    }
+    .dashboard-storage-layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 1.05fr) minmax(280px, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .storage-column {
+      min-width: 0;
+    }
+    .storage-kicker {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .storage-donut-wrap {
+      display: grid;
+      justify-items: center;
+      gap: 8px;
+    }
+    .storage-donut {
+      width: 200px;
+      height: 200px;
+      border-radius: 999px;
+      position: relative;
+      border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--card) 52%, transparent);
+    }
+    .storage-donut::after {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      border: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
+    }
+    .storage-donut-center {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      display: grid;
+      place-content: center;
+      text-align: center;
+      gap: 2px;
+      pointer-events: none;
+    }
+    .storage-donut-label {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 500;
+    }
+    .storage-donut-value {
+      font-size: 18px;
+      font-weight: 650;
+      color: var(--text);
+      line-height: 1.1;
+    }
+    .storage-legend {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+      width: 100%;
+    }
+    .storage-legend-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      border-radius: 8px;
+      padding: 6px 8px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      font-size: 12px;
+    }
+    .storage-legend-main {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+    .storage-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      border: 1px solid color-mix(in srgb, #000000 16%, transparent);
+    }
+    .storage-legend-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+    }
+    .storage-legend-size {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      flex: 0 0 auto;
+    }
+    .storage-device-block {
+      display: grid;
+      gap: 8px;
+    }
+    .storage-device-meta {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .storage-device-bar {
+      height: 16px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+      overflow: hidden;
+      display: flex;
+      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
+    }
+    .storage-device-used {
+      background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 75%, #64748b), color-mix(in srgb, var(--accent-2) 78%, #64748b));
+      min-width: 2px;
+    }
+    .storage-device-free {
+      background: color-mix(in srgb, #16a34a 42%, var(--card));
+      min-width: 2px;
+      border-left: 1px solid color-mix(in srgb, var(--border) 68%, transparent);
+    }
+    .storage-path-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+    }
+    .storage-path-item {
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      border-radius: 8px;
+      padding: 6px 8px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      word-break: break-word;
+    }
+    .storage-path-item strong {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      display: inline-block;
+      margin-right: 6px;
     }
     .info-icon {
       display: inline-flex;
@@ -1062,12 +1497,11 @@
     details.raw-json > summary {
       cursor: pointer;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 600;
       list-style: none;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      font-family: var(--font-display);
+      text-transform: none;
+      letter-spacing: 0;
       padding: 10px 12px;
       background: color-mix(in srgb, var(--accent-2) 10%, transparent);
     }
@@ -1076,32 +1510,30 @@
     }
     .dashboard-section-title {
       margin: 13px 0 7px;
-      font-size: 11px;
+      font-size: 13px;
       color: var(--muted);
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      font-family: var(--font-display);
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
     }
     .vector-card-list {
       border: 1px solid var(--border);
       border-radius: 12px;
-      background: color-mix(in srgb, var(--card) 96%, var(--surface-tint));
-      padding: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 12px;
       max-height: 22rem;
       overflow: auto;
       margin-top: 10px;
       display: grid;
       gap: 10px;
-      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-tint) 75%, transparent);
     }
     .vector-card {
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 10px;
-      background: color-mix(in srgb, var(--accent-2) 9%, transparent);
+      padding: 11px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
       word-break: break-word;
-      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
     }
     .vector-card h4 {
       margin: 0 0 5px;
@@ -1256,7 +1688,12 @@
       }
       .nav-column {
         position: static;
+        top: auto;
+        left: auto;
+        bottom: auto;
+        width: auto;
         max-height: none;
+        z-index: auto;
       }
       .nav-list {
         display: flex;
@@ -1269,10 +1706,10 @@
         min-width: 178px;
       }
       .workspace-head p {
-        font-size: 20px;
+        font-size: 17px;
       }
       .card h2 {
-        font-size: 21px;
+        font-size: 17px;
       }
     }
     @media (prefers-reduced-motion: reduce) {
@@ -1292,13 +1729,13 @@
     }
     @media (max-width: 640px) {
       .workspace-head {
-        padding: 13px;
+        padding: 10px;
       }
       .workspace-head p {
-        font-size: 18px;
+        font-size: 16px;
       }
       .card {
-        padding: 13px;
+        padding: 10px;
       }
       .metric-grid,
       .dashboard-grid {
@@ -1311,6 +1748,9 @@
       .import-live {
         grid-template-columns: 1fr;
       }
+      .doc-viewer-layout {
+        grid-template-columns: 1fr;
+      }
       .import-preview {
         min-height: 190px;
       }
@@ -1320,6 +1760,20 @@
         height: 190px;
         max-height: 190px;
       }
+      .import-preview-pdf-canvas-wrap {
+        width: min(150px, 94%);
+      }
+      .dashboard-storage-layout {
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+      .storage-donut {
+        width: 170px;
+        height: 170px;
+      }
+      .storage-donut::after {
+        inset: 20px;
+      }
     }
   </style>
 </head>
@@ -1327,29 +1781,30 @@
   <header>
     <div class="header-top">
       <div class="brand-block">
-        <h1>Stemma Codicum</h1>
-        <p class="hero-subtitle">Source Tracing & Validation.</p>
+        <div class="brand-identity">
+          <img class="app-icon" src="/static/icons/icon-header-gold.png" alt="Stemma Codicum icon" />
+          <h1>Stemma Codicum</h1>
+        </div>
       </div>
       <div class="theme-picker">
         <label for="theme-select">Theme</label>
         <select id="theme-select" onchange="setTheme(this.value)">
-          <option value="harmonious-light">Harmonious Light</option>
-          <option value="restful-dark">Restful Dark</option>
+          <option value="harmonious-light">Soft Light</option>
+          <option value="restful-dark">Slate Dark</option>
           <option value="forest-mist">Forest Mist</option>
-          <option value="sunset-paper">Sunset Paper</option>
-          <option value="midnight-contrast">Midnight Contrast</option>
+          <option value="sunset-paper">Paper Warm</option>
+          <option value="midnight-contrast">Midnight Slate</option>
         </select>
       </div>
     </div>
   </header>
   <main class="app-shell">
     <aside class="nav-column">
-      <h2 class="nav-title">Functions</h2>
-      <p class="small nav-copy">Select a function to open its full panel.</p>
       <div class="nav-list">
-        <button class="secondary nav-btn" type="button" data-pane="dashboard">Home Dashboard</button>
+        <button class="secondary nav-btn" type="button" data-pane="dashboard">Home</button>
         <button class="secondary nav-btn" type="button" data-pane="project">Project and Health</button>
         <button class="secondary nav-btn" type="button" data-pane="database">Database Explorer</button>
+        <button class="secondary nav-btn" type="button" data-pane="viewer">Document Viewer</button>
         <button class="secondary nav-btn" type="button" data-pane="ingest">Import</button>
         <button class="secondary nav-btn" type="button" data-pane="references">References</button>
         <button class="secondary nav-btn" type="button" data-pane="extraction">Extraction</button>
@@ -1365,11 +1820,11 @@
     <section class="workspace">
       <div class="workspace-head">
         <h2 id="workspace-title">Function Workspace</h2>
-        <p id="workspace-subtitle">Home Dashboard</p>
+        <p id="workspace-subtitle">Home</p>
       </div>
 
       <section class="card workspace-panel" data-pane="dashboard" data-help-key="dashboard">
-      <h2>Home Dashboard</h2>
+      <h2>Home</h2>
       <div class="row">
         <button onclick="loadDashboard()">Refresh Summary</button>
         <button class="secondary" onclick="loadDashboard(true)">Refresh + Doctor</button>
@@ -1377,6 +1832,10 @@
       <p id="dashboard-status" class="small">Load summary to view overall system status.</p>
       <h3 class="dashboard-section-title">System Snapshot</h3>
       <div id="dashboard-kpis" class="dashboard-grid"></div>
+      <h3 class="dashboard-section-title">Storage and Paths</h3>
+      <div id="dashboard-storage" class="dashboard-storage-panel">
+        <p class="small">No storage summary loaded yet.</p>
+      </div>
       <h3 class="dashboard-section-title">Recent Runs</h3>
       <div id="dashboard-runs" class="issue-list">
         <p class="small">No dashboard summary loaded yet.</p>
@@ -1436,9 +1895,76 @@
       <pre id="out-db"></pre>
       </section>
 
+      <section class="card workspace-panel" data-pane="viewer" data-help-key="viewer">
+      <h2>Document Viewer</h2>
+      <div class="row">
+        <select id="viewer-resource-select">
+          <option value="">Select resource</option>
+        </select>
+        <button class="secondary" onclick="viewerRefreshResources()">Refresh Resources</button>
+        <button onclick="viewerOpenSelected()">Open Selected</button>
+      </div>
+      <div class="row">
+        <input id="viewer-resource-id" placeholder="Resource ID or digest" />
+        <button class="secondary" onclick="viewerOpenFromInput()">Open ID/Digest</button>
+      </div>
+      <div class="row viewer-toolbar">
+        <button class="secondary" onclick="viewerPrevPage()">Prev Page</button>
+        <button class="secondary" onclick="viewerNextPage()">Next Page</button>
+        <span id="viewer-page-label" class="small">Page 1 / 1</span>
+        <button class="secondary" onclick="viewerZoomOut()">-</button>
+        <button class="secondary" onclick="viewerZoomIn()">+</button>
+        <span id="viewer-zoom-label" class="small">100%</span>
+        <label class="viewer-toggle"><input id="viewer-toggle-tables" type="checkbox" checked onchange="viewerRenderOverlay()">Tables</label>
+        <label class="viewer-toggle"><input id="viewer-toggle-segments" type="checkbox" checked onchange="viewerRenderOverlay()">Segments</label>
+        <label class="viewer-toggle"><input id="viewer-toggle-annotations" type="checkbox" checked onchange="viewerRenderOverlay()">Annotations</label>
+        <label class="viewer-toggle"><input id="viewer-pan-toggle" type="checkbox" onchange="viewerTogglePan(this.checked)">Pan Drag</label>
+      </div>
+      <p id="viewer-status" class="small">Select a resource to inspect original source content, metadata, extracted tables, and annotation structure.</p>
+      <div class="doc-viewer-layout">
+        <div class="doc-viewer-stage">
+          <div id="viewer-scroll" class="doc-viewer-scroll">
+            <canvas id="viewer-pdf-canvas"></canvas>
+            <canvas id="viewer-overlay-canvas"></canvas>
+            <div id="viewer-fallback" class="doc-viewer-fallback">
+              <p class="small">Open a resource to render a source view and overlays.</p>
+            </div>
+          </div>
+        </div>
+        <div class="doc-viewer-side">
+          <h3 class="dashboard-section-title">Metadata</h3>
+          <div id="viewer-metadata" class="metric-grid">
+            <p class="small">No resource loaded.</p>
+          </div>
+          <h3 class="dashboard-section-title">Overlay Objects</h3>
+          <div id="viewer-overlay-list" class="inspector-list">
+            <p class="small">No overlays yet.</p>
+          </div>
+          <h3 class="dashboard-section-title">Table Inspector</h3>
+          <div class="row">
+            <input id="viewer-cell-row" placeholder="Row (1-based)" />
+            <input id="viewer-cell-col" placeholder="Col (1-based)" />
+            <button class="secondary" onclick="viewerFocusCell()">Focus Cell</button>
+          </div>
+          <p id="viewer-cell-status" class="small"></p>
+          <div id="viewer-table-grid" class="db-grid-scroll">
+            <p class="small">No table selected.</p>
+          </div>
+          <h3 class="dashboard-section-title">Annotations</h3>
+          <div id="viewer-annotation-list" class="inspector-list">
+            <p class="small">No annotations loaded.</p>
+          </div>
+        </div>
+      </div>
+      <details class="raw-json">
+        <summary>Raw JSON</summary>
+        <pre id="out-viewer"></pre>
+      </details>
+      </section>
+
       <section class="card workspace-panel" data-pane="ingest" data-help-key="ingest">
       <h2>Import</h2>
-      <div id="dropzone" class="dropzone">Drag & drop a document here to import (dedupe-aware)</div>
+      <div id="dropzone" class="dropzone">Drag & drop one or more documents here to import (dedupe-aware)</div>
       <div class="row">
         <input id="ingest-path" placeholder="Absolute file path" />
         <button onclick="ingestPath()">Import File Path</button>
@@ -1447,8 +1973,13 @@
         <input id="resources-limit" value="20" />
         <button class="secondary" onclick="listResources()">List Resources</button>
       </div>
-      <div id="import-live" class="import-live empty">
-        <p class="small">Drop a document to begin. This panel will show thumbnail preview, staged progress, extraction/table/vector status, and confirmation metadata.</p>
+      <h3 class="import-history-title">Current Import</h3>
+      <div id="import-live" class="import-live current-focus empty">
+        <p class="small">Drop one or more documents to begin. This panel shows the currently processing file with thumbnail preview, staged progress, extraction/table/vector status, and confirmation metadata.</p>
+      </div>
+      <h3 class="import-history-title">Drop Queue</h3>
+      <div id="import-drop-queue" class="import-queue">
+        <p class="small">No files queued.</p>
       </div>
       <h3 class="import-history-title">Recent Imports</h3>
       <div id="import-history" class="import-history">
@@ -1688,7 +2219,7 @@
 <script>
 const HELP_CONTENT = {
   dashboard: {
-    title: "Home Dashboard",
+    title: "Home",
     basic: `
       <p>Use this panel for a single-page summary of core system health and workload state.</p>
       <ul>
@@ -1772,12 +2303,38 @@ Action: View Rows</code></pre>
 4) View Rows on extracted_tables (limit 20)</code></pre>
     `,
   },
+  viewer: {
+    title: "Document Viewer",
+    basic: `
+      <p>Inspect a source document with metadata, extraction overlays, table structures, and annotation traces.</p>
+      <ul>
+        <li>Load a resource by dropdown, ID, or digest.</li>
+        <li>Use page + zoom controls and optional drag-pan mode for PDF navigation.</li>
+        <li>Toggle table/segment/annotation overlays.</li>
+        <li>Inspect table cells by row/column and review annotation snippets.</li>
+      </ul>
+    `,
+    full: `
+      <p>This panel combines immutable source file viewing with extracted structural data for audit workflows.</p>
+      <h4>Designed for audit trails</h4>
+      <ul>
+        <li>Metadata: digest, media type, source URI, archive path, and ingest timestamps.</li>
+        <li>Geometry overlays: table/segment bboxes when available from parser output.</li>
+        <li>Table inspector: inspect row/col values and approximate cell coordinates.</li>
+        <li>Annotation inspector: review labels/spans with contextual text snippets.</li>
+      </ul>
+      <pre><code>1) Open a resource
+2) Move to page N
+3) Select table T
+4) Focus row R / col C for value traceability</code></pre>
+    `,
+  },
   ingest: {
     title: "Import",
     basic: `
       <p>Add source files into immutable archive storage with deduplication.</p>
       <ul>
-        <li>Use drag/drop for quick single-file import.</li>
+        <li>Use drag/drop for quick one-or-many file import with queue tracking.</li>
         <li>Use absolute path import for scripted workflows.</li>
         <li>Use mass import for recursive directory processing.</li>
         <li>Use <code>List Resources</code> to verify digest + metadata.</li>
@@ -2209,6 +2766,12 @@ function statusClass(status) {
   return 'status-neutral';
 }
 
+function titleCase(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
 function infoIcon(tooltip) {
   return `<span class="info-icon" title="${dbEscapeHtml(tooltip || '')}" aria-label="${dbEscapeHtml(tooltip || '')}">?</span>`;
 }
@@ -2268,9 +2831,9 @@ function renderProjectHealth(payload) {
     );
 
     visual.innerHTML = `
-      ${metricCard('Overall', `<span class="status-pill ${statusClass(overall)}">${dbEscapeHtml(overall.toUpperCase())}</span>`, HEALTH_FIELD_HELP.ok)}
+      ${metricCard('Overall', `<span class="status-pill ${statusClass(overall)}">${dbEscapeHtml(titleCase(overall))}</span>`, HEALTH_FIELD_HELP.ok)}
       ${metricCard('Checks Run', dbEscapeHtml(String(payload.checks_run ?? 0)), HEALTH_FIELD_HELP.checks_run)}
-      ${metricCard('Journal Mode', `<span class="status-pill ${statusClass(runtime.journal_mode === 'wal' ? 'ok' : 'warning')}">${dbEscapeHtml(String(runtime.journal_mode || 'unknown').toUpperCase())}</span>`, HEALTH_FIELD_HELP.journal_mode)}
+      ${metricCard('Journal Mode', `<span class="status-pill ${statusClass(runtime.journal_mode === 'wal' ? 'ok' : 'warning')}">${dbEscapeHtml(titleCase(String(runtime.journal_mode || 'unknown')))}</span>`, HEALTH_FIELD_HELP.journal_mode)}
       ${metricCard('Busy Timeout', `${dbEscapeHtml(String(runtime.busy_timeout_ms ?? 0))} ms`, HEALTH_FIELD_HELP.busy_timeout_ms)}
       ${metricCard('Foreign Keys', `<span class="status-pill ${statusClass(runtime.foreign_keys ? 'ok' : 'error')}">${runtime.foreign_keys ? 'ENABLED' : 'DISABLED'}</span>`, HEALTH_FIELD_HELP.foreign_keys)}
       ${metricCard('Synchronous', dbEscapeHtml(syncName), HEALTH_FIELD_HELP.synchronous)}
@@ -2328,6 +2891,106 @@ function dashboardRunCards(data) {
   container.innerHTML = cards.join('');
 }
 
+function dashboardStorageCards(data) {
+  const container = document.getElementById('dashboard-storage');
+  if (!container) return;
+  const project = (data && typeof data === 'object' && data.project && typeof data.project === 'object')
+    ? data.project
+    : {};
+  const storage = (project.storage && typeof project.storage === 'object') ? project.storage : {};
+  const segments = [
+    { key: 'db_main', label: 'SQLite DB', path: storage.db_main_path || project.db_path, bytes: Number(storage.db_main_bytes || 0), color: '#2563eb' },
+    { key: 'db_wal', label: 'WAL', path: storage.db_wal_path || `${project.db_path || ''}-wal`, bytes: Number(storage.db_wal_bytes || 0), color: '#14b8a6' },
+    { key: 'db_shm', label: 'SHM', path: storage.db_shm_path || `${project.db_path || ''}-shm`, bytes: Number(storage.db_shm_bytes || 0), color: '#f59e0b' },
+    { key: 'archive', label: 'Archive Store', path: storage.archive_dir || project.archive_dir, bytes: Number(storage.archive_bytes || 0), color: '#a855f7' },
+    { key: 'vector', label: 'Vector Store', path: storage.qdrant_dir || project.qdrant_dir, bytes: Number(storage.qdrant_bytes || 0), color: '#ef4444' },
+  ];
+  if (!segments.some((row) => String(row.path || '').trim())) {
+    container.innerHTML = '<p class="small">Storage summary not available.</p>';
+    return;
+  }
+  const totalBytes = segments.reduce((sum, seg) => sum + (Number.isFinite(seg.bytes) && seg.bytes > 0 ? seg.bytes : 0), 0);
+  let arcCursor = 0;
+  const gradientParts = [];
+  segments.forEach((segment) => {
+    const value = Number.isFinite(segment.bytes) && segment.bytes > 0 ? segment.bytes : 0;
+    if (value <= 0 || totalBytes <= 0) return;
+    const angle = (value / totalBytes) * 360;
+    const start = arcCursor;
+    const end = arcCursor + angle;
+    gradientParts.push(`${segment.color} ${start.toFixed(3)}deg ${end.toFixed(3)}deg`);
+    arcCursor = end;
+  });
+  if (arcCursor < 360) {
+    gradientParts.push(`color-mix(in srgb, var(--border) 44%, transparent) ${arcCursor.toFixed(3)}deg 360deg`);
+  }
+  const donutBackground = gradientParts.length
+    ? `conic-gradient(${gradientParts.join(', ')})`
+    : 'conic-gradient(color-mix(in srgb, var(--border) 44%, transparent) 0deg 360deg)';
+
+  const legendHtml = segments
+    .map((segment) => `
+      <li class="storage-legend-item">
+        <span class="storage-legend-main">
+          <span class="storage-swatch" style="background:${segment.color};"></span>
+          <span class="storage-legend-name">${dbEscapeHtml(segment.label)}</span>
+        </span>
+        <span class="storage-legend-size">${dbEscapeHtml(importFileSizeText(segment.bytes || 0))}</span>
+      </li>
+    `)
+    .join('');
+
+  const deviceAnchor = String(storage.device_anchor_path || project.db_path || project.root || 'n/a');
+  const deviceTotal = Number(storage.device_total_bytes || 0);
+  const deviceUsed = Number(storage.device_used_bytes || 0);
+  const deviceFree = Number(storage.device_free_bytes || 0);
+  const safeTotal = Number.isFinite(deviceTotal) && deviceTotal > 0 ? deviceTotal : 0;
+  const usedPctRaw = safeTotal > 0 ? (Math.max(0, deviceUsed) / safeTotal) * 100 : 0;
+  const usedPct = Math.max(0, Math.min(100, usedPctRaw));
+  const freePct = Math.max(0, 100 - usedPct);
+  const deviceMetaHtml = safeTotal > 0
+    ? `${dbEscapeHtml(importFileSizeText(deviceUsed))} used • ${dbEscapeHtml(importFileSizeText(deviceFree))} free • ${dbEscapeHtml(importFileSizeText(deviceTotal))} total`
+    : 'Device capacity unavailable.';
+
+  const pathListHtml = segments
+    .map((segment) => `
+      <li class="storage-path-item">
+        <strong>${dbEscapeHtml(segment.label)}</strong>
+        <code>${dbEscapeHtml(String(segment.path || 'n/a'))}</code>
+      </li>
+    `)
+    .join('');
+
+  container.innerHTML = `
+    <div class="dashboard-storage-layout">
+      <section class="storage-column">
+        <p class="storage-kicker">Storage Composition</p>
+        <div class="storage-donut-wrap">
+          <div class="storage-donut" style="background:${donutBackground};">
+            <div class="storage-donut-center">
+              <span class="storage-donut-label">Total</span>
+              <span class="storage-donut-value">${dbEscapeHtml(importFileSizeText(totalBytes))}</span>
+            </div>
+          </div>
+          <ul class="storage-legend">${legendHtml}</ul>
+        </div>
+      </section>
+      <section class="storage-column">
+        <p class="storage-kicker">Device Capacity</p>
+        <div class="storage-device-block">
+          <p class="storage-device-meta">Device anchor: <code>${dbEscapeHtml(deviceAnchor)}</code></p>
+          <div class="storage-device-bar" aria-label="Device used and free space">
+            <div class="storage-device-used" style="width:${usedPct.toFixed(2)}%"></div>
+            <div class="storage-device-free" style="width:${freePct.toFixed(2)}%"></div>
+          </div>
+          <p class="storage-device-meta">${dbEscapeHtml(deviceMetaHtml)}</p>
+          <ul class="storage-path-list">${pathListHtml}</ul>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderDashboard(data, includeDoctor) {
   const statusEl = document.getElementById('dashboard-status');
   const kpiEl = document.getElementById('dashboard-kpis');
@@ -2336,6 +2999,7 @@ function renderDashboard(data, includeDoctor) {
   if (!data || data.ok !== true) {
     statusEl.textContent = 'Failed to load dashboard summary.';
     kpiEl.innerHTML = '';
+    dashboardStorageCards(null);
     dashboardRunCards(null);
     return;
   }
@@ -2362,6 +3026,7 @@ function renderDashboard(data, includeDoctor) {
   `;
 
   statusEl.textContent = `Summary refreshed at ${data.generated_at || 'n/a'}${includeDoctor ? ' (doctor included).' : '.'}`;
+  dashboardStorageCards(data);
   dashboardRunCards(data);
 
   if (health) {
@@ -2443,7 +3108,7 @@ function renderVectorStatus(payload) {
       const err = run.error_message ? `\nerror: ${run.error_message}` : '';
       return `
         <article class="vector-card">
-          <h4><span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(String(run.status || 'unknown').toUpperCase())}</span> ${dbEscapeHtml(run.id || '')}</h4>
+          <h4><span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(titleCase(String(run.status || 'unknown')))}</span> ${dbEscapeHtml(run.id || '')}</h4>
           <p>resource: ${dbEscapeHtml(run.resource_id || 'n/a')}
 extraction_run: ${dbEscapeHtml(run.extraction_run_id || 'n/a')}
 chunks: ${dbEscapeHtml(String(run.chunks_indexed ?? 0))}/${dbEscapeHtml(String(run.chunks_total ?? 0))}
@@ -2912,6 +3577,840 @@ function dbDescribeTable() {
   });
 }
 
+const VIEWER_PDFJS_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+const VIEWER_PDFJS_WORKER_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+
+const viewerState = {
+  resources: [],
+  payload: null,
+  resourceId: '',
+  selectedTableId: '',
+  selectedCellRow: null,
+  selectedCellCol: null,
+  contentKind: 'binary',
+  page: 1,
+  pageCount: 1,
+  zoom: 1,
+  minZoom: 0.5,
+  maxZoom: 3.2,
+  pdfDoc: null,
+  pdfJsPromise: null,
+  pdfLoadToken: 0,
+  renderToken: 0,
+  pageBaseWidth: 0,
+  pageBaseHeight: 0,
+  panEnabled: false,
+  panDragging: false,
+  panStartX: 0,
+  panStartY: 0,
+  panScrollLeft: 0,
+  panScrollTop: 0,
+};
+
+function viewerSetStatus(message) {
+  const el = document.getElementById('viewer-status');
+  if (el) el.textContent = String(message || '');
+}
+
+function viewerUpdatePageZoomLabels() {
+  const page = document.getElementById('viewer-page-label');
+  if (page) page.textContent = `Page ${viewerState.page} / ${viewerState.pageCount}`;
+  const zoom = document.getElementById('viewer-zoom-label');
+  if (zoom) zoom.textContent = `${Math.round(viewerState.zoom * 100)}%`;
+}
+
+function viewerTryParseJson(value, fallback = null) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function viewerListLabel(resource) {
+  if (!resource || typeof resource !== 'object') return 'unknown';
+  const file = String(resource.original_filename || 'document');
+  const media = String(resource.media_type || 'unknown');
+  const idShort = String(resource.id || '').slice(0, 8);
+  return `${file} (${media}) • ${idShort}`;
+}
+
+function viewerPopulateResourceSelect(selectedResourceId = '') {
+  const select = document.getElementById('viewer-resource-select');
+  if (!select) return;
+  const current = selectedResourceId || select.value || viewerState.resourceId || '';
+  select.innerHTML = '';
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = 'Select resource';
+  select.appendChild(placeholder);
+  viewerState.resources.forEach((resource) => {
+    const opt = document.createElement('option');
+    opt.value = resource.id;
+    opt.textContent = viewerListLabel(resource);
+    select.appendChild(opt);
+  });
+  if (current && viewerState.resources.some((r) => r.id === current)) {
+    select.value = current;
+  }
+}
+
+async function viewerRefreshResources() {
+  const payload = await callApi('GET', '/api/resources?limit=500', null, null);
+  viewerState.resources = Array.isArray(payload?.resources) ? payload.resources : [];
+  viewerPopulateResourceSelect();
+}
+
+function viewerSetActiveResource(resourceId) {
+  viewerState.resourceId = resourceId || '';
+  const select = document.getElementById('viewer-resource-select');
+  if (select && viewerState.resourceId && viewerState.resources.some((r) => r.id === viewerState.resourceId)) {
+    select.value = viewerState.resourceId;
+  }
+  const input = document.getElementById('viewer-resource-id');
+  if (input) input.value = viewerState.resourceId || '';
+}
+
+function viewerCurrentTable() {
+  if (!viewerState.payload || !Array.isArray(viewerState.payload.tables)) return null;
+  return viewerState.payload.tables.find((t) => t.id === viewerState.selectedTableId) || null;
+}
+
+function viewerOverlayToggleValue(id, fallback = true) {
+  const el = document.getElementById(id);
+  if (!el) return fallback;
+  return Boolean(el.checked);
+}
+
+function viewerToPageIndex(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
+function viewerResetStage() {
+  viewerState.pdfDoc = null;
+  viewerState.page = 1;
+  viewerState.pageCount = 1;
+  viewerState.pageBaseWidth = 0;
+  viewerState.pageBaseHeight = 0;
+  viewerUpdatePageZoomLabels();
+  const canvas = document.getElementById('viewer-pdf-canvas');
+  const overlay = document.getElementById('viewer-overlay-canvas');
+  if (canvas) {
+    canvas.style.display = 'none';
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+  if (overlay) {
+    overlay.style.display = 'none';
+    overlay.width = 0;
+    overlay.height = 0;
+  }
+}
+
+function viewerShowFallback(html) {
+  const fallback = document.getElementById('viewer-fallback');
+  if (fallback) fallback.innerHTML = html;
+  const canvas = document.getElementById('viewer-pdf-canvas');
+  const overlay = document.getElementById('viewer-overlay-canvas');
+  if (canvas) canvas.style.display = 'none';
+  if (overlay) overlay.style.display = 'none';
+}
+
+function viewerEscapeAttr(value) {
+  return dbEscapeHtml(String(value || ''));
+}
+
+function viewerRenderMetadata() {
+  const container = document.getElementById('viewer-metadata');
+  if (!container) return;
+  const payload = viewerState.payload;
+  if (!payload || !payload.metadata) {
+    container.innerHTML = '<p class="small">No resource loaded.</p>';
+    return;
+  }
+  const meta = payload.metadata;
+  const extraction = payload.extraction || {};
+  const counts = extraction.counts || {};
+  const pagesGeom = Array.isArray(extraction.pages_with_geometry) ? extraction.pages_with_geometry : [];
+  const pagesTables = Array.isArray(extraction.pages_with_tables) ? extraction.pages_with_tables : [];
+  const overlays = extraction.overlay_ready ? 'ready' : 'limited';
+  container.innerHTML = `
+    ${metricCard('Resource ID', viewerEscapeAttr(meta.resource_id))}
+    ${metricCard('Media Type', viewerEscapeAttr(meta.media_type))}
+    ${metricCard('Digest', viewerEscapeAttr(String(meta.digest_sha256 || '').slice(0, 16) + '...'))}
+    ${metricCard('Source URI', viewerEscapeAttr(meta.source_uri || 'n/a'))}
+    ${metricCard('Tables', viewerEscapeAttr(counts.tables ?? 0))}
+    ${metricCard('Segments', viewerEscapeAttr(counts.segments ?? 0))}
+    ${metricCard('Annotations', viewerEscapeAttr(counts.annotations ?? 0))}
+    ${metricCard('Overlay Geometry', viewerEscapeAttr(overlays))}
+    ${metricCard('Pages (Tables)', viewerEscapeAttr(pagesTables.length || 0))}
+    ${metricCard('Pages (BBox)', viewerEscapeAttr(pagesGeom.length || 0))}
+  `;
+}
+
+function viewerRenderAnnotations() {
+  const container = document.getElementById('viewer-annotation-list');
+  if (!container) return;
+  const payload = viewerState.payload;
+  const annotations = Array.isArray(payload?.annotations) ? payload.annotations : [];
+  if (!annotations.length) {
+    container.innerHTML = '<p class="small">No annotations available.</p>';
+    return;
+  }
+  const shown = annotations.slice(0, 220);
+  container.innerHTML = shown.map((annotation) => {
+    const spans = Array.isArray(annotation.spans) ? annotation.spans : [];
+    const spanText = spans.length
+      ? spans.slice(0, 3).map((s) => `${s.start}-${s.end}`).join(', ')
+      : 'no spans';
+    return `
+      <article class="viewer-annotation-item">
+        <h4>${dbEscapeHtml(String(annotation.category || 'annotation'))} <span class="small">(${dbEscapeHtml(String(annotation.layer || 'layer'))})</span></h4>
+        <p>${dbEscapeHtml(String(annotation.label || annotation.source || ''))}</p>
+        <p>${dbEscapeHtml(String(annotation.snippet || ''))}</p>
+        <p>spans: ${dbEscapeHtml(spanText)}</p>
+      </article>
+    `;
+  }).join('');
+}
+
+function viewerTableShape(table) {
+  const cells = Array.isArray(table?.cells) ? table.cells : [];
+  let rows = Array.isArray(table?.row_headers) ? table.row_headers.length : 0;
+  let cols = Array.isArray(table?.col_headers) ? table.col_headers.length : 0;
+  cells.forEach((cell) => {
+    const r = Number(cell?.row_index);
+    const c = Number(cell?.col_index);
+    if (Number.isFinite(r)) rows = Math.max(rows, Math.floor(r) + 1);
+    if (Number.isFinite(c)) cols = Math.max(cols, Math.floor(c) + 1);
+  });
+  rows = Math.max(0, rows);
+  cols = Math.max(0, cols);
+  return { rows, cols };
+}
+
+function viewerEstimateCellBox(table, rowIndex, colIndex) {
+  const bbox = viewerExtractBBox(table?.bbox);
+  if (!bbox) return null;
+  const shape = viewerTableShape(table);
+  if (shape.rows <= 0 || shape.cols <= 0) return null;
+  const row = Math.max(0, Math.min(shape.rows - 1, Number(rowIndex)));
+  const col = Math.max(0, Math.min(shape.cols - 1, Number(colIndex)));
+  const width = (bbox.x1 - bbox.x0) / shape.cols;
+  const height = (bbox.y1 - bbox.y0) / shape.rows;
+  return {
+    x0: bbox.x0 + (col * width),
+    y0: bbox.y0 + (row * height),
+    x1: bbox.x0 + ((col + 1) * width),
+    y1: bbox.y0 + ((row + 1) * height),
+  };
+}
+
+function viewerRenderTableGrid() {
+  const container = document.getElementById('viewer-table-grid');
+  if (!container) return;
+  const table = viewerCurrentTable();
+  if (!table) {
+    container.innerHTML = '<p class="small">No table selected.</p>';
+    return;
+  }
+
+  const { rows, cols } = viewerTableShape(table);
+  const cellMap = new Map();
+  (Array.isArray(table.cells) ? table.cells : []).forEach((cell) => {
+    const r = Number(cell?.row_index);
+    const c = Number(cell?.col_index);
+    if (!Number.isFinite(r) || !Number.isFinite(c)) return;
+    cellMap.set(`${Math.floor(r)}:${Math.floor(c)}`, String(cell?.value || ''));
+  });
+
+  const activeRow = Number.isFinite(viewerState.selectedCellRow) ? viewerState.selectedCellRow : null;
+  const activeCol = Number.isFinite(viewerState.selectedCellCol) ? viewerState.selectedCellCol : null;
+  const rowHeaders = Array.isArray(table.row_headers) ? table.row_headers : [];
+  const colHeaders = Array.isArray(table.col_headers) ? table.col_headers : [];
+
+  let headerHtml = '<th>#</th>';
+  for (let c = 0; c < cols; c += 1) {
+    const label = colHeaders[c] || `C${c + 1}`;
+    headerHtml += `<th>${dbEscapeHtml(label)}</th>`;
+  }
+
+  let bodyHtml = '';
+  for (let r = 0; r < rows; r += 1) {
+    let row = `<tr><th>${dbEscapeHtml(rowHeaders[r] || `R${r + 1}`)}</th>`;
+    for (let c = 0; c < cols; c += 1) {
+      const key = `${r}:${c}`;
+      const value = cellMap.get(key) || '';
+      const activeClass = activeRow === r && activeCol === c ? 'viewer-cell-active' : '';
+      row += `<td class="${activeClass}">${dbEscapeHtml(value)}</td>`;
+    }
+    row += '</tr>';
+    bodyHtml += row;
+  }
+
+  container.innerHTML = `
+    <table class="viewer-table">
+      <thead><tr>${headerHtml}</tr></thead>
+      <tbody>${bodyHtml || '<tr><td colspan="99">No cells extracted.</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+function viewerFocusCell() {
+  const table = viewerCurrentTable();
+  if (!table) {
+    const status = document.getElementById('viewer-cell-status');
+    if (status) status.textContent = 'Select a table first.';
+    return;
+  }
+  const rowInput = document.getElementById('viewer-cell-row');
+  const colInput = document.getElementById('viewer-cell-col');
+  const r = Number((rowInput?.value || '').trim());
+  const c = Number((colInput?.value || '').trim());
+  if (!Number.isFinite(r) || !Number.isFinite(c) || r < 1 || c < 1) {
+    const status = document.getElementById('viewer-cell-status');
+    if (status) status.textContent = 'Provide valid 1-based row and column numbers.';
+    return;
+  }
+  viewerState.selectedCellRow = Math.floor(r) - 1;
+  viewerState.selectedCellCol = Math.floor(c) - 1;
+  viewerRenderTableGrid();
+  const status = document.getElementById('viewer-cell-status');
+  const { rows, cols } = viewerTableShape(table);
+  const cell = (Array.isArray(table.cells) ? table.cells : []).find(
+    (x) => Number(x?.row_index) === viewerState.selectedCellRow && Number(x?.col_index) === viewerState.selectedCellCol
+  );
+  const value = cell ? String(cell.value || '') : '(empty)';
+  const approxBox = viewerEstimateCellBox(table, viewerState.selectedCellRow, viewerState.selectedCellCol);
+  const coordText = approxBox
+    ? ` • bbox approx (${approxBox.x0.toFixed(2)}, ${approxBox.y0.toFixed(2)}, ${approxBox.x1.toFixed(2)}, ${approxBox.y1.toFixed(2)})`
+    : '';
+  const cellInfo = `Table ${table.table_id || table.id || ''} • page ${Number.isFinite(Number(table.page_number)) ? table.page_number : 'n/a'} • row ${viewerState.selectedCellRow + 1}/${rows || '?'} • col ${viewerState.selectedCellCol + 1}/${cols || '?'} • value: ${value}${coordText}`;
+  if (status) status.textContent = cellInfo;
+}
+
+function viewerOpenOverlayTable(tableId) {
+  viewerState.selectedTableId = tableId || '';
+  const table = viewerCurrentTable();
+  const pageIndex = viewerToPageIndex(table?.page_index);
+  if (pageIndex !== null) {
+    viewerState.page = Math.max(1, pageIndex + 1);
+  }
+  viewerRenderOverlayList();
+  viewerRenderTableGrid();
+  viewerRenderOverlay();
+  viewerRenderCurrentPdfPage();
+}
+
+function viewerRenderOverlayList() {
+  const container = document.getElementById('viewer-overlay-list');
+  if (!container) return;
+  const payload = viewerState.payload;
+  const pageIndex = viewerState.page - 1;
+  const tables = Array.isArray(payload?.tables) ? payload.tables : [];
+  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+
+  const tablesHere = tables.filter((table) => (
+    table && (
+      viewerToPageIndex(table.page_index) === null
+      || viewerToPageIndex(table.page_index) === pageIndex
+      || viewerState.contentKind !== 'pdf'
+    )
+  ));
+  const segmentsHere = segments.filter((segment) => (
+    segment && segment.bbox && (
+      viewerToPageIndex(segment.page_index) === null
+      || viewerToPageIndex(segment.page_index) === pageIndex
+      || viewerState.contentKind !== 'pdf'
+    )
+  ));
+
+  if (!tablesHere.length && !segmentsHere.length) {
+    container.innerHTML = '<p class="small">No overlay objects for this page.</p>';
+    return;
+  }
+
+  const tableHtml = tablesHere.slice(0, 200).map((table) => {
+    const active = table.id === viewerState.selectedTableId ? 'active' : '';
+    const bbox = table?.bbox ? 'bbox' : 'no bbox';
+    const rows = Array.isArray(table.row_headers) ? table.row_headers.length : 0;
+    const cols = Array.isArray(table.col_headers) ? table.col_headers.length : 0;
+    return `
+      <article class="viewer-overlay-item ${active}" data-viewer-table-id="${dbEscapeHtml(String(table.id || ''))}">
+        <h4>Table ${dbEscapeHtml(String(table.page_number || 'n/a'))} • ${dbEscapeHtml(String(table.caption || table.table_id || 'table'))}</h4>
+        <p>${dbEscapeHtml(rows)} rows • ${dbEscapeHtml(cols)} cols • ${dbEscapeHtml(bbox)}</p>
+      </article>
+    `;
+  }).join('');
+
+  const segmentHtml = segmentsHere.slice(0, 220).map((segment) => `
+    <article class="viewer-overlay-item">
+      <h4>${dbEscapeHtml(String(segment.segment_type || 'segment'))}</h4>
+      <p>page ${dbEscapeHtml(String(segment.page_number || 'n/a'))} • ${dbEscapeHtml(String(segment.start_offset || 0))}-${dbEscapeHtml(String(segment.end_offset || 0))}</p>
+    </article>
+  `).join('');
+
+  container.innerHTML = `${tableHtml}${segmentHtml}`;
+  container.querySelectorAll('[data-viewer-table-id]').forEach((node) => {
+    node.addEventListener('click', () => {
+      viewerOpenOverlayTable(node.getAttribute('data-viewer-table-id') || '');
+    });
+  });
+}
+
+function viewerExtractBBox(bbox) {
+  if (!bbox || typeof bbox !== 'object') return null;
+  const obj = bbox;
+  const pick = (...keys) => {
+    for (const key of keys) {
+      const value = obj[key];
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  };
+  let x0 = pick('x0', 'left', 'l', 'x_min', 'min_x', 'x');
+  let y0 = pick('y0', 'top', 't', 'y_min', 'min_y', 'y');
+  let x1 = pick('x1', 'right', 'r', 'x_max', 'max_x');
+  let y1 = pick('y1', 'bottom', 'b', 'y_max', 'max_y');
+  if ((x0 === null || y0 === null || x1 === null || y1 === null) && Array.isArray(obj.points) && obj.points.length >= 4) {
+    const values = obj.points.map((v) => Number(v));
+    if (values.every((v) => Number.isFinite(v))) {
+      [x0, y0, x1, y1] = values;
+    }
+  }
+  if (x0 === null || y0 === null || x1 === null || y1 === null) return null;
+  if (x1 < x0) [x0, x1] = [x1, x0];
+  if (y1 < y0) [y0, y1] = [y1, y0];
+  return { x0, y0, x1, y1 };
+}
+
+function viewerRectForCanvas(bbox, canvasWidth, canvasHeight) {
+  const b = viewerExtractBBox(bbox);
+  if (!b) return null;
+  const maxValue = Math.max(Math.abs(b.x0), Math.abs(b.y0), Math.abs(b.x1), Math.abs(b.y1));
+  const isNormalized = maxValue <= 1.5;
+  const baseW = viewerState.pageBaseWidth || canvasWidth || 1;
+  const baseH = viewerState.pageBaseHeight || canvasHeight || 1;
+
+  let x0 = b.x0;
+  let y0 = b.y0;
+  let x1 = b.x1;
+  let y1 = b.y1;
+  if (isNormalized) {
+    x0 *= canvasWidth;
+    x1 *= canvasWidth;
+    y0 *= canvasHeight;
+    y1 *= canvasHeight;
+  } else {
+    const scaleX = canvasWidth / baseW;
+    const scaleY = canvasHeight / baseH;
+    x0 *= scaleX;
+    x1 *= scaleX;
+    y0 *= scaleY;
+    y1 *= scaleY;
+  }
+  const w = Math.max(1, x1 - x0);
+  const h = Math.max(1, y1 - y0);
+  return { x: x0, y: y0, w, h };
+}
+
+function viewerCollectAnnotationRects(pageIndex) {
+  if (!viewerOverlayToggleValue('viewer-toggle-annotations', true)) return [];
+  const payload = viewerState.payload;
+  const annotations = Array.isArray(payload?.annotations) ? payload.annotations : [];
+  const segments = Array.isArray(payload?.segments)
+    ? payload.segments.filter((segment) => segment && segment.bbox && viewerToPageIndex(segment.page_index) === pageIndex)
+    : [];
+  if (!annotations.length || !segments.length) return [];
+  const rects = [];
+  const maxAnnotations = Math.min(350, annotations.length);
+  for (let i = 0; i < maxAnnotations; i += 1) {
+    const annotation = annotations[i];
+    const spans = Array.isArray(annotation?.spans) ? annotation.spans : [];
+    for (const span of spans) {
+      const spanStart = Number(span?.start);
+      const spanEnd = Number(span?.end);
+      if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) continue;
+      for (const segment of segments) {
+        const segStart = Number(segment?.start_offset);
+        const segEnd = Number(segment?.end_offset);
+        if (!Number.isFinite(segStart) || !Number.isFinite(segEnd)) continue;
+        if (segEnd <= spanStart || segStart >= spanEnd) continue;
+        rects.push(segment.bbox);
+      }
+      if (rects.length > 800) return rects;
+    }
+  }
+  return rects;
+}
+
+function viewerRenderOverlay() {
+  const overlayCanvas = document.getElementById('viewer-overlay-canvas');
+  const baseCanvas = document.getElementById('viewer-pdf-canvas');
+  if (!overlayCanvas || !baseCanvas || viewerState.contentKind !== 'pdf' || !viewerState.pdfDoc) return;
+  const ctx = overlayCanvas.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+  const payload = viewerState.payload;
+  const pageIndex = viewerState.page - 1;
+  const showTables = viewerOverlayToggleValue('viewer-toggle-tables', true);
+  const showSegments = viewerOverlayToggleValue('viewer-toggle-segments', true);
+
+  if (showTables) {
+    const tables = Array.isArray(payload?.tables) ? payload.tables : [];
+    tables.forEach((table) => {
+      if (!table || !table.bbox) return;
+      if (viewerToPageIndex(table.page_index) !== null && viewerToPageIndex(table.page_index) !== pageIndex) return;
+      const rect = viewerRectForCanvas(table.bbox, overlayCanvas.width, overlayCanvas.height);
+      if (!rect) return;
+      const selected = table.id === viewerState.selectedTableId;
+      ctx.strokeStyle = selected ? '#0ea5e9' : '#22d3ee';
+      ctx.lineWidth = selected ? 2.4 : 1.7;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      if (selected) {
+        ctx.fillStyle = 'rgba(14,165,233,0.16)';
+        ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      }
+    });
+  }
+
+  if (showSegments) {
+    const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+    let drawn = 0;
+    for (const segment of segments) {
+      if (!segment || !segment.bbox) continue;
+      if (viewerToPageIndex(segment.page_index) !== null && viewerToPageIndex(segment.page_index) !== pageIndex) continue;
+      const rect = viewerRectForCanvas(segment.bbox, overlayCanvas.width, overlayCanvas.height);
+      if (!rect) continue;
+      ctx.strokeStyle = 'rgba(251,191,36,0.65)';
+      ctx.lineWidth = 1.0;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+      drawn += 1;
+      if (drawn > 1000) break;
+    }
+  }
+
+  const annotationRects = viewerCollectAnnotationRects(pageIndex);
+  if (annotationRects.length) {
+    ctx.strokeStyle = 'rgba(217,70,239,0.7)';
+    ctx.lineWidth = 1.1;
+    annotationRects.forEach((bbox) => {
+      const rect = viewerRectForCanvas(bbox, overlayCanvas.width, overlayCanvas.height);
+      if (!rect) return;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+    });
+  }
+}
+
+async function viewerEnsurePdfJs() {
+  if (window.pdfjsLib) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = VIEWER_PDFJS_WORKER_SRC;
+    return window.pdfjsLib;
+  }
+  if (viewerState.pdfJsPromise) return viewerState.pdfJsPromise;
+  viewerState.pdfJsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = VIEWER_PDFJS_SRC;
+    script.async = true;
+    script.onload = () => {
+      if (!window.pdfjsLib) {
+        reject(new Error('PDF.js loaded but pdfjsLib is unavailable.'));
+        return;
+      }
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = VIEWER_PDFJS_WORKER_SRC;
+      resolve(window.pdfjsLib);
+    };
+    script.onerror = () => reject(new Error('Failed to load PDF.js runtime.'));
+    document.head.appendChild(script);
+  });
+  return viewerState.pdfJsPromise;
+}
+
+function viewerFitCanvases(viewport, scrollEl) {
+  const baseCanvas = document.getElementById('viewer-pdf-canvas');
+  const overlayCanvas = document.getElementById('viewer-overlay-canvas');
+  if (!baseCanvas || !overlayCanvas || !viewport || !scrollEl) return;
+
+  const width = Math.max(1, Math.floor(viewport.width));
+  const height = Math.max(1, Math.floor(viewport.height));
+  baseCanvas.width = width;
+  baseCanvas.height = height;
+  baseCanvas.style.width = `${width}px`;
+  baseCanvas.style.height = `${height}px`;
+  baseCanvas.style.display = 'block';
+
+  overlayCanvas.width = width;
+  overlayCanvas.height = height;
+  overlayCanvas.style.width = `${width}px`;
+  overlayCanvas.style.height = `${height}px`;
+  overlayCanvas.style.left = `${Math.max(0, Math.floor((scrollEl.clientWidth - width) / 2))}px`;
+  overlayCanvas.style.top = '0px';
+  overlayCanvas.style.display = 'block';
+}
+
+async function viewerRenderCurrentPdfPage() {
+  if (!viewerState.pdfDoc) return;
+  const fallback = document.getElementById('viewer-fallback');
+  if (fallback) fallback.innerHTML = '';
+  const scrollEl = document.getElementById('viewer-scroll');
+  if (!scrollEl) return;
+
+  const renderToken = ++viewerState.renderToken;
+  const page = await viewerState.pdfDoc.getPage(viewerState.page);
+  if (renderToken !== viewerState.renderToken) return;
+
+  const baseViewport = page.getViewport({ scale: 1.0 });
+  viewerState.pageBaseWidth = baseViewport.width;
+  viewerState.pageBaseHeight = baseViewport.height;
+
+  const viewport = page.getViewport({ scale: viewerState.zoom });
+  viewerFitCanvases(viewport, scrollEl);
+
+  const baseCanvas = document.getElementById('viewer-pdf-canvas');
+  if (!baseCanvas) return;
+  const context = baseCanvas.getContext('2d');
+  if (!context) return;
+  await page.render({ canvasContext: context, viewport }).promise;
+  if (renderToken !== viewerState.renderToken) return;
+  viewerUpdatePageZoomLabels();
+  viewerRenderOverlay();
+  viewerRenderOverlayList();
+}
+
+async function viewerLoadPdfSource(url) {
+  viewerResetStage();
+  const token = ++viewerState.pdfLoadToken;
+  viewerState.contentKind = 'pdf';
+  const fallback = document.getElementById('viewer-fallback');
+  if (fallback) fallback.innerHTML = '<p class="small">Loading PDF source...</p>';
+  try {
+    const pdfjs = await viewerEnsurePdfJs();
+    const loadingTask = pdfjs.getDocument(url);
+    const doc = await loadingTask.promise;
+    if (token !== viewerState.pdfLoadToken) return;
+    viewerState.pdfDoc = doc;
+    viewerState.pageCount = Math.max(1, Number(doc.numPages || 1));
+    if (viewerState.page > viewerState.pageCount) viewerState.page = viewerState.pageCount;
+    viewerSetStatus(`Loaded PDF (${viewerState.pageCount} pages). Overlay mode is active.`);
+    await viewerRenderCurrentPdfPage();
+  } catch (error) {
+    viewerState.pdfDoc = null;
+    viewerState.pageCount = 1;
+    viewerUpdatePageZoomLabels();
+    viewerShowFallback(`
+      <div>
+        <p class="small">Interactive PDF rendering unavailable (${dbEscapeHtml(String(error))}).</p>
+        <iframe src="${dbEscapeHtml(url)}#page=${viewerState.page}&zoom=${Math.round(viewerState.zoom * 100)}"></iframe>
+      </div>
+    `);
+    viewerSetStatus('Fallback PDF embed loaded; overlay canvas is unavailable in fallback mode.');
+  }
+}
+
+function viewerRenderNonPdfSource(payload) {
+  viewerResetStage();
+  const kind = String(payload?.content?.kind || 'binary');
+  const url = String(payload?.content?.url || '');
+  viewerState.contentKind = kind;
+  if (!url) {
+    viewerShowFallback('<p class="small">No source URL available for this resource.</p>');
+    viewerSetStatus('Source URL unavailable.');
+    return;
+  }
+
+  if (kind === 'image') {
+    viewerShowFallback(`<img src="${dbEscapeHtml(url)}" alt="resource source image" />`);
+    viewerSetStatus('Image source loaded.');
+    return;
+  }
+  if (kind === 'text' || kind === 'table') {
+    viewerShowFallback(`<iframe src="${dbEscapeHtml(url)}"></iframe>`);
+    viewerSetStatus('Source loaded in embedded document frame.');
+    return;
+  }
+  viewerShowFallback(`
+    <div>
+      <p class="small">This media type is not directly renderable in-browser.</p>
+      <p><a href="${dbEscapeHtml(url)}" target="_blank" rel="noopener">Open Original Source</a></p>
+    </div>
+  `);
+  viewerSetStatus('Binary source: open original file in a new tab/window.');
+}
+
+function viewerDerivePageCount(payload) {
+  const extraction = payload?.extraction || {};
+  const pagesFromExtraction = []
+    .concat(Array.isArray(extraction.pages_with_tables) ? extraction.pages_with_tables : [])
+    .concat(Array.isArray(extraction.pages_with_geometry) ? extraction.pages_with_geometry : []);
+  let count = 1;
+  pagesFromExtraction.forEach((p) => {
+    const n = Number(p);
+    if (Number.isFinite(n)) count = Math.max(count, Math.floor(n));
+  });
+  return Math.max(1, count);
+}
+
+function viewerResolveContentUrl(url) {
+  const target = String(url || '');
+  if (!target) return '';
+  const candidates = candidateApiUrls(target);
+  return candidates.length ? candidates[candidates.length - 1] : target;
+}
+
+async function viewerOpenPayload(payload) {
+  if (payload?.content?.url) {
+    payload.content.url = viewerResolveContentUrl(payload.content.url);
+  }
+  viewerState.payload = payload;
+  viewerState.zoom = 1;
+  viewerState.page = 1;
+  viewerState.selectedCellRow = null;
+  viewerState.selectedCellCol = null;
+  const firstTable = Array.isArray(payload?.tables) && payload.tables.length ? payload.tables[0] : null;
+  viewerState.selectedTableId = firstTable?.id || '';
+  viewerSetActiveResource(payload?.resource?.id || '');
+  viewerRenderMetadata();
+  viewerRenderAnnotations();
+  viewerRenderOverlayList();
+  viewerRenderTableGrid();
+  viewerState.pageCount = viewerDerivePageCount(payload);
+  viewerUpdatePageZoomLabels();
+  if (String(payload?.content?.kind || '') === 'pdf') {
+    await viewerLoadPdfSource(String(payload?.content?.url || ''));
+  } else {
+    viewerRenderNonPdfSource(payload);
+  }
+}
+
+function viewerLoadQueryFromInput(rawValue) {
+  const raw = String(rawValue || '').trim();
+  if (!raw) return null;
+  const isDigest = /^[a-f0-9]{64}$/i.test(raw);
+  return isDigest
+    ? `resource_digest=${encodeURIComponent(raw)}`
+    : `resource_id=${encodeURIComponent(raw)}`;
+}
+
+async function viewerOpenWithQuery(query) {
+  if (!query) return;
+  viewerSetStatus('Loading document source and extraction overlays...');
+  const payload = await callApi('GET', `/api/viewer/document?${query}`, null, 'out-viewer');
+  if (!payload || payload.ok !== true) {
+    viewerSetStatus(payload?.detail || payload?.error || 'Document viewer load failed.');
+    return;
+  }
+  await viewerOpenPayload(payload);
+}
+
+async function viewerOpenSelected() {
+  const select = document.getElementById('viewer-resource-select');
+  const selectedId = String(select?.value || '').trim();
+  if (!selectedId) {
+    viewerSetStatus('Select a resource first.');
+    return;
+  }
+  await viewerOpenWithQuery(`resource_id=${encodeURIComponent(selectedId)}`);
+}
+
+async function viewerOpenFromInput() {
+  const input = document.getElementById('viewer-resource-id');
+  const query = viewerLoadQueryFromInput(input?.value || '');
+  if (!query) {
+    viewerSetStatus('Provide a resource ID or 64-char digest.');
+    return;
+  }
+  await viewerOpenWithQuery(query);
+}
+
+async function viewerOpenFromImport(resourceId) {
+  if (!resourceId) return;
+  setActivePane('viewer');
+  await viewerRefreshResources();
+  await viewerOpenWithQuery(`resource_id=${encodeURIComponent(String(resourceId))}`);
+}
+
+function viewerPrevPage() {
+  if (viewerState.page <= 1) return;
+  viewerState.page -= 1;
+  viewerUpdatePageZoomLabels();
+  viewerRenderCurrentPdfPage();
+  viewerRenderOverlayList();
+}
+
+function viewerNextPage() {
+  if (viewerState.page >= viewerState.pageCount) return;
+  viewerState.page += 1;
+  viewerUpdatePageZoomLabels();
+  viewerRenderCurrentPdfPage();
+  viewerRenderOverlayList();
+}
+
+function viewerZoomOut() {
+  viewerState.zoom = Math.max(viewerState.minZoom, Number((viewerState.zoom - 0.1).toFixed(2)));
+  viewerUpdatePageZoomLabels();
+  viewerRenderCurrentPdfPage();
+}
+
+function viewerZoomIn() {
+  viewerState.zoom = Math.min(viewerState.maxZoom, Number((viewerState.zoom + 0.1).toFixed(2)));
+  viewerUpdatePageZoomLabels();
+  viewerRenderCurrentPdfPage();
+}
+
+function viewerTogglePan(enabled) {
+  viewerState.panEnabled = Boolean(enabled);
+  const scroll = document.getElementById('viewer-scroll');
+  if (!scroll) return;
+  scroll.classList.toggle('pan-enabled', viewerState.panEnabled);
+}
+
+function viewerInitPanHandlers() {
+  const scroll = document.getElementById('viewer-scroll');
+  if (!scroll) return;
+  const beginPan = (event) => {
+    if (!viewerState.panEnabled || !viewerState.pdfDoc) return;
+    viewerState.panDragging = true;
+    viewerState.panStartX = event.clientX;
+    viewerState.panStartY = event.clientY;
+    viewerState.panScrollLeft = scroll.scrollLeft;
+    viewerState.panScrollTop = scroll.scrollTop;
+    scroll.classList.add('panning');
+    event.preventDefault();
+  };
+  const movePan = (event) => {
+    if (!viewerState.panDragging) return;
+    const dx = event.clientX - viewerState.panStartX;
+    const dy = event.clientY - viewerState.panStartY;
+    scroll.scrollLeft = viewerState.panScrollLeft - dx;
+    scroll.scrollTop = viewerState.panScrollTop - dy;
+  };
+  const endPan = () => {
+    viewerState.panDragging = false;
+    scroll.classList.remove('panning');
+  };
+  scroll.addEventListener('mousedown', beginPan);
+  window.addEventListener('mousemove', movePan);
+  window.addEventListener('mouseup', endPan);
+  scroll.addEventListener('mouseleave', () => {
+    if (!viewerState.panDragging) return;
+    viewerState.panDragging = false;
+    scroll.classList.remove('panning');
+  });
+}
+
+function initDocumentViewer() {
+  viewerInitPanHandlers();
+  viewerRefreshResources();
+}
+
 const IMPORT_STEPS = [
   { id: 'archive', label: 'Archive & Dedupe' },
   { id: 'extract', label: 'Text Extraction' },
@@ -2923,14 +4422,330 @@ let importProgressTimer = null;
 let importCounterTimer = null;
 let importProgressValue = 0;
 let importPreviewUrl = null;
+let importPreviewObjectKey = '';
+let importPreviewMetaKey = '';
+let importPreviewKind = 'generic';
+let importPreviewPageCurrent = 1;
+let importPreviewPageTotal = null;
+let importPreviewProcessing = false;
+let importPreviewTicker = null;
+let importPreviewPdfDoc = null;
+let importPreviewPdfSourceUrl = '';
+let importPreviewPdfLoadToken = 0;
+let importPreviewPdfRenderToken = 0;
+let importPreviewPdfRenderTask = null;
+let importPreviewLastRenderedPage = null;
 let importHistoryItems = [];
+let importDropQueue = [];
+let importDropQueueRunning = false;
+let importDropQueueSeq = 0;
+let importDropQueueActiveId = null;
+let importActiveEta = null;
+let importActiveStepMap = null;
+let importDurationSamples = [];
+let importActiveStreamAbortController = null;
+let importDeferRequestedItemId = null;
+let importQueuePollTimer = null;
+let importQueuePollInFlight = false;
+
+const IMPORT_STREAM_STAGE_WEIGHTS = { archive: 0.2, extract: 0.35, tables: 0.2, vector: 0.25 };
+const IMPORT_ETA_HISTORY_MAX = 400;
+const IMPORT_ETA_SAMPLE_MAX = 180;
+const IMPORT_ETA_STALL_WARN_MS = 45000;
+const IMPORT_ETA_STALL_CRITICAL_MS = 180000;
+
+function importClamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function importMedian(values) {
+  if (!Array.isArray(values) || !values.length) return null;
+  const ordered = values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  if (!ordered.length) return null;
+  const mid = Math.floor(ordered.length / 2);
+  if (ordered.length % 2) return ordered[mid];
+  return (ordered[mid - 1] + ordered[mid]) / 2;
+}
+
+function importTrimmedMean(values, trimFraction = 0.15) {
+  if (!Array.isArray(values) || !values.length) return null;
+  const ordered = values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  if (!ordered.length) return null;
+  const trimCount = Math.floor(ordered.length * importClamp(trimFraction, 0, 0.45));
+  const slice = ordered.slice(trimCount, Math.max(trimCount + 1, ordered.length - trimCount));
+  if (!slice.length) return null;
+  return slice.reduce((sum, v) => sum + v, 0) / slice.length;
+}
+
+function importFileExtension(name) {
+  const value = String(name || '').toLowerCase();
+  const match = /\.([a-z0-9]+)$/.exec(value);
+  return match ? match[1] : '';
+}
+
+function importEtaFeatures(meta) {
+  const file = meta?.file || null;
+  const name = String(meta?.name || file?.name || '');
+  const sizeBytesRaw = meta?.sizeBytes ?? file?.size ?? 0;
+  const sizeBytes = Number.isFinite(Number(sizeBytesRaw)) ? Math.max(0, Number(sizeBytesRaw)) : 0;
+  return {
+    name,
+    ext: importFileExtension(name),
+    sizeBytes,
+  };
+}
+
+function importGuessDurationMs(meta) {
+  const { ext, sizeBytes } = importEtaFeatures(meta);
+  const sizeMb = sizeBytes / (1024 * 1024);
+  let guess = 12000 + (sizeMb * 2500);
+  if (ext === 'pdf') guess += 14000;
+  if (ext === 'docx' || ext === 'doc') guess += 18000;
+  if (ext === 'pptx' || ext === 'ppt') guess += 22000;
+  return importClamp(Math.round(guess), 12000, 3 * 60 * 60 * 1000);
+}
+
+function importPredictDurationMs(meta) {
+  const { ext, sizeBytes } = importEtaFeatures(meta);
+  if (!importDurationSamples.length) return importGuessDurationMs(meta);
+
+  const allDurations = importDurationSamples.map((s) => Number(s.durationMs)).filter((v) => Number.isFinite(v) && v > 0);
+  const globalMedian = importMedian(allDurations);
+  const extPool = importDurationSamples.filter((s) => s.ext === ext && Number.isFinite(Number(s.durationMs)) && Number(s.durationMs) > 0);
+  const extMedian = extPool.length >= 3 ? importMedian(extPool.map((s) => Number(s.durationMs))) : null;
+
+  const neighborPool = (extPool.length >= 3 ? extPool : importDurationSamples)
+    .filter((s) => Number.isFinite(Number(s.sizeBytes)) && Number.isFinite(Number(s.durationMs)) && Number(s.durationMs) > 0);
+  let neighborEstimate = null;
+  if (neighborPool.length) {
+    const ranked = neighborPool
+      .map((s) => {
+        const a = Math.log1p(Math.max(0, Number(s.sizeBytes)));
+        const b = Math.log1p(Math.max(0, sizeBytes));
+        const score = Math.abs(a - b);
+        return { durationMs: Number(s.durationMs), score };
+      })
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 7)
+      .map((s) => s.durationMs);
+    neighborEstimate = importTrimmedMean(ranked, 0.2);
+  }
+
+  const parts = [];
+  if (globalMedian) parts.push({ w: 0.22, v: globalMedian });
+  if (extMedian) parts.push({ w: 0.43, v: extMedian });
+  if (neighborEstimate) parts.push({ w: 0.35, v: neighborEstimate });
+  if (!parts.length) return importGuessDurationMs(meta);
+
+  const weightSum = parts.reduce((sum, p) => sum + p.w, 0);
+  const blended = parts.reduce((sum, p) => sum + (p.v * p.w), 0) / weightSum;
+  return importClamp(Math.round(blended), 8000, 3 * 60 * 60 * 1000);
+}
+
+function importRecordDurationSample(meta, durationMs, ok = true) {
+  const duration = Number(durationMs);
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const features = importEtaFeatures(meta);
+  importDurationSamples.push({
+    ext: features.ext,
+    sizeBytes: features.sizeBytes,
+    durationMs: duration,
+    ok: Boolean(ok),
+    ts: Date.now(),
+  });
+  if (importDurationSamples.length > IMPORT_ETA_HISTORY_MAX) {
+    importDurationSamples = importDurationSamples.slice(importDurationSamples.length - IMPORT_ETA_HISTORY_MAX);
+  }
+}
+
+function importFormatEtaDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return 'calculating...';
+  if (ms < 1000) return '<1s';
+  const totalSec = Math.ceil(ms / 1000);
+  const sec = totalSec % 60;
+  const min = Math.floor(totalSec / 60) % 60;
+  const hr = Math.floor(totalSec / 3600);
+  if (hr > 0) return `${hr}h ${String(min).padStart(2, '0')}m`;
+  if (min > 0) return `${min}m ${String(sec).padStart(2, '0')}s`;
+  return `${sec}s`;
+}
+
+function importEtaStart(meta) {
+  const now = Date.now();
+  return {
+    meta,
+    startedAtMs: now,
+    lastHeartbeatMs: now,
+    predictedTotalMs: importPredictDurationMs(meta),
+    samples: [{ t: now, p: 0 }],
+    lastProgress: 0,
+  };
+}
+
+function importEtaTrackProgress(eta, progress01, nowMs) {
+  if (!eta) return;
+  const progress = importClamp(Number(progress01) || 0, 0, 1);
+  const now = Number(nowMs) || Date.now();
+  const prev = eta.samples.length ? eta.samples[eta.samples.length - 1] : null;
+  const shouldPush = !prev
+    || (progress - prev.p) >= 0.004
+    || (now - prev.t) >= 5000;
+  if (!shouldPush) return;
+  eta.samples.push({ t: now, p: progress });
+  if (eta.samples.length > IMPORT_ETA_SAMPLE_MAX) {
+    eta.samples = eta.samples.slice(eta.samples.length - IMPORT_ETA_SAMPLE_MAX);
+  }
+  eta.lastProgress = Math.max(eta.lastProgress || 0, progress);
+}
+
+function importEtaRobustRate(eta) {
+  if (!eta || !Array.isArray(eta.samples) || eta.samples.length < 3) return null;
+  const recent = eta.samples.filter((s) => (eta.samples[eta.samples.length - 1].t - s.t) <= 180000);
+  if (recent.length < 3) return null;
+  const slopes = [];
+  for (let i = 1; i < recent.length; i += 1) {
+    const upper = recent[i];
+    const start = Math.max(0, i - 7);
+    for (let j = start; j < i; j += 1) {
+      const lower = recent[j];
+      const dt = (upper.t - lower.t) / 1000;
+      if (dt < 1.0) continue;
+      const dp = upper.p - lower.p;
+      if (dp <= 0) continue;
+      slopes.push(dp / dt);
+    }
+  }
+  if (!slopes.length) return null;
+  return importTrimmedMean(slopes, 0.15);
+}
+
+function importEtaEstimate(stepMap) {
+  if (!importActiveEta) return null;
+  const now = Date.now();
+  const elapsedMs = Math.max(0, now - importActiveEta.startedAtMs);
+  const progress01 = importClamp(importStreamOverallProgress(stepMap) / 100, 0, 1);
+  importEtaTrackProgress(importActiveEta, progress01, now);
+
+  const rate = importEtaRobustRate(importActiveEta);
+  const priorRemainingMs = Math.max(0, importActiveEta.predictedTotalMs - elapsedMs);
+  const etaFromRateMs = (rate && rate > 0.00001)
+    ? Math.max(0, ((1 - progress01) / rate) * 1000)
+    : null;
+
+  let etaMs = null;
+  if (etaFromRateMs === null) {
+    etaMs = priorRemainingMs;
+  } else {
+    const wRate = importClamp(0.22 + (progress01 * 0.66) + (importActiveEta.samples.length >= 8 ? 0.08 : 0), 0.2, 0.92);
+    etaMs = (wRate * etaFromRateMs) + ((1 - wRate) * priorRemainingMs);
+  }
+
+  const stallMs = Math.max(0, now - (importActiveEta.lastHeartbeatMs || importActiveEta.startedAtMs));
+  if (stallMs >= IMPORT_ETA_STALL_WARN_MS) {
+    const multiplier = stallMs >= IMPORT_ETA_STALL_CRITICAL_MS ? 1.6 : 1.25;
+    etaMs = Math.max(etaMs, priorRemainingMs * multiplier);
+  }
+
+  return {
+    elapsedMs,
+    progress01,
+    etaMs: Number.isFinite(etaMs) ? Math.max(0, etaMs) : null,
+    stallMs,
+  };
+}
+
+function importCounterLineWithEta(baseCountersLine, eta) {
+  const raw = String(baseCountersLine || '').trim();
+  const segments = raw ? raw.split(' • ').filter((part) => part && !/^ETA\b/i.test(part)) : [];
+  const elapsedToken = `Elapsed ${(eta?.elapsedMs ? (eta.elapsedMs / 1000).toFixed(1) : '0.0')}s`;
+  if (!segments.some((part) => /^Elapsed\b/i.test(part))) {
+    segments.unshift(elapsedToken);
+  }
+  const etaToken = `ETA ${importFormatEtaDuration(eta?.etaMs)}`;
+  segments.push(etaToken);
+  if (eta?.stallMs >= IMPORT_ETA_STALL_WARN_MS) {
+    const stallLabel = eta.stallMs >= IMPORT_ETA_STALL_CRITICAL_MS ? 'stalled' : 'heartbeat delayed';
+    segments.push(`${stallLabel} ${importFormatEtaDuration(eta.stallMs)}`);
+  }
+  return segments.join(' • ');
+}
+
+function importStatusLineWithHeartbeat(baseStatusLine, eta) {
+  const raw = String(baseStatusLine || '').replace(/\s*•\s*waiting for stage heartbeat.*$/i, '').trim();
+  if (!eta || eta.stallMs < IMPORT_ETA_STALL_WARN_MS) return raw;
+  return `${raw} • waiting for stage heartbeat ${importFormatEtaDuration(eta.stallMs)}`;
+}
+
+function importQueueRemainingEtaMs() {
+  if (!importDropQueue.length) return 0;
+  const now = Date.now();
+  return importDropQueue.reduce((sum, item) => {
+    if (item.status === 'done' || item.status === 'failed') return sum;
+    if (item.status === 'processing') {
+      let processingRemaining = null;
+      if (importDropQueueActiveId === item.id && importActiveEta && importActiveStepMap) {
+        const eta = importEtaEstimate(importActiveStepMap);
+        if (eta && Number.isFinite(eta.etaMs)) processingRemaining = eta.etaMs;
+      }
+      if (processingRemaining === null) {
+        const predictedTotal = importPredictDurationMs(item);
+        const elapsed = item.startedAtMs ? Math.max(0, now - item.startedAtMs) : 0;
+        processingRemaining = Math.max(0, predictedTotal - elapsed);
+      }
+      return sum + processingRemaining;
+    }
+    return sum + importPredictDurationMs(item);
+  }, 0);
+}
+
+function importCanDeferCurrentQueueItem() {
+  if (!importActiveStreamAbortController) return false;
+  if (!importDropQueueRunning || !importDropQueueActiveId) return false;
+  return importDropQueue.some((item) => item.id !== importDropQueueActiveId && item.status === 'pending');
+}
+
+function importDeferCurrentQueueItem() {
+  if (!importCanDeferCurrentQueueItem()) return;
+  importDeferRequestedItemId = importDropQueueActiveId;
+  if (importActiveStreamAbortController) {
+    try {
+      importActiveStreamAbortController.abort();
+    } catch {
+    }
+  }
+}
+
+function importLiveQueueActionsHtml() {
+  if (!importActiveStreamAbortController) return '';
+  if (!importDropQueueRunning || !importDropQueueActiveId) return '';
+  const canDefer = importCanDeferCurrentQueueItem();
+  const hint = canDefer
+    ? 'Move this document to the back of the queue and continue with the next pending file.'
+    : 'No other pending files are available right now.';
+  return `
+    <div class="row">
+      <button type="button" class="secondary" onclick="importDeferCurrentQueueItem()" ${canDefer ? '' : 'disabled'}>
+        Put Document To Back Of Queue
+      </button>
+      <span class="small">${dbEscapeHtml(hint)}</span>
+    </div>
+  `;
+}
 
 function importFileSizeText(bytes) {
   const n = Number(bytes);
   if (!Number.isFinite(n) || n < 0) return 'unknown size';
-  if (n < 1024) return `${n} B`;
+  if (n < 1024) return `${Math.floor(n)} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  if (n < 1024 * 1024 * 1024 * 1024) return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  return `${(n / (1024 * 1024 * 1024 * 1024)).toFixed(2)} TB`;
 }
 
 function importPathBasename(path) {
@@ -2941,25 +4756,417 @@ function importPathBasename(path) {
 }
 
 function importClearPreviewUrl() {
+  importCancelPdfRenderTask();
   if (importPreviewUrl) {
     URL.revokeObjectURL(importPreviewUrl);
     importPreviewUrl = null;
   }
+  importPreviewObjectKey = '';
+  importPreviewPdfSourceUrl = '';
+  importPreviewLastRenderedPage = null;
+  importPreviewPdfLoadToken += 1;
+  if (importPreviewPdfDoc && typeof importPreviewPdfDoc.destroy === 'function') {
+    try {
+      importPreviewPdfDoc.destroy();
+    } catch {
+    }
+  }
+  importPreviewPdfDoc = null;
 }
 
-function importPreviewMarkup(meta) {
-  if (meta && meta.file && meta.file.type && meta.file.type.startsWith('image/')) {
+function importCancelPdfRenderTask() {
+  if (importPreviewPdfRenderTask && typeof importPreviewPdfRenderTask.cancel === 'function') {
+    try {
+      importPreviewPdfRenderTask.cancel();
+    } catch {
+    }
+  }
+  importPreviewPdfRenderTask = null;
+}
+
+function importStopPreviewTicker() {
+  if (importPreviewTicker) {
+    clearInterval(importPreviewTicker);
+    importPreviewTicker = null;
+  }
+}
+
+function importPreviewSyncDom() {
+  if (importPreviewPageTotal) {
+    const safeTotal = Math.max(1, Math.floor(importPreviewPageTotal));
+    importPreviewPageTotal = safeTotal;
+    if (importPreviewPageCurrent > safeTotal) {
+      importPreviewPageCurrent = safeTotal;
+    }
+  }
+  const current = document.getElementById('import-preview-page-current');
+  if (current) current.textContent = String(Math.max(1, importPreviewPageCurrent));
+  const total = document.getElementById('import-preview-page-total');
+  if (total) total.textContent = importPreviewPageTotal ? String(importPreviewPageTotal) : '...';
+}
+
+function importEnsurePreviewObjectUrl(meta) {
+  if (!meta || !meta.file) return null;
+  const key = importPreviewKey(meta);
+  if (!importPreviewUrl || importPreviewObjectKey !== key) {
     importClearPreviewUrl();
     importPreviewUrl = URL.createObjectURL(meta.file);
+    importPreviewObjectKey = key;
+  }
+  return importPreviewUrl;
+}
+
+function importResolvePreviewSourceUrl(meta) {
+  const objectUrl = importEnsurePreviewObjectUrl(meta);
+  if (objectUrl) return objectUrl;
+  if (meta && typeof meta.previewUrl === 'string' && meta.previewUrl.trim()) {
+    return meta.previewUrl.trim();
+  }
+  return null;
+}
+
+function importPreviewKey(meta) {
+  if (!meta || typeof meta !== 'object') return 'none';
+  const file = meta.file;
+  if (file) {
+    return `file:${file.name || ''}:${file.size || 0}:${file.lastModified || 0}:${file.type || ''}`;
+  }
+  return `meta:${meta.name || ''}:${meta.path || ''}:${meta.sourceLabel || ''}:${meta.queueJobId || ''}:${meta.previewUrl || ''}`;
+}
+
+function importPreviewLooksPdf(meta) {
+  const name = (meta && meta.name) ? String(meta.name) : '';
+  return Boolean(
+    (meta && meta.file && meta.file.type === 'application/pdf')
+    || name.toLowerCase().endsWith('.pdf')
+  );
+}
+
+function importPreviewPageHintFromText(text) {
+  if (!text) return null;
+  const raw = String(text);
+  const candidates = [
+    /\bpages?\s*(?:~|=|:)?\s*(\d+)\b/i,
+    /\b(\d+)\s*page(?:\(s\)|s)?\b/i,
+  ];
+  for (const pattern of candidates) {
+    const match = pattern.exec(raw);
+    if (!match) continue;
+    const value = Number(match[1]);
+    if (Number.isFinite(value) && value > 0) return Math.floor(value);
+  }
+  return null;
+}
+
+function importPreviewCurrentPageHintFromText(text) {
+  if (!text) return null;
+  const raw = String(text);
+  const patterns = [
+    /\bpage\s+(\d+)\s*\/\s*(\d+)\b/i,
+    /\bp(?:age)?\s*(\d+)\s+of\s+(\d+)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(raw);
+    if (!match) continue;
+    const current = Number(match[1]);
+    if (Number.isFinite(current) && current > 0) return Math.floor(current);
+  }
+  return null;
+}
+
+function importResolvePageHint(opts = {}) {
+  if (Array.isArray(opts.steps)) {
+    let explicitBest = 0;
+    opts.steps.forEach((step) => {
+      const raw = Number(step?.page_count);
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      explicitBest = Math.max(explicitBest, Math.floor(raw));
+    });
+    if (explicitBest > 0) return explicitBest;
+  }
+  const texts = [];
+  if (opts.statusLine) texts.push(String(opts.statusLine));
+  if (opts.countersLine) texts.push(String(opts.countersLine));
+  if (Array.isArray(opts.steps)) {
+    const extractStep = opts.steps.find((step) => String(step.id || '').toLowerCase() === 'extract')
+      || opts.steps.find((step) => String(step.label || '').toLowerCase().includes('text'));
+    if (extractStep) {
+      if (extractStep.detail) texts.push(String(extractStep.detail));
+      if (extractStep.stats) texts.push(String(extractStep.stats));
+    }
+  }
+  let best = 0;
+  texts.forEach((text) => {
+    const hint = importPreviewPageHintFromText(text);
+    if (hint && hint > best) best = hint;
+  });
+  return best > 0 ? best : null;
+}
+
+function importResolveCurrentPageHint(opts = {}) {
+  if (Array.isArray(opts.steps)) {
+    let explicitBest = 0;
+    opts.steps.forEach((step) => {
+      const raw = Number(step?.page_current ?? step?.current_page);
+      if (!Number.isFinite(raw) || raw <= 0) return;
+      explicitBest = Math.max(explicitBest, Math.floor(raw));
+    });
+    if (explicitBest > 0) return explicitBest;
+  }
+  const texts = [];
+  if (opts.statusLine) texts.push(String(opts.statusLine));
+  if (opts.countersLine) texts.push(String(opts.countersLine));
+  if (Array.isArray(opts.steps)) {
+    const extractStep = opts.steps.find((step) => String(step.id || '').toLowerCase() === 'extract')
+      || opts.steps.find((step) => String(step.label || '').toLowerCase().includes('text'));
+    if (extractStep) {
+      if (extractStep.detail) texts.push(String(extractStep.detail));
+      if (extractStep.stats) texts.push(String(extractStep.stats));
+    }
+  }
+  let best = 0;
+  texts.forEach((text) => {
+    const hint = importPreviewCurrentPageHintFromText(text);
+    if (hint && hint > best) best = hint;
+  });
+  return best > 0 ? best : null;
+}
+
+function importResolveProgressEstimatedPage(opts = {}) {
+  if (!importPreviewPageTotal || !Array.isArray(opts.steps)) return null;
+  const extractStep = opts.steps.find((step) => String(step.id || '').toLowerCase() === 'extract')
+    || opts.steps.find((step) => String(step.label || '').toLowerCase().includes('text'));
+  if (!extractStep) return null;
+  const raw = Number(extractStep.progress);
+  if (!Number.isFinite(raw)) return null;
+  // Parse heartbeat emits extract progress in ~[4..55] while parsing pages;
+  // map that band to [0..1] so preview page does not plateau at ~94%.
+  const normalized = Math.max(0, Math.min(1, (raw - 4) / 51));
+  const projected = Math.floor(importPreviewPageTotal * normalized);
+  return Math.max(1, Math.min(importPreviewPageTotal, projected || 1));
+}
+
+async function importPreviewRenderCurrentPage(force = false) {
+  if (importPreviewKind !== 'pdf') return;
+  if (!importPreviewPdfDoc) return;
+  const canvas = document.getElementById('import-preview-pdf-canvas');
+  const placeholder = document.getElementById('import-preview-pdf-placeholder');
+  if (!canvas) return;
+  const totalPages = Math.max(1, Number(importPreviewPdfDoc.numPages || importPreviewPageTotal || 1));
+  const targetPage = Math.max(1, Math.min(totalPages, Math.floor(importPreviewPageCurrent || 1)));
+  if (!force && importPreviewLastRenderedPage === targetPage) return;
+  const renderToken = ++importPreviewPdfRenderToken;
+  importCancelPdfRenderTask();
+  try {
+    const page = await importPreviewPdfDoc.getPage(targetPage);
+    if (renderToken !== importPreviewPdfRenderToken) return;
+    const baseViewport = page.getViewport({ scale: 1.0 });
+    const maxWidth = 170;
+    const maxHeight = 220;
+    const scale = Math.max(0.12, Math.min(2.2, Math.min(maxWidth / baseViewport.width, maxHeight / baseViewport.height)));
+    const viewport = page.getViewport({ scale });
+    const scratch = document.createElement('canvas');
+    scratch.width = Math.max(1, Math.floor(viewport.width));
+    scratch.height = Math.max(1, Math.floor(viewport.height));
+    const scratchCtx = scratch.getContext('2d', { alpha: false });
+    if (!scratchCtx) return;
+    const renderTask = page.render({ canvasContext: scratchCtx, viewport });
+    importPreviewPdfRenderTask = renderTask;
+    await renderTask.promise;
+    if (importPreviewPdfRenderTask === renderTask) {
+      importPreviewPdfRenderTask = null;
+    }
+    if (renderToken !== importPreviewPdfRenderToken) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+    if (canvas.width !== scratch.width || canvas.height !== scratch.height) {
+      canvas.width = scratch.width;
+      canvas.height = scratch.height;
+      canvas.style.width = `${scratch.width}px`;
+      canvas.style.height = `${scratch.height}px`;
+    }
+    ctx.drawImage(scratch, 0, 0);
+    importPreviewLastRenderedPage = targetPage;
+    if (placeholder) placeholder.style.display = 'none';
+  } catch (error) {
+    const message = String(error || '');
+    const cancelled = (
+      String(error?.name || '').toLowerCase() === 'renderingcancelledexception'
+      || /cancel/i.test(message)
+      || /same canvas/i.test(message)
+    );
+    if (cancelled) return;
+    if (placeholder) {
+      placeholder.style.display = 'block';
+      placeholder.textContent = `Preview unavailable (${message})`;
+    }
+  } finally {
+    if (importPreviewPdfRenderTask && renderToken !== importPreviewPdfRenderToken) {
+      importCancelPdfRenderTask();
+    }
+  }
+}
+
+async function importEnsurePdfPreviewDocument(meta) {
+  if (importPreviewKind !== 'pdf') return null;
+  const sourceUrl = importResolvePreviewSourceUrl(meta);
+  if (!sourceUrl) return null;
+  if (importPreviewPdfDoc && importPreviewPdfSourceUrl === sourceUrl) {
+    if (importPreviewPageTotal) importPreviewSyncDom();
+    return importPreviewPdfDoc;
+  }
+  importPreviewPdfSourceUrl = sourceUrl;
+  importPreviewLastRenderedPage = null;
+  importCancelPdfRenderTask();
+  const loadToken = ++importPreviewPdfLoadToken;
+  const placeholder = document.getElementById('import-preview-pdf-placeholder');
+  if (placeholder) {
+    placeholder.style.display = 'block';
+    placeholder.textContent = 'Loading PDF preview...';
+  }
+  try {
+    const pdfjs = await viewerEnsurePdfJs();
+    const loadingTask = pdfjs.getDocument(sourceUrl);
+    const doc = await loadingTask.promise;
+    if (loadToken !== importPreviewPdfLoadToken) {
+      if (typeof doc.destroy === 'function') {
+        try {
+          doc.destroy();
+        } catch {
+        }
+      }
+      return null;
+    }
+    if (importPreviewPdfDoc && typeof importPreviewPdfDoc.destroy === 'function') {
+      try {
+        importPreviewPdfDoc.destroy();
+      } catch {
+      }
+    }
+    importPreviewPdfDoc = doc;
+    const totalPages = Math.max(1, Number(doc.numPages || 1));
+    importPreviewPageTotal = Math.max(importPreviewPageTotal || 0, totalPages);
+    if (importPreviewPageCurrent > importPreviewPageTotal) {
+      importPreviewPageCurrent = importPreviewPageTotal;
+    }
+    importPreviewSyncDom();
+    await importPreviewRenderCurrentPage(true);
+    return doc;
+  } catch (error) {
+    importPreviewPdfDoc = null;
+    if (placeholder) {
+      placeholder.style.display = 'block';
+      placeholder.textContent = `Preview unavailable (${String(error)})`;
+    }
+    return null;
+  }
+}
+
+function importEnsurePreviewTicker() {
+  if (importPreviewTicker) return;
+  importPreviewTicker = setInterval(() => {
+    if (!importPreviewProcessing || importPreviewKind !== 'pdf') return;
+    const cap = importPreviewPageTotal || 999;
+    if (importPreviewPageCurrent < cap) {
+      importPreviewPageCurrent += 1;
+      importPreviewSyncDom();
+      importPreviewRenderCurrentPage();
+    }
+  }, 760);
+}
+
+function importPreparePreview(meta, opts = {}) {
+  const key = importPreviewKey(meta);
+  const imageKind = Boolean(meta && meta.file && meta.file.type && meta.file.type.startsWith('image/'));
+  const nextKind = importPreviewLooksPdf(meta) ? 'pdf' : (imageKind ? 'image' : 'generic');
+
+  if (key !== importPreviewMetaKey) {
+    importPreviewMetaKey = key;
+    importPreviewPageCurrent = 1;
+    importPreviewPageTotal = null;
+    importPreviewKind = nextKind;
+    importPreviewProcessing = false;
+    importStopPreviewTicker();
+    if (nextKind !== 'image' && nextKind !== 'pdf') importClearPreviewUrl();
+    if (nextKind === 'image' || nextKind === 'pdf') {
+      importEnsurePreviewObjectUrl(meta);
+    }
+  } else {
+    importPreviewKind = nextKind;
+  }
+
+  const pageHint = importResolvePageHint(opts);
+  if (pageHint) {
+    importPreviewPageTotal = Math.max(importPreviewPageTotal || 0, pageHint);
+  }
+  const currentHint = importResolveCurrentPageHint(opts);
+  if (currentHint) {
+    const cap = importPreviewPageTotal || currentHint;
+    importPreviewPageCurrent = Math.max(1, Math.min(cap, currentHint));
+  }
+
+  importPreviewProcessing = Boolean(opts.progressActive);
+  if (importPreviewKind === 'pdf') {
+    const hasPreviewSource = Boolean(importResolvePreviewSourceUrl(meta));
+    const projected = importResolveProgressEstimatedPage(opts);
+    if (projected) {
+      importPreviewPageCurrent = Math.max(importPreviewPageCurrent, projected);
+    }
+    if (importPreviewProcessing) {
+      if (projected || !hasPreviewSource || !importPreviewPageTotal) {
+        importStopPreviewTicker();
+      } else {
+        importEnsurePreviewTicker();
+      }
+    } else {
+      importStopPreviewTicker();
+      if (importPreviewPageTotal) importPreviewPageCurrent = importPreviewPageTotal;
+    }
+    importPreviewSyncDom();
+    importEnsurePdfPreviewDocument(meta).then(() => {
+      importPreviewRenderCurrentPage();
+    });
+  } else {
+    importStopPreviewTicker();
+    if (importPreviewKind === 'image') {
+      importEnsurePreviewObjectUrl(meta);
+    }
+  }
+}
+
+function importPreviewMarkup(meta, opts = {}) {
+  if (meta && meta.file && meta.file.type && meta.file.type.startsWith('image/')) {
+    importEnsurePreviewObjectUrl(meta);
     return `<img src="${importPreviewUrl}" alt="${dbEscapeHtml(meta.file.name || 'import file')}" />`;
   }
 
   const name = (meta && meta.name) ? String(meta.name) : '';
-  const looksPdf = (meta && meta.file && meta.file.type === 'application/pdf') || name.toLowerCase().endsWith('.pdf');
-  if (meta && meta.file && looksPdf) {
-    importClearPreviewUrl();
-    importPreviewUrl = URL.createObjectURL(meta.file);
-    return `<embed src="${importPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0" type="application/pdf" />`;
+  const looksPdf = importPreviewLooksPdf(meta);
+  if (looksPdf) {
+    const title = dbEscapeHtml(name || 'Document');
+    const hasPdfSource = Boolean(importResolvePreviewSourceUrl(meta));
+    if (!hasPdfSource) {
+      return `
+        <div class="import-preview-pdf">
+          <div class="import-preview-pdf-canvas-wrap">
+            <div class="import-preview-pdf-placeholder" style="position: static; background: transparent;">Live page preview source is unavailable for this item.</div>
+          </div>
+          <p class="import-preview-pdf-title">${title}</p>
+          <p class="import-preview-caption">Page <span id="import-preview-page-current">${Math.max(1, importPreviewPageCurrent)}</span> / <span id="import-preview-page-total">${importPreviewPageTotal ? String(importPreviewPageTotal) : '...'}</span></p>
+        </div>
+      `;
+    }
+    const state = importPreviewProcessing ? 'processing' : 'idle';
+    return `
+      <div class="import-preview-pdf ${state}">
+        <div class="import-preview-pdf-canvas-wrap">
+          <canvas id="import-preview-pdf-canvas" class="import-preview-pdf-canvas" role="img" aria-label="Current PDF page preview"></canvas>
+          <div id="import-preview-pdf-placeholder" class="import-preview-pdf-placeholder">Loading PDF preview...</div>
+        </div>
+        <p class="import-preview-pdf-title">${title}</p>
+        <p class="import-preview-caption">Page <span id="import-preview-page-current">${Math.max(1, importPreviewPageCurrent)}</span> / <span id="import-preview-page-total">${importPreviewPageTotal ? String(importPreviewPageTotal) : '...'}</span></p>
+      </div>
+    `;
   }
 
   const title = dbEscapeHtml(name || 'Document');
@@ -2985,6 +5192,64 @@ function importStepHtml(stepState) {
       </div>
       <p class="import-step-detail">${detail}${stats}</p>
     </div>
+  `;
+}
+
+function importQueueStatusLabel(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'processing') return 'processing';
+  if (normalized === 'done') return 'done';
+  if (normalized === 'failed') return 'failed';
+  return 'pending';
+}
+
+function importQueueStatusTone(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'processing') return 'warning';
+  if (normalized === 'done') return 'ok';
+  if (normalized === 'failed') return 'error';
+  return 'neutral';
+}
+
+function importRenderDropQueue() {
+  const el = document.getElementById('import-drop-queue');
+  if (!el) return;
+  if (!importDropQueue.length) {
+    el.innerHTML = '<p class="small">No files queued.</p>';
+    return;
+  }
+
+  const pendingCount = importDropQueue.filter((item) => item.status === 'pending').length;
+  const processingCount = importDropQueue.filter((item) => item.status === 'processing').length;
+  const doneCount = importDropQueue.filter((item) => item.status === 'done').length;
+  const failedCount = importDropQueue.filter((item) => item.status === 'failed').length;
+  const queueEtaMs = importQueueRemainingEtaMs();
+  const queueEtaText = (pendingCount + processingCount) > 0
+    ? ` • ETA ${importFormatEtaDuration(queueEtaMs)} remaining`
+    : '';
+
+  const itemsHtml = importDropQueue
+    .map((item, idx) => {
+      const status = importQueueStatusLabel(item.status);
+      const tone = importQueueStatusTone(status);
+      const position = idx + 1;
+      const currentBadge = status === 'processing' ? ' • current' : '';
+      return `
+        <article class="import-queue-item ${status}">
+          <h4 class="import-queue-item-head">
+            <span>${position}. ${dbEscapeHtml(item.name || 'document')}</span>
+            <span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(titleCase(status))}${dbEscapeHtml(currentBadge)}</span>
+          </h4>
+          <p class="import-queue-item-meta">${dbEscapeHtml(importFileSizeText(item.sizeBytes ?? 0))}</p>
+          <p class="import-queue-item-detail">${dbEscapeHtml(item.detail || '')}</p>
+        </article>
+      `;
+    })
+    .join('');
+
+  el.innerHTML = `
+    <p class="import-queue-head">Queue: ${importDropQueue.length} total • ${pendingCount} pending • ${processingCount} processing • ${doneCount} done • ${failedCount} failed${queueEtaText}</p>
+    ${itemsHtml}
   `;
 }
 
@@ -3020,6 +5285,8 @@ function importStopTimers() {
     clearInterval(importCounterTimer);
     importCounterTimer = null;
   }
+  importPreviewProcessing = false;
+  importStopPreviewTicker();
 }
 
 function importSetProgress(value, active = false) {
@@ -3033,6 +5300,14 @@ function importRenderLive(meta, opts = {}) {
   const live = document.getElementById('import-live');
   if (!live) return;
   live.classList.remove('empty');
+  importPreparePreview(meta, opts);
+  const previewKey = importPreviewKey(meta);
+  const previewKind = importPreviewKind;
+  const canReusePreview = (
+    live.getAttribute('data-preview-key') === previewKey
+    && live.getAttribute('data-preview-kind') === previewKind
+    && Boolean(live.querySelector('[data-import-preview-host]'))
+  );
 
   const stepHtml = Array.isArray(opts.steps) ? opts.steps.map(importStepHtml).join('') : '';
   const metricHtml = Array.isArray(opts.metrics)
@@ -3047,22 +5322,35 @@ function importRenderLive(meta, opts = {}) {
     : '';
   const actionsHtml = opts.actionsHtml || '';
 
-  live.innerHTML = `
-    <div class="import-preview">${importPreviewMarkup(meta)}</div>
-    <div>
-      <h4 class="import-title">${dbEscapeHtml(opts.title || meta.name || 'Import Job')}</h4>
-      <p class="import-meta">${dbEscapeHtml(opts.meta || '')}</p>
-      <div class="import-progress-track">
-        <div id="import-progress-bar" class="import-progress-bar"></div>
-      </div>
-      <p id="import-status-line" class="import-status-line">${dbEscapeHtml(opts.statusLine || '')}</p>
-      <p id="import-counters" class="import-counters">${dbEscapeHtml(opts.countersLine || '')}</p>
-      <div class="import-steps">${stepHtml}</div>
-      <div class="import-metrics">${metricHtml}</div>
-      ${actionsHtml}
+  const bodyHtml = `
+    <h4 class="import-title">${dbEscapeHtml(opts.title || meta.name || 'Import Job')}</h4>
+    <p class="import-meta">${dbEscapeHtml(opts.meta || '')}</p>
+    <div class="import-progress-track">
+      <div id="import-progress-bar" class="import-progress-bar"></div>
     </div>
+    <p id="import-status-line" class="import-status-line">${dbEscapeHtml(opts.statusLine || '')}</p>
+    <p id="import-counters" class="import-counters">${dbEscapeHtml(opts.countersLine || '')}</p>
+    <div class="import-steps">${stepHtml}</div>
+    <div class="import-metrics">${metricHtml}</div>
+    ${actionsHtml}
   `;
+
+  if (!canReusePreview) {
+    live.innerHTML = `
+      <div class="import-preview" data-import-preview-host>${importPreviewMarkup(meta, opts)}</div>
+      <div data-import-live-body>${bodyHtml}</div>
+    `;
+  } else {
+    const body = live.querySelector('[data-import-live-body]');
+    if (body) body.innerHTML = bodyHtml;
+  }
+  live.setAttribute('data-preview-key', previewKey);
+  live.setAttribute('data-preview-kind', previewKind);
   importSetProgress(opts.progress ?? 0, Boolean(opts.progressActive));
+  importPreviewSyncDom();
+  if (importPreviewKind === 'pdf') {
+    importPreviewRenderCurrentPage();
+  }
 }
 
 function importStartAnimatedJob(meta) {
@@ -3275,12 +5563,15 @@ function importStepsFromPayload(payload, vectorPayload) {
     const vectorSummary = extraction.vector || null;
     const vectorStatus = String(vectorSummary?.status || '').toLowerCase();
     const vectorRuns = Array.isArray(vectorPayload?.runs) ? vectorPayload.runs : [];
+    const words = summary.text_words ?? 0;
+    const sentences = summary.text_sentences ?? 0;
+    const paragraphs = summary.text_paragraphs ?? 0;
     steps.push({
       ...IMPORT_STEPS[1],
       state: 'done',
       progress: 100,
       detail: 'Existing extraction reused.',
-      stats: `run ${extraction.extraction_run_id || 'latest'}`,
+      stats: `run ${extraction.extraction_run_id || 'latest'} • ${words} words • ${sentences} sentences • ${paragraphs} paragraphs`,
     });
     steps.push({
       ...IMPORT_STEPS[2],
@@ -3328,6 +5619,7 @@ function importStepsFromPayload(payload, vectorPayload) {
 function importFinalMetrics(payload, vectorPayload) {
   const extraction = payload?.extraction || {};
   const summary = extraction.summary || {};
+  const resource = payload?.resource || {};
   const latestVectorRun = Array.isArray(vectorPayload?.runs) && vectorPayload.runs.length
     ? vectorPayload.runs[0]
     : null;
@@ -3342,7 +5634,7 @@ function importFinalMetrics(payload, vectorPayload) {
     ?? 0;
   const metrics = [
     { k: 'Import Status', v: payload?.status || 'unknown' },
-    { k: 'Media Type', v: payload?.resource?.media_type || 'n/a' },
+    { k: 'Media Type', v: resource.media_type || 'n/a' },
     { k: 'Pages', v: summary.page_count ?? 0 },
     { k: 'Words', v: summary.text_words ?? 0 },
     { k: 'Sentences', v: summary.text_sentences ?? 0 },
@@ -3356,6 +5648,12 @@ function importFinalMetrics(payload, vectorPayload) {
     { k: 'Vector Status', v: vectorStatus },
     { k: 'Vector Chunks', v: `${vectorChunksIndexed}/${vectorChunksTotal}` },
   ];
+  if (resource.download_url) {
+    metrics.push({ k: 'Download URL', v: resource.download_url });
+  }
+  if (resource.source_uri) {
+    metrics.push({ k: 'Source URI', v: resource.source_uri });
+  }
   if (vectorPayload && vectorPayload.ok) {
     metrics.push({ k: 'Vector Runs', v: Array.isArray(vectorPayload.runs) ? vectorPayload.runs.length : 0 });
     metrics.push({ k: 'Qdrant Points', v: vectorPayload.qdrant_points ?? 0 });
@@ -3369,10 +5667,26 @@ async function importOpenInDatabase(resourceId) {
   await dbListTables();
   const select = document.getElementById('db-table-select');
   if (select) select.value = 'resources';
+
+  const pageSize = 100;
+  let targetOffset = 0;
+  try {
+    const locate = await callApi(
+      'GET',
+      `/api/db/table/locate?name=resources&column=id&value=${encodeURIComponent(resourceId)}&page_size=${pageSize}`,
+      null,
+      null
+    );
+    if (locate?.ok && locate?.found && Number.isFinite(Number(locate.offset))) {
+      targetOffset = Math.max(0, Number(locate.offset));
+    }
+  } catch (e) {
+  }
+
   const limit = document.getElementById('db-limit');
-  if (limit) limit.value = '100';
+  if (limit) limit.value = String(pageSize);
   const offset = document.getElementById('db-offset');
-  if (offset) offset.value = '0';
+  if (offset) offset.value = String(targetOffset);
   await dbViewTable();
   const search = document.getElementById('db-search');
   if (search) {
@@ -3477,12 +5791,13 @@ async function importFinalizeJob(payload, meta) {
   }
 
   async function enrichExtractionSummary(resourceIdValue, extractionValue) {
-    if (!resourceIdValue || extractionValue?.status !== 'extracted') return extractionValue;
+    const mayHaveExtractionSummary = extractionValue?.status === 'extracted' || extractionValue?.reason === 'already_extracted';
+    if (!resourceIdValue || !mayHaveExtractionSummary) return extractionValue;
     const summaryIn = (extractionValue.summary && typeof extractionValue.summary === 'object')
       ? extractionValue.summary
       : {};
     const summary = { ...summaryIn };
-    const runId = summary.run_id;
+    const runId = summary.run_id || extractionValue?.extraction_run_id || null;
 
     const missingTextStats = !hasValue(summary.text_words) || !hasValue(summary.text_sentences) || !hasValue(summary.text_paragraphs);
     if (missingTextStats || !hasValue(summary.text_chars)) {
@@ -3558,7 +5873,7 @@ async function importFinalizeJob(payload, meta) {
   const extraction = finalizedPayload?.extraction || {};
   const summary = extraction.summary || {};
   const actions = resourceId
-    ? `<div class="row"><button type="button" class="secondary" onclick="importOpenInDatabase('${dbEscapeHtml(resourceId)}')">Open In Database Explorer</button></div>`
+    ? `<div class="row"><button type="button" class="secondary" onclick="importOpenInDatabase('${dbEscapeHtml(resourceId)}')">Open In Database Explorer</button><button type="button" class="secondary" onclick="viewerOpenFromImport('${dbEscapeHtml(resourceId)}')">Open In Document Viewer</button></div>`
     : '';
 
   const statusLine = ok
@@ -3612,12 +5927,13 @@ async function importFinalizeJob(payload, meta) {
       ? `resource=${resourceId} • vector=${summary.vector_status || extraction.status || 'n/a'}`
       : (finalizedPayload?.detail || finalizedPayload?.error || 'No resource id'),
   });
+  return finalizedPayload;
 }
 
 function importStreamInitStepState() {
   const map = {};
   IMPORT_STEPS.forEach((step) => {
-    map[step.id] = { state: 'pending', progress: 0, detail: '', stats: '' };
+    map[step.id] = { state: 'pending', progress: 0, detail: '', stats: '', page_count: null, page_current: null };
   });
   return map;
 }
@@ -3630,10 +5946,9 @@ function importStreamStepArray(stepMap) {
 }
 
 function importStreamOverallProgress(stepMap) {
-  const weights = { archive: 0.2, extract: 0.35, tables: 0.2, vector: 0.25 };
   let total = 0;
   let used = 0;
-  Object.entries(weights).forEach(([stage, weight]) => {
+  Object.entries(IMPORT_STREAM_STAGE_WEIGHTS).forEach(([stage, weight]) => {
     const step = stepMap[stage];
     if (!step) return;
     const raw = Number(step.progress);
@@ -3645,7 +5960,7 @@ function importStreamOverallProgress(stepMap) {
   return Math.max(0, Math.min(100, Math.round(total / used)));
 }
 
-function importRenderStreamLive(meta, stepMap, statusLine, countersLine='') {
+function importRenderStreamLive(meta, stepMap, statusLine, countersLine='', actionsHtml='') {
   importRenderLive(meta, {
     title: meta.name || 'Import Job',
     meta: `${meta.sourceLabel || 'Import'} • streaming backend progress`,
@@ -3653,6 +5968,7 @@ function importRenderStreamLive(meta, stepMap, statusLine, countersLine='') {
     countersLine: countersLine || '',
     steps: importStreamStepArray(stepMap),
     metrics: [],
+    actionsHtml,
     progress: importStreamOverallProgress(stepMap),
     progressActive: true,
   });
@@ -3661,6 +5977,8 @@ function importRenderStreamLive(meta, stepMap, statusLine, countersLine='') {
 function importApplyStreamStage(stepMap, stagePayload) {
   const stage = stagePayload?.stage;
   if (!stage || !stepMap[stage]) return;
+  const stagePageCount = Number(stagePayload?.page_count);
+  const stagePageCurrent = Number(stagePayload?.page_current ?? stagePayload?.current_page);
   stepMap[stage] = {
     ...stepMap[stage],
     state: stagePayload?.state || stepMap[stage].state || 'pending',
@@ -3669,7 +5987,22 @@ function importApplyStreamStage(stepMap, stagePayload) {
       : stepMap[stage].progress,
     detail: stagePayload?.detail || stepMap[stage].detail || '',
     stats: stagePayload?.stats || stepMap[stage].stats || '',
+    page_count: Number.isFinite(stagePageCount) && stagePageCount > 0
+      ? Math.floor(stagePageCount)
+      : (stepMap[stage].page_count || null),
+    page_current: Number.isFinite(stagePageCurrent) && stagePageCurrent > 0
+      ? Math.floor(stagePageCurrent)
+      : (stepMap[stage].page_current || null),
   };
+  const totalPages = stagePageCount;
+  if (Number.isFinite(totalPages) && totalPages > 0) {
+    importPreviewPageTotal = Math.max(importPreviewPageTotal || 0, Math.floor(totalPages));
+  }
+  const currentPage = stagePageCurrent;
+  if (Number.isFinite(currentPage) && currentPage > 0) {
+    const cap = importPreviewPageTotal || Math.floor(currentPage);
+    importPreviewPageCurrent = Math.max(1, Math.min(cap, Math.floor(currentPage)));
+  }
 }
 
 function importParseSseFrame(frame) {
@@ -3717,10 +6050,17 @@ async function importOpenStream(url, opts) {
 
 async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=false, fallbackRequestFn=null) {
   const stepMap = importStreamInitStepState();
+  const abortController = new AbortController();
+  importActiveStepMap = stepMap;
+  importActiveEta = importEtaStart(meta);
+  importActiveStreamAbortController = abortController;
   importStopTimers();
-  importRenderStreamLive(meta, stepMap, 'Starting import...');
 
-  const opts = { method: 'POST', headers: { Accept: 'text/event-stream' } };
+  const opts = {
+    method: 'POST',
+    headers: { Accept: 'text/event-stream' },
+    signal: abortController.signal,
+  };
   if (body !== null && body !== undefined) {
     if (isFormData) {
       opts.body = body;
@@ -3731,10 +6071,29 @@ async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=fals
   }
 
   let finalPayload = null;
-  let statusLine = 'Import running...';
+  let statusLine = 'Starting import...';
   let countersLine = '';
+  let watchdogTimer = null;
+  let lastRenderSignature = '';
+
+  const renderStreamFrame = (force = false) => {
+    const eta = importEtaEstimate(stepMap);
+    const statusText = importStatusLineWithHeartbeat(statusLine, eta);
+    const countersText = importCounterLineWithEta(countersLine, eta);
+    const actionsHtml = importLiveQueueActionsHtml();
+    const signature = `${Math.round(importStreamOverallProgress(stepMap))}|${statusText}|${countersText}`;
+    if (!force && signature === lastRenderSignature) return;
+    lastRenderSignature = signature;
+    importRenderStreamLive(meta, stepMap, statusText, countersText, actionsHtml);
+    if (importDropQueueRunning) importRenderDropQueue();
+  };
+  renderStreamFrame(true);
 
   try {
+    watchdogTimer = setInterval(() => {
+      renderStreamFrame(false);
+    }, 1000);
+
     const response = await importOpenStream(streamUrl, opts);
     if (!response.body) throw new Error('Streaming response body is unavailable.');
     const reader = response.body.getReader();
@@ -3757,10 +6116,11 @@ async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=fals
         const { event, data } = parsed;
         if (event === 'stage') {
           importApplyStreamStage(stepMap, data || {});
+          if (importActiveEta) importActiveEta.lastHeartbeatMs = Date.now();
           const stageLabel = (data?.stage || '').replace(/^\w/, (c) => c.toUpperCase());
           statusLine = data?.detail || (stageLabel ? `${stageLabel} in progress...` : statusLine);
           countersLine = data?.stats || countersLine;
-          importRenderStreamLive(meta, stepMap, statusLine, countersLine);
+          renderStreamFrame(true);
           continue;
         }
         if (event === 'payload') {
@@ -3773,10 +6133,31 @@ async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=fals
       }
     }
   } catch (e) {
+    const isAbortError = Boolean(e) && (
+      String(e?.name || '') === 'AbortError'
+      || String(e?.code || '') === 'ABORT_ERR'
+      || String(e).toLowerCase().includes('abort')
+    );
+    if (isAbortError && importDropQueueActiveId && importDeferRequestedItemId === importDropQueueActiveId) {
+      return {
+        ok: false,
+        aborted: true,
+        deferred: true,
+        error: 'Deferred by user.',
+      };
+    }
     if (fallbackRequestFn) {
       return importRunWithVisuals(meta, fallbackRequestFn);
     }
     throw e;
+  } finally {
+    if (watchdogTimer) clearInterval(watchdogTimer);
+    watchdogTimer = null;
+    if (importActiveStreamAbortController === abortController) {
+      importActiveStreamAbortController = null;
+    }
+    importActiveStepMap = null;
+    importActiveEta = null;
   }
 
   if (!finalPayload) {
@@ -3785,14 +6166,22 @@ async function importRunWithStreamVisuals(meta, streamUrl, body, isFormData=fals
     }
     throw new Error('Import stream finished without a payload.');
   }
-  await importFinalizeJob(finalPayload, meta);
+  const finalizedPayload = await importFinalizeJob(finalPayload, meta);
+  return {
+    ok: Boolean(finalizedPayload?.ok),
+    payload: finalizedPayload,
+  };
 }
 
 async function importRunWithVisuals(meta, requestFn) {
   importStartAnimatedJob(meta);
   try {
     const payload = await requestFn();
-    await importFinalizeJob(payload, meta);
+    const finalizedPayload = await importFinalizeJob(payload, meta);
+    return {
+      ok: Boolean(finalizedPayload?.ok),
+      payload: finalizedPayload,
+    };
   } catch (e) {
     importStopTimers();
     const message = String(e);
@@ -3818,6 +6207,7 @@ async function importRunWithVisuals(meta, requestFn) {
       name: meta.name || 'document',
       summary: message,
     });
+    return { ok: false, error: message };
   }
 }
 
@@ -4320,6 +6710,162 @@ async function runMassImport() {
   });
 }
 
+function importDateMs(value) {
+  if (!value) return null;
+  const ts = Date.parse(String(value));
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function importStatusFromServer(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'queued') return 'pending';
+  if (normalized === 'processing') return 'processing';
+  if (normalized === 'done') return 'done';
+  if (normalized === 'failed') return 'failed';
+  return 'pending';
+}
+
+function importStepMapFromServer(progressObj) {
+  const safeProgress = (progressObj && typeof progressObj === 'object') ? progressObj : {};
+  const rawMap = (safeProgress.step_map && typeof safeProgress.step_map === 'object') ? safeProgress.step_map : {};
+  const stepMap = importStreamInitStepState();
+  IMPORT_STEPS.forEach((step) => {
+    const raw = (rawMap[step.id] && typeof rawMap[step.id] === 'object') ? rawMap[step.id] : {};
+    stepMap[step.id] = {
+      state: String(raw.state || stepMap[step.id].state || 'pending'),
+      progress: Number.isFinite(Number(raw.progress))
+        ? Number(raw.progress)
+        : stepMap[step.id].progress,
+      detail: String(raw.detail || stepMap[step.id].detail || ''),
+      stats: String(raw.stats || stepMap[step.id].stats || ''),
+      page_count: Number.isFinite(Number(raw.page_count)) && Number(raw.page_count) > 0
+        ? Math.floor(Number(raw.page_count))
+        : null,
+      page_current: Number.isFinite(Number(raw.page_current ?? raw.current_page)) && Number(raw.page_current ?? raw.current_page) > 0
+        ? Math.floor(Number(raw.page_current ?? raw.current_page))
+        : null,
+    };
+  });
+  return stepMap;
+}
+
+function importApplyServerQueueState(payload) {
+  const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+  importDropQueue = jobs.map((job, idx) => {
+    const status = importStatusFromServer(job?.status);
+    const startedAtMs = importDateMs(job?.started_at);
+    const finishedAtMs = importDateMs(job?.finished_at);
+    const elapsedMs = (startedAtMs && finishedAtMs) ? Math.max(0, finishedAtMs - startedAtMs) : null;
+    return {
+      id: String(job?.id || `job-${idx}`),
+      name: String(job?.original_filename || `Queued File ${idx + 1}`),
+      sizeBytes: Number(job?.size_bytes || 0),
+      status,
+      detail: String(job?.detail || ''),
+      queuedAtMs: importDateMs(job?.created_at),
+      startedAtMs,
+      finishedAtMs,
+      elapsedMs,
+      resourceId: job?.resource_id || null,
+      progress: job?.progress && typeof job.progress === 'object' ? job.progress : null,
+      previewUrl: `/api/import/queue/jobs/${encodeURIComponent(String(job?.id || `job-${idx}`))}/content`,
+    };
+  });
+
+  const queueSummary = payload?.queue && typeof payload.queue === 'object' ? payload.queue : {};
+  importDropQueueRunning = Number(queueSummary.processing || 0) > 0 || Number(queueSummary.queued || 0) > 0;
+  const processingItem = importDropQueue.find((item) => item.status === 'processing') || null;
+  importDropQueueActiveId = processingItem ? processingItem.id : null;
+  importDeferRequestedItemId = null;
+
+  importRenderDropQueue();
+  importRenderLiveFromServerQueue(payload);
+}
+
+function importRenderLiveFromServerQueue(payload) {
+  if (importActiveStreamAbortController) return;
+  const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+  if (!jobs.length) return;
+  const processing = jobs.find((job) => String(job?.status || '').toLowerCase() === 'processing') || null;
+  const target = processing || jobs[jobs.length - 1];
+  if (!target) return;
+
+  const stepMap = importStepMapFromServer(target?.progress);
+  const statusLine = String(target?.progress?.status_line || target?.detail || '');
+  const countersLine = String(target?.progress?.counters_line || '');
+  const queueJobId = String(target?.id || '');
+  const meta = {
+    name: String(target?.original_filename || 'Background Import'),
+    sourceLabel: 'Background Queue',
+    queueJobId,
+    previewUrl: queueJobId ? `/api/import/queue/jobs/${encodeURIComponent(queueJobId)}/content` : '',
+  };
+  importRenderLive(meta, {
+    title: meta.name || 'Background Import',
+    meta: `Background queue • job ${String(target?.id || '').slice(0, 8)}`,
+    statusLine: statusLine || (processing ? 'Import running in background...' : 'Import finished in background.'),
+    countersLine,
+    steps: importStreamStepArray(stepMap),
+    metrics: [],
+    progress: importStreamOverallProgress(stepMap),
+    progressActive: Boolean(processing),
+  });
+}
+
+async function importRefreshServerQueue(force = false) {
+  if (importQueuePollInFlight && !force) return;
+  importQueuePollInFlight = true;
+  try {
+    const payload = await callApi('GET', '/api/import/queue/status?limit=500', null, null);
+    if (payload?.ok) importApplyServerQueueState(payload);
+  } catch (err) {
+    if (force) {
+      console.warn('Unable to refresh background import queue state.', err);
+    }
+  } finally {
+    importQueuePollInFlight = false;
+  }
+}
+
+function importStartServerQueuePolling() {
+  if (importQueuePollTimer) return;
+  importRefreshServerQueue(true);
+  importQueuePollTimer = setInterval(() => {
+    importRefreshServerQueue(false);
+  }, 2500);
+}
+
+async function importQueueEnqueueFiles(fileList) {
+  const files = Array.from(fileList || []).filter((file) => file && typeof file.name === 'string');
+  if (!files.length) return;
+  for (const file of files) {
+    let message = '';
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const payload = await callApi('POST', '/api/import/queue/enqueue-upload', fd, null, true);
+      if (!payload?.ok) {
+        message = String(payload?.detail || payload?.error || 'Failed to enqueue file.');
+      }
+    } catch (err) {
+      message = String(err || 'Failed to enqueue file.');
+    }
+    if (message) {
+      importAddHistory({
+        statusTone: 'error',
+        statusLabel: 'failed',
+        name: file.name || 'document',
+        summary: message,
+      });
+    }
+  }
+  await importRefreshServerQueue(true);
+}
+
+async function importProcessDropQueue() {
+  await importRefreshServerQueue(true);
+}
+
 const dz = document.getElementById('dropzone');
 function prevent(e) { e.preventDefault(); e.stopPropagation(); }
 ['dragenter','dragover','dragleave','drop'].forEach(evt => dz.addEventListener(evt, prevent));
@@ -4328,25 +6874,16 @@ function prevent(e) { e.preventDefault(); e.stopPropagation(); }
 dz.addEventListener('drop', async (e) => {
   const files = e.dataTransfer.files;
   if (!files || !files.length) return;
-  const file = files[0];
-  const streamFd = new FormData();
-  streamFd.append('file', file);
-  await importRunWithStreamVisuals(
-    {
-      name: file.name || 'Dropped File',
-      sourceLabel: 'Drag-and-drop Import',
-      file,
-      sizeBytes: file.size,
-    },
-    '/api/ingest/upload/stream',
-    streamFd,
-    true,
-    async () => {
-      const fd = new FormData();
-      fd.append('file', file);
-      return callApi('POST', '/api/ingest/upload', fd, null, true);
-    }
-  );
+  try {
+    await importQueueEnqueueFiles(files);
+  } catch (err) {
+    importAddHistory({
+      statusTone: 'error',
+      statusLabel: 'failed',
+      name: 'drag-and-drop batch',
+      summary: String(err || 'Failed to enqueue dropped files.'),
+    });
+  }
 });
 
 document.getElementById('help-modal').addEventListener('click', (e) => {
@@ -4356,10 +6893,12 @@ initTheme();
 initWorkspaceNav();
 installHelpButtons();
 initDbExplorer();
+initDocumentViewer();
 initResizableOutputs();
 dbListTables();
 loadDashboard();
 vectorStatus();
+importStartServerQueuePolling();
 </script>
 </body>
 </html>

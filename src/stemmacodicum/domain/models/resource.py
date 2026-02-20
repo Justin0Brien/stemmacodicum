@@ -13,3 +13,5 @@ class Resource:
     archived_relpath: str
     size_bytes: int
     ingested_at: str
+    download_url: str | None = None
+    download_urls_json: str | None = None

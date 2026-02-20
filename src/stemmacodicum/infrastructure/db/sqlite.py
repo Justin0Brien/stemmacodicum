@@ -55,4 +55,17 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
 def initialize_schema(db_path: Path, schema_path: Path) -> None:
     with get_connection(db_path) as conn:
         conn.executescript(schema_path.read_text(encoding="utf-8"))
+        _apply_lightweight_migrations(conn)
         conn.commit()
+
+
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
+def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
+    if not _column_exists(conn, "resources", "download_url"):
+        conn.execute("ALTER TABLE resources ADD COLUMN download_url TEXT")
+    if not _column_exists(conn, "resources", "download_urls_json"):
+        conn.execute("ALTER TABLE resources ADD COLUMN download_urls_json TEXT")

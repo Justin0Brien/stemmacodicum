@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from fastapi.testclient import TestClient
 
@@ -34,6 +35,8 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert ingest_payload["status"] in {"ingested", "duplicate"}
     assert "extraction" in ingest_payload
     assert ingest_payload["extraction"]["status"] in {"extracted", "skipped", "failed"}
+    assert "download_url" in ingest_payload["resource"]
+    assert "download_urls_json" in ingest_payload["resource"]
 
     # Upload ingest and dedupe check
     files = {"file": ("upload.txt", b"hello world", "text/plain")}
@@ -43,6 +46,11 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r2.status_code == 200
     assert r1.json()["status"] in {"ingested", "duplicate"}
     assert r2.json()["status"] in {"ingested", "duplicate"}
+    second_upload = r2.json()
+    assert "extraction" in second_upload
+    if second_upload["extraction"].get("reason") == "already_extracted":
+        assert "summary" in second_upload["extraction"]
+        assert second_upload["extraction"]["summary"]["text_chars"] >= 0
 
     # Stream ingest (SSE) by path
     r = client.post("/api/ingest/path/stream", json={"path": str(source)})
@@ -67,6 +75,23 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.json()["count"] >= 1
     resource_payload = r.json()["resources"][0]
     resource_id = resource_payload["id"]
+
+    r = client.get(f"/api/resources/{resource_id}")
+    assert r.status_code == 200
+    assert r.json()["resource"]["id"] == resource_id
+
+    r = client.get(f"/api/resources/{resource_id}/content")
+    assert r.status_code == 200
+    assert r.headers.get("content-disposition", "").startswith("inline;")
+
+    r = client.get(f"/api/viewer/document?resource_id={resource_id}")
+    assert r.status_code == 200
+    viewer_payload = r.json()
+    assert viewer_payload["ok"] is True
+    assert viewer_payload["resource"]["id"] == resource_id
+    assert "content" in viewer_payload
+    assert "metadata" in viewer_payload
+    assert "extraction" in viewer_payload
 
     # Import now auto-attempts extraction+vector indexing; confirm vector status exists.
     r = client.get(f"/api/vector/status?resource_id={resource_id}")
@@ -95,6 +120,17 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     r = client.get(f"/api/extract/dump?resource_id={resource_id}")
     assert r.status_code == 200
     assert r.json()["dump"]["document_text"] is not None
+
+    # Duplicate re-import should include persisted extraction summary (not empty stats).
+    r = client.post("/api/ingest/path", json={"path": str(source)})
+    assert r.status_code == 200
+    reingest = r.json()
+    assert "extraction" in reingest
+    assert reingest["extraction"]["status"] in {"extracted", "failed", "skipped"}
+    if reingest["extraction"].get("reason") == "already_extracted":
+        summary = reingest["extraction"].get("summary", {})
+        assert summary.get("text_chars", 0) >= 0
+        assert summary.get("tables_found", 0) >= 0
 
     # Claims import/list
     claims = tmp_path / "claims.json"
@@ -157,6 +193,16 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     r = client.get(f"/api/db/table/?name={first_table}&limit=10&offset=0")
     assert r.status_code == 200
 
+    r = client.get(
+        f"/api/db/table/locate?name=resources&column=id&value={resource_id}&page_size=50"
+    )
+    assert r.status_code == 200
+    locate = r.json()
+    assert locate["ok"] is True
+    assert locate["found"] is True
+    assert locate["offset"] >= 0
+    assert locate["page_size"] == 50
+
     # Mass import endpoint (controlled fixture)
     fin_root = tmp_path / "institution"
     fin_root.mkdir(parents=True, exist_ok=True)
@@ -176,3 +222,50 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.status_code == 200
     assert r.json()["stats"]["processed"] >= 0
     assert r.json()["stats"]["already_processed"] >= 1
+
+
+def test_background_import_queue_persists_across_client_reopen(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    queued_job_id = None
+    with TestClient(create_app(paths)) as client:
+        files = {"file": ("queued-upload.txt", b"background import queue smoke", "text/plain")}
+        enqueue_resp = client.post("/api/import/queue/enqueue-upload", files=files)
+        assert enqueue_resp.status_code == 200
+        enqueue_payload = enqueue_resp.json()
+        assert enqueue_payload.get("ok") is True
+        queued_job_id = enqueue_payload["job"]["id"]
+
+        deadline = time.time() + 20.0
+        latest_job = None
+        while time.time() < deadline:
+            status_resp = client.get("/api/import/queue/status?limit=50")
+            assert status_resp.status_code == 200
+            payload = status_resp.json()
+            jobs = payload.get("jobs", [])
+            latest_job = next((job for job in jobs if job.get("id") == queued_job_id), None)
+            if latest_job and latest_job.get("status") in {"done", "failed"}:
+                break
+            time.sleep(0.15)
+
+        assert latest_job is not None
+        assert latest_job.get("status") == "done"
+
+    assert queued_job_id is not None
+    with TestClient(create_app(paths)) as reopened_client:
+        status_resp = reopened_client.get("/api/import/queue/status?limit=50")
+        assert status_resp.status_code == 200
+        payload = status_resp.json()
+        jobs = payload.get("jobs", [])
+        reopened_job = next((job for job in jobs if job.get("id") == queued_job_id), None)
+        assert reopened_job is not None
+        assert reopened_job.get("status") == "done"

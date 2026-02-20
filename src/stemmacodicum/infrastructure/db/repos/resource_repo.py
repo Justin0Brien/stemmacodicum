@@ -9,6 +9,7 @@ from stemmacodicum.infrastructure.db.sqlite import get_connection
 class ResourceRepo:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
+        self._ensure_resource_metadata_columns()
 
     def insert(self, resource: Resource) -> None:
         with get_connection(self.db_path) as conn:
@@ -20,10 +21,12 @@ class ResourceRepo:
                     media_type,
                     original_filename,
                     source_uri,
+                    download_url,
+                    download_urls_json,
                     archived_relpath,
                     size_bytes,
                     ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     resource.id,
@@ -31,6 +34,8 @@ class ResourceRepo:
                     resource.media_type,
                     resource.original_filename,
                     resource.source_uri,
+                    resource.download_url,
+                    resource.download_urls_json,
                     resource.archived_relpath,
                     resource.size_bytes,
                     resource.ingested_at,
@@ -42,6 +47,24 @@ class ResourceRepo:
                 VALUES (?, 'sha256', ?)
                 """,
                 (resource.id, resource.digest_sha256),
+            )
+            conn.commit()
+
+    def update_download_metadata(
+        self,
+        resource_id: str,
+        *,
+        download_url: str | None,
+        download_urls_json: str | None,
+    ) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE resources
+                SET download_url = ?, download_urls_json = ?
+                WHERE id = ?
+                """,
+                (download_url, download_urls_json, resource_id),
             )
             conn.commit()
 
@@ -84,4 +107,20 @@ class ResourceRepo:
             archived_relpath=row["archived_relpath"],
             size_bytes=row["size_bytes"],
             ingested_at=row["ingested_at"],
+            download_url=row["download_url"] if "download_url" in row.keys() else None,
+            download_urls_json=row["download_urls_json"] if "download_urls_json" in row.keys() else None,
         )
+
+    def _ensure_resource_metadata_columns(self) -> None:
+        with get_connection(self.db_path) as conn:
+            has_resources = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'resources'"
+            ).fetchone()
+            if not has_resources:
+                return
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(resources)").fetchall()}
+            if "download_url" not in columns:
+                conn.execute("ALTER TABLE resources ADD COLUMN download_url TEXT")
+            if "download_urls_json" not in columns:
+                conn.execute("ALTER TABLE resources ADD COLUMN download_urls_json TEXT")
+            conn.commit()

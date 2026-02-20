@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import math
+import multiprocessing as mp
+import os
+import queue
 import re
+import signal
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from stemmacodicum.core.errors import ExtractionError
 from stemmacodicum.core.hashing import compute_bytes_digest
@@ -23,10 +31,13 @@ from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.parsers.docling_adapter import (
     DoclingAdapter,
     DoclingRuntimeOptions,
+    ParseResult,
     ParsedBlock,
     ParsedTable,
 )
 from stemmacodicum.application.services.vector_service import VectorIndexingService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -66,6 +77,26 @@ class _AnnotationSpec:
     attrs: dict[str, object] | None = None
 
 
+class _PdfSubprocessCrashError(RuntimeError):
+    pass
+
+
+def _pdf_parse_worker_entry(
+    *,
+    file_path: str,
+    media_type: str,
+    parser_profile: str,
+    runtime_options: DoclingRuntimeOptions | None,
+    result_queue: Any,
+) -> None:
+    try:
+        adapter = DoclingAdapter(profile=parser_profile, runtime_options=runtime_options)
+        result = adapter.parse_resource(Path(file_path), media_type)
+        result_queue.put({"ok": True, "result": result})
+    except Exception as exc:
+        result_queue.put({"ok": False, "error": f"{exc.__class__.__name__}: {exc}"})
+
+
 class ExtractionService:
     _FINANCIAL_TERMS = [
         "cash",
@@ -94,6 +125,8 @@ class ExtractionService:
     _RE_PERIOD = re.compile(r"\b(?:FY|Q[1-4]|H[12])\s?(?:19|20)?\d{2}(?:/\d{2,4})?\b")
     _RE_SENTENCE = re.compile(r"[^.!?\n]+(?:[.!?]+|$)")
     _MAX_AUTO_ANNOTATIONS = 10_000
+    _PDF_WORKER_JOIN_POLL_SECONDS = 0.2
+    _DEFAULT_PDF_PARSE_MAX_RESTARTS = 2
 
     def __init__(
         self,
@@ -108,6 +141,11 @@ class ExtractionService:
         self.archive_dir = archive_dir
         self.docling_runtime_options = docling_runtime_options
         self.vector_indexing_service = vector_indexing_service
+        self.pdf_parse_subprocess_enabled = self._env_bool("STEMMA_PDF_PARSE_SUBPROCESS", default=True)
+        self.pdf_parse_max_restarts = self._env_non_negative_int(
+            "STEMMA_PDF_PARSE_MAX_RESTARTS",
+            default=self._DEFAULT_PDF_PARSE_MAX_RESTARTS,
+        )
 
     def extract_resource(
         self,
@@ -137,10 +175,44 @@ class ExtractionService:
             raise ExtractionError(f"Archived resource file missing: {archived_path}")
 
         adapter = DoclingAdapter(profile=parser_profile, runtime_options=self.docling_runtime_options)
+        parse_started = time.perf_counter()
+        parse_heartbeat_stop = threading.Event()
+        parse_heartbeat_thread: threading.Thread | None = None
+        if progress_callback is not None:
+            def parse_heartbeat() -> None:
+                while not parse_heartbeat_stop.wait(0.5):
+                    elapsed = max(0.0, time.perf_counter() - parse_started)
+                    # Keep parse-stage heartbeat progress monotonic but slow-rising so long PDFs
+                    # do not appear "stuck near completion" after ~20s.
+                    parse_progress = 6 + int(49.0 * (1.0 - math.exp(-elapsed / 75.0)))
+                    emit(
+                        {
+                            "stage": "extract",
+                            "state": "active",
+                            "progress": min(55, parse_progress),
+                            "detail": "Extracting text and layout structure.",
+                            "stats": f"Elapsed {elapsed:.1f}s • parser running (text/layout/table analysis)",
+                        }
+                    )
+
+            parse_heartbeat_thread = threading.Thread(target=parse_heartbeat, daemon=True)
+            parse_heartbeat_thread.start()
         try:
-            parse_result = adapter.parse_resource(archived_path, resource.media_type)
+            if resource.media_type == "application/pdf" and self.pdf_parse_subprocess_enabled:
+                parse_result = self._parse_pdf_with_restarts(
+                    archived_path=archived_path,
+                    media_type=resource.media_type,
+                    parser_profile=parser_profile,
+                    emit=emit,
+                )
+            else:
+                parse_result = adapter.parse_resource(archived_path, resource.media_type)
         except Exception as exc:
             raise ExtractionError(f"Extraction failed for {resource_id}: {exc}") from exc
+        finally:
+            parse_heartbeat_stop.set()
+            if parse_heartbeat_thread is not None:
+                parse_heartbeat_thread.join(timeout=0.2)
 
         full_text = parse_result.full_text or ""
         word_count = len(re.findall(r"\b\w+\b", full_text))
@@ -155,6 +227,7 @@ class ExtractionService:
                 "state": "active",
                 "progress": 58,
                 "detail": "Parsed document text and structure.",
+                "page_count": parse_result.page_count,
                 "stats": (
                     f"{parse_result.page_count or 0} pages • "
                     f"{word_count} words • "
@@ -205,7 +278,8 @@ class ExtractionService:
         )
         self.extraction_repo.insert_run(run)
 
-        for parsed_table in parse_result.tables:
+        total_tables = len(parse_result.tables)
+        for table_index, parsed_table in enumerate(parse_result.tables, start=1):
             table_id = self.derive_table_id(parsed_table)
             table = ExtractedTable(
                 id=new_uuid(),
@@ -231,6 +305,20 @@ class ExtractionService:
                 created_at=now_utc_iso(),
             )
             self.extraction_repo.insert_table(table)
+            if total_tables and (
+                table_index == 1
+                or table_index == total_tables
+                or table_index % max(1, total_tables // 4) == 0
+            ):
+                emit(
+                    {
+                        "stage": "tables",
+                        "state": "active",
+                        "progress": min(74, 66 + int((table_index / max(total_tables, 1)) * 8)),
+                        "detail": "Persisting extracted tables.",
+                        "stats": f"{table_index}/{total_tables} tables saved",
+                    }
+                )
 
         document_text = DocumentText(
             id=new_uuid(),
@@ -244,7 +332,8 @@ class ExtractionService:
         self.extraction_repo.insert_document_text(document_text)
 
         persisted_segments = 0
-        for spec in segment_specs:
+        total_segments = len(segment_specs)
+        for segment_index, spec in enumerate(segment_specs, start=1):
             segment = TextSegment(
                 id=new_uuid(),
                 document_text_id=document_text.id,
@@ -265,9 +354,24 @@ class ExtractionService:
             )
             self.extraction_repo.insert_text_segment(segment)
             persisted_segments += 1
+            if total_segments and (
+                segment_index == 1
+                or segment_index == total_segments
+                or segment_index % 250 == 0
+            ):
+                emit(
+                    {
+                        "stage": "extract",
+                        "state": "active",
+                        "progress": min(84, 74 + int((segment_index / max(total_segments, 1)) * 10)),
+                        "detail": "Persisting text segments.",
+                        "stats": f"{segment_index}/{total_segments} segments",
+                    }
+                )
 
         persisted_annotations = 0
-        for spec in annotation_specs:
+        total_annotations = len(annotation_specs)
+        for annotation_index, spec in enumerate(annotation_specs, start=1):
             annotation = TextAnnotation(
                 id=new_uuid(),
                 document_text_id=document_text.id,
@@ -294,6 +398,20 @@ class ExtractionService:
                     )
                 )
             persisted_annotations += 1
+            if total_annotations and (
+                annotation_index == 1
+                or annotation_index == total_annotations
+                or annotation_index % 250 == 0
+            ):
+                emit(
+                    {
+                        "stage": "tables",
+                        "state": "active",
+                        "progress": min(96, 84 + int((annotation_index / max(total_annotations, 1)) * 12)),
+                        "detail": "Persisting annotations.",
+                        "stats": f"{annotation_index}/{total_annotations} annotations",
+                    }
+                )
 
         emit(
             {
@@ -301,6 +419,7 @@ class ExtractionService:
                 "state": "done",
                 "progress": 100,
                 "detail": "Text extraction complete.",
+                "page_count": parse_result.page_count,
                 "stats": (
                     f"{word_count} words • "
                     f"{sentence_count} sentences • "
@@ -366,6 +485,99 @@ class ExtractionService:
             vector_chunks_indexed=vector_chunks_indexed,
             vector_error=vector_error,
         )
+
+    def _parse_pdf_with_restarts(
+        self,
+        *,
+        archived_path: Path,
+        media_type: str,
+        parser_profile: str,
+        emit: Callable[[dict[str, object]], None],
+    ) -> ParseResult:
+        attempts_total = max(1, self.pdf_parse_max_restarts + 1)
+        for attempt in range(1, attempts_total + 1):
+            try:
+                return self._run_pdf_parse_subprocess_attempt(
+                    archived_path=archived_path,
+                    media_type=media_type,
+                    parser_profile=parser_profile,
+                )
+            except _PdfSubprocessCrashError as exc:
+                if attempt >= attempts_total:
+                    break
+                logger.warning(
+                    "PDF parser subprocess crashed for %s (attempt %s/%s): %s",
+                    archived_path,
+                    attempt,
+                    attempts_total,
+                    exc,
+                )
+                emit(
+                    {
+                        "stage": "extract",
+                        "state": "active",
+                        "progress": 6,
+                        "detail": (
+                            f"Parser subprocess crashed (attempt {attempt}/{attempts_total}); restarting."
+                        ),
+                    }
+                )
+                time.sleep(min(0.2 * attempt, 1.0))
+        raise ExtractionError(
+            "PDF parser subprocess crashed repeatedly "
+            f"({attempts_total}/{attempts_total} attempts) for {archived_path.name}."
+        )
+
+    def _run_pdf_parse_subprocess_attempt(
+        self,
+        *,
+        archived_path: Path,
+        media_type: str,
+        parser_profile: str,
+    ) -> ParseResult:
+        mp_ctx = mp.get_context("spawn")
+        result_queue = mp_ctx.Queue(maxsize=1)
+        process = mp_ctx.Process(
+            target=_pdf_parse_worker_entry,
+            kwargs={
+                "file_path": str(archived_path),
+                "media_type": media_type,
+                "parser_profile": parser_profile,
+                "runtime_options": self.docling_runtime_options,
+                "result_queue": result_queue,
+            },
+        )
+        process.start()
+        try:
+            while process.is_alive():
+                process.join(timeout=self._PDF_WORKER_JOIN_POLL_SECONDS)
+        except BaseException:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+            raise
+
+        payload: dict[str, object] | None = None
+        try:
+            payload = result_queue.get_nowait()
+        except queue.Empty:
+            payload = None
+        finally:
+            result_queue.close()
+            result_queue.join_thread()
+
+        if process.exitcode == 0:
+            if isinstance(payload, dict) and payload.get("ok") is True:
+                result = payload.get("result")
+                if isinstance(result, ParseResult):
+                    return result
+                raise ExtractionError("Parser subprocess returned an invalid result payload.")
+            error = "unknown parser worker error"
+            if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+                error = str(payload.get("error"))
+            raise ExtractionError(error)
+
+        raise _PdfSubprocessCrashError(self._format_worker_exit(process.exitcode))
 
     def list_tables(self, resource_id: str, limit: int = 100) -> list[ExtractedTable]:
         return self.extraction_repo.list_tables_for_resource(resource_id=resource_id, limit=limit)
@@ -792,3 +1004,39 @@ class ExtractionService:
             "attrs": spec.attrs,
             "spans": [{"start": s, "end": e} for s, e in spec.spans],
         }
+
+    @staticmethod
+    def _format_worker_exit(exitcode: int | None) -> str:
+        if exitcode is None:
+            return "parser worker exited with unknown status"
+        if exitcode < 0:
+            signal_number = -exitcode
+            try:
+                signal_name = signal.Signals(signal_number).name
+            except ValueError:
+                signal_name = "UNKNOWN"
+            return f"parser worker terminated by signal {signal_number} ({signal_name})"
+        return f"parser worker exited with code {exitcode}"
+
+    @staticmethod
+    def _env_bool(name: str, *, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        return default
+
+    @staticmethod
+    def _env_non_negative_int(name: str, *, default: int) -> int:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        try:
+            parsed = int(raw.strip())
+        except ValueError:
+            return default
+        return max(0, parsed)

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import mimetypes
+import os
 import queue
+import re
+import shutil
 import tempfile
 import threading
 from dataclasses import asdict, is_dataclass
@@ -10,11 +14,15 @@ from typing import Any, Callable, Iterator
 
 from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from stemmacodicum.application.services.ceapf_service import CEAPFService
 from stemmacodicum.application.services.claim_service import ClaimService
+from stemmacodicum.application.services.background_import_queue_service import (
+    BackgroundImportQueueService,
+)
 from stemmacodicum.application.services.evidence_binding_service import EvidenceBindingService
 from stemmacodicum.application.services.extraction_service import ExtractionService
 from stemmacodicum.application.services.health_service import HealthService
@@ -149,6 +157,7 @@ def _quote_identifier(name: str) -> str:
 
 def create_app(paths: AppPaths) -> FastAPI:
     app = FastAPI(title="Stemma Codicum", version="0.1.0")
+    static_dir = Path(__file__).resolve().parent / "static"
 
     app.add_middleware(
         CORSMiddleware,
@@ -157,6 +166,7 @@ def create_app(paths: AppPaths) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     project_service = ProjectService(paths)
     project_service.init_project()
@@ -238,6 +248,9 @@ def create_app(paths: AppPaths) -> FastAPI:
         progress: int,
         detail: str,
         stats: str | None = None,
+        page_count: int | None = None,
+        page_current: int | None = None,
+        resource_id: str | None = None,
     ) -> None:
         if progress_callback is None:
             return
@@ -249,7 +262,108 @@ def create_app(paths: AppPaths) -> FastAPI:
         }
         if stats:
             payload["stats"] = stats
+        if isinstance(page_count, int) and page_count > 0:
+            payload["page_count"] = page_count
+        if isinstance(page_current, int) and page_current > 0:
+            payload["page_current"] = page_current
+        if resource_id:
+            payload["resource_id"] = resource_id
         progress_callback(payload)
+
+    def _safe_json_list_len(value: str | None) -> int:
+        if not value:
+            return 0
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return 0
+        return len(parsed) if isinstance(parsed, list) else 0
+
+    def _compute_text_stats(text: str) -> tuple[int, int, int]:
+        word_count = len(re.findall(r"\b\w+\b", text))
+        sentence_count = len(
+            [m.group(0).strip() for m in re.finditer(r"[^.!?\n]+(?:[.!?]+|$)", text) if m.group(0).strip()]
+        )
+        paragraph_count = len([p for p in re.split(r"\n\s*\n+", text) if p.strip()])
+        return word_count, sentence_count, paragraph_count
+
+    def _is_existing_extraction_incomplete(resource_id: str, extraction_run_id: str) -> tuple[bool, str]:
+        repo = get_extraction_repo()
+        run = repo.get_run_by_id(extraction_run_id)
+        if run is None:
+            return True, "run_missing"
+        if str(run.status).lower() != "success":
+            return True, f"run_status={run.status}"
+        doc_text = repo.get_document_text_for_run(extraction_run_id)
+        if doc_text is None:
+            return True, "document_text_missing"
+        if int(doc_text.char_count or 0) > 0:
+            segments = repo.list_segments_for_resource(
+                resource_id=resource_id,
+                extraction_run_id=extraction_run_id,
+                limit=1,
+            )
+            if not segments:
+                return True, "segments_missing_for_nonempty_text"
+        return False, ""
+
+    def _build_existing_extraction_summary(resource_id: str, extraction_run_id: str) -> dict[str, Any]:
+        repo = get_extraction_repo()
+        run = repo.get_run_by_id(extraction_run_id)
+        if run is None:
+            return {}
+
+        doc_text = repo.get_document_text_for_run(extraction_run_id)
+        text_content = str(doc_text.text_content) if doc_text and doc_text.text_content else ""
+        text_chars = int(doc_text.char_count) if doc_text and doc_text.char_count is not None else len(text_content)
+        text_words, text_sentences, text_paragraphs = _compute_text_stats(text_content)
+
+        tables = repo.list_tables_for_run(extraction_run_id=extraction_run_id, limit=100000)
+        table_rows_total = sum(_safe_json_list_len(t.row_headers_json) for t in tables)
+        table_cols_total = sum(_safe_json_list_len(t.col_headers_json) for t in tables)
+        table_cells_total = sum(_safe_json_list_len(t.cells_json) for t in tables)
+        tables_found = len(tables)
+
+        segments = repo.list_segments_for_resource(
+            resource_id=resource_id,
+            extraction_run_id=extraction_run_id,
+            limit=200000,
+        )
+        annotations = repo.list_annotations_for_resource(
+            resource_id=resource_id,
+            extraction_run_id=extraction_run_id,
+            limit=200000,
+        )
+
+        page_indexes: set[int] = set()
+        for table in tables:
+            if table.page_index is not None and int(table.page_index) >= 0:
+                page_indexes.add(int(table.page_index))
+        for segment in segments:
+            if segment.page_index is not None and int(segment.page_index) >= 0:
+                page_indexes.add(int(segment.page_index))
+        page_count = (max(page_indexes) + 1) if page_indexes else None
+
+        return {
+            "run_id": run.id,
+            "resource_id": run.resource_id,
+            "tables_found": tables_found,
+            "parser_name": run.parser_name,
+            "parser_version": run.parser_version,
+            "elapsed_seconds": None,
+            "page_count": page_count,
+            "pages_per_second": None,
+            "timings": None,
+            "text_chars": text_chars,
+            "text_words": text_words,
+            "text_sentences": text_sentences,
+            "text_paragraphs": text_paragraphs,
+            "segments_persisted": len(segments),
+            "annotations_persisted": len(annotations),
+            "table_rows_total": table_rows_total,
+            "table_cols_total": table_cols_total,
+            "table_cells_total": table_cells_total,
+        }
 
     def maybe_extract_after_import(
         resource_id: str,
@@ -283,13 +397,64 @@ def create_app(paths: AppPaths) -> FastAPI:
 
         existing = get_extraction_repo().list_recent_runs(resource_id, limit=1)
         if existing:
+            run_id = existing[0].id
+            incomplete, reason = _is_existing_extraction_incomplete(resource_id=resource_id, extraction_run_id=run_id)
+            if incomplete:
+                emit_stage(
+                    progress_callback,
+                    stage="extract",
+                    state="active",
+                    progress=30,
+                    detail=f"Existing extraction incomplete ({reason}); re-running extraction.",
+                )
+                try:
+                    summary = get_extraction_service().extract_resource(
+                        resource_id,
+                        progress_callback=progress_callback,
+                    )
+                except Exception as exc:
+                    emit_stage(
+                        progress_callback,
+                        stage="extract",
+                        state="error",
+                        progress=100,
+                        detail=f"Re-extraction failed: {exc}",
+                    )
+                    emit_stage(
+                        progress_callback,
+                        stage="tables",
+                        state="skipped",
+                        progress=100,
+                        detail="Skipped due to extraction failure.",
+                    )
+                    emit_stage(
+                        progress_callback,
+                        stage="vector",
+                        state="skipped",
+                        progress=100,
+                        detail="Skipped due to extraction failure.",
+                    )
+                    return {"attempted": True, "status": "failed", "error": str(exc)}
+                return {
+                    "attempted": True,
+                    "status": "extracted",
+                    "reason": "reextracted_incomplete_previous",
+                    "summary": _jsonable(summary),
+                }
+
+            existing_summary = _build_existing_extraction_summary(resource_id=resource_id, extraction_run_id=run_id)
             emit_stage(
                 progress_callback,
                 stage="extract",
                 state="done",
                 progress=100,
                 detail="Existing extraction reused.",
-                stats=f"run {existing[0].id}",
+                page_count=int(existing_summary.get("page_count") or 0) or None,
+                stats=(
+                    f"run {run_id} • "
+                    f"{existing_summary.get('text_words', 0)} words • "
+                    f"{existing_summary.get('text_sentences', 0)} sentences"
+                ),
             )
             emit_stage(
                 progress_callback,
@@ -297,13 +462,19 @@ def create_app(paths: AppPaths) -> FastAPI:
                 state="done",
                 progress=100,
                 detail="Structured extraction data already available.",
+                stats=(
+                    f"{existing_summary.get('tables_found', 0)} tables • "
+                    f"{existing_summary.get('table_rows_total', 0)} rows • "
+                    f"{existing_summary.get('table_cols_total', 0)} cols • "
+                    f"{existing_summary.get('table_cells_total', 0)} cells"
+                ),
             )
             vector_summary: dict[str, Any] | None = None
             try:
                 vector_summary = _jsonable(
                     get_vector_service().index_extraction(
                         resource_id=resource_id,
-                        extraction_run_id=existing[0].id,
+                        extraction_run_id=run_id,
                         force=False,
                         progress_callback=progress_callback,
                     )
@@ -319,7 +490,8 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "attempted": False,
                 "status": "skipped",
                 "reason": "already_extracted",
-                "extraction_run_id": existing[0].id,
+                "extraction_run_id": run_id,
+                "summary": existing_summary,
                 "vector": vector_summary,
             }
 
@@ -412,18 +584,39 @@ def create_app(paths: AppPaths) -> FastAPI:
         source_uri: str | None,
         uploaded_filename: str | None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
+        resume_resource_id: str | None = None,
+        resume_progress: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        result = get_ingestion_service().ingest_file(file_path, source_uri=source_uri)
+        resumed_from_existing_archive = False
+        resource = None
+        status = "unknown"
+        existing_resource = get_resource_repo().get_by_id(resume_resource_id) if resume_resource_id else None
+        if existing_resource is not None:
+            resource = existing_resource
+            status = "duplicate"
+            resumed_from_existing_archive = True
+        else:
+            result = get_ingestion_service().ingest_file(file_path, source_uri=source_uri)
+            resource = result.resource
+            status = result.status
         archive_detail = (
-            "Duplicate detected; existing archive reused."
-            if result.status == "duplicate"
-            else "Document archived and resource record created."
+            "Resuming from existing archived resource."
+            if resumed_from_existing_archive
+            else (
+                "Duplicate detected; existing archive reused."
+                if status == "duplicate"
+                else "Document archived and resource record created."
+            )
         )
         archive_stats = (
-            f"digest {str(result.resource.digest_sha256)[:10]}..."
-            if result.resource.digest_sha256
+            f"digest {str(resource.digest_sha256)[:10]}..."
+            if resource and resource.digest_sha256
             else None
         )
+        if resumed_from_existing_archive and isinstance(resume_progress, dict):
+            prior_status = str(resume_progress.get("status_line") or "").strip()
+            if prior_status:
+                archive_detail = f"{archive_detail} Last status: {prior_status}"
         emit_stage(
             progress_callback,
             stage="archive",
@@ -431,27 +624,130 @@ def create_app(paths: AppPaths) -> FastAPI:
             progress=100,
             detail=archive_detail,
             stats=archive_stats,
+            resource_id=resource.id if resource is not None else None,
         )
         extraction = maybe_extract_after_import(
-            resource_id=result.resource.id,
-            media_type=result.resource.media_type,
-            original_filename=result.resource.original_filename,
+            resource_id=resource.id,
+            media_type=resource.media_type,
+            original_filename=resource.original_filename,
             progress_callback=progress_callback,
         )
         payload: dict[str, Any] = {
             "ok": True,
-            "status": result.status,
-            "resource": _jsonable(result.resource),
+            "status": status,
+            "resource": _jsonable(resource),
             "extraction": extraction,
         }
+        if resumed_from_existing_archive:
+            payload["resumed"] = True
         if uploaded_filename:
             payload["uploaded_filename"] = uploaded_filename
         return payload
 
+    import_queue_service = BackgroundImportQueueService(
+        db_path=paths.db_path,
+        queue_dir=paths.stemma_dir / "import_queue",
+        run_import_callback=_run_import_file,
+    )
+
+    @app.on_event("shutdown")
+    def _shutdown_background_import_queue() -> None:
+        import_queue_service.shutdown()
+
+    def _resource_archive_abspath(resource_id: str) -> tuple[dict[str, Any], Path]:
+        resource = get_resource_repo().get_by_id(resource_id)
+        if resource is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+
+        archive_root = paths.archive_dir.resolve()
+        resolved = (archive_root / resource.archived_relpath).resolve()
+        if archive_root not in resolved.parents and resolved != archive_root:
+            raise HTTPException(status_code=400, detail="Invalid archive path on resource")
+        if not resolved.exists():
+            raise HTTPException(status_code=404, detail=f"Archived file missing for resource: {resource_id}")
+        return _jsonable(resource), resolved
+
+    def _viewer_kind(media_type: str | None, original_filename: str | None) -> str:
+        media = (media_type or "").lower()
+        suffix = Path(original_filename or "").suffix.lower()
+        if media == "application/pdf" or suffix == ".pdf":
+            return "pdf"
+        if media.startswith("image/"):
+            return "image"
+        if media in {
+            "text/csv",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.oasis.opendocument.spreadsheet",
+        } or suffix in {".csv", ".xlsx", ".ods"}:
+            return "table"
+        if media.startswith("text/") or suffix in {
+            ".txt",
+            ".md",
+            ".rst",
+            ".adoc",
+            ".tex",
+            ".json",
+            ".xml",
+            ".html",
+            ".htm",
+            ".xhtml",
+        }:
+            return "text"
+        return "binary"
+
+    def _parse_json_blob(value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return value
+        if not isinstance(value, str):
+            return None
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+
+    def _annotation_snippet(text: str, start: int, end: int, radius: int = 44) -> str:
+        safe_start = max(0, min(int(start), len(text)))
+        safe_end = max(safe_start, min(int(end), len(text)))
+        left = max(0, safe_start - radius)
+        right = min(len(text), safe_end + radius)
+        snippet = text[left:right].strip()
+        if left > 0:
+            snippet = "..." + snippet
+        if right < len(text):
+            snippet = snippet + "..."
+        return snippet
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
-        page = Path(__file__).resolve().parent / "static" / "index.html"
+        page = static_dir / "index.html"
         return HTMLResponse(page.read_text(encoding="utf-8"))
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> FileResponse:
+        response = FileResponse(static_dir / "favicon.ico", media_type="image/x-icon")
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        response.headers["Content-Type"] = "image/x-icon"
+        return response
+
+    @app.get("/apple-touch-icon.png", include_in_schema=False)
+    def apple_touch_icon() -> FileResponse:
+        response = FileResponse(static_dir / "icons" / "apple-touch-icon.png", media_type="image/png")
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+    @app.get("/site.webmanifest", include_in_schema=False)
+    def web_manifest() -> FileResponse:
+        response = FileResponse(static_dir / "site.webmanifest", media_type="application/manifest+json")
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
+
+    @app.get("/browserconfig.xml", include_in_schema=False)
+    def browser_config() -> FileResponse:
+        response = FileResponse(static_dir / "browserconfig.xml", media_type="application/xml")
+        response.headers["Cache-Control"] = "public, max-age=86400"
+        return response
 
     @app.post("/api/init")
     def api_init() -> dict[str, Any]:
@@ -553,10 +849,284 @@ def create_app(paths: AppPaths) -> FastAPI:
 
         return _stream_import_job(runner)
 
+    @app.post("/api/import/queue/enqueue-upload")
+    async def api_import_queue_enqueue_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+        try:
+            content = await file.read()
+            filename = file.filename or "upload.bin"
+            job = import_queue_service.enqueue_upload(
+                uploaded_filename=filename,
+                content_bytes=content,
+                source_uri=f"upload:{filename}",
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "job": job}
+
+    @app.get("/api/import/queue/status")
+    def api_import_queue_status(limit: int = Query(default=200, ge=1, le=5000)) -> dict[str, Any]:
+        return import_queue_service.status(limit=limit)
+
+    @app.get("/api/import/queue/jobs/{job_id}/content")
+    def api_import_queue_job_content(job_id: str, download: bool = False) -> FileResponse:
+        with get_connection(paths.db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT id, original_filename, staged_relpath, resource_id
+                FROM import_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Import job not found: {job_id}")
+
+        resource_id = str(row["resource_id"] or "").strip()
+        if resource_id:
+            try:
+                resource_payload, archived_path = _resource_archive_abspath(resource_id)
+                resource_media = str(resource_payload.get("media_type") or "")
+                media_type = (
+                    resource_media
+                    or mimetypes.guess_type(str(archived_path.name))[0]
+                    or "application/octet-stream"
+                )
+                filename = str(resource_payload.get("original_filename") or archived_path.name)
+                safe_filename = filename.replace('"', "")
+                response = FileResponse(path=str(archived_path), media_type=media_type, filename=filename)
+                response.headers["Content-Disposition"] = (
+                    f'attachment; filename="{safe_filename}"'
+                    if download
+                    else f'inline; filename="{safe_filename}"'
+                )
+                response.headers["X-Stemma-Import-Job-Id"] = job_id
+                return response
+            except HTTPException:
+                pass
+
+        staged_relpath = str(row["staged_relpath"] or "").strip()
+        queue_root = (paths.stemma_dir / "import_queue").resolve()
+        staged_path = (queue_root / staged_relpath).resolve()
+        if queue_root not in staged_path.parents:
+            raise HTTPException(status_code=400, detail="Invalid queue job path.")
+        if not staged_path.exists():
+            raise HTTPException(status_code=404, detail=f"Queued file no longer available: {job_id}")
+
+        filename = str(row["original_filename"] or staged_path.name)
+        media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        safe_filename = filename.replace('"', "")
+        response = FileResponse(path=str(staged_path), media_type=media_type, filename=filename)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{safe_filename}"'
+            if download
+            else f'inline; filename="{safe_filename}"'
+        )
+        response.headers["X-Stemma-Import-Job-Id"] = job_id
+        return response
+
     @app.get("/api/resources")
     def api_resources(limit: int = Query(default=100, ge=1, le=100000)) -> dict[str, Any]:
         resources = [_jsonable(r) for r in get_resource_repo().list(limit=limit)]
         return {"ok": True, "count": len(resources), "resources": resources}
+
+    @app.get("/api/resources/{resource_id}")
+    def api_resource_detail(resource_id: str) -> dict[str, Any]:
+        resource = get_resource_repo().get_by_id(resource_id)
+        if resource is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+        return {"ok": True, "resource": _jsonable(resource)}
+
+    @app.get("/api/resources/{resource_id}/content")
+    def api_resource_content(resource_id: str, download: bool = False) -> FileResponse:
+        resource_payload, archived_path = _resource_archive_abspath(resource_id)
+        resource_media = str(resource_payload.get("media_type") or "")
+        media_type = resource_media or mimetypes.guess_type(str(archived_path.name))[0] or "application/octet-stream"
+        filename = str(resource_payload.get("original_filename") or archived_path.name)
+        safe_filename = filename.replace('"', "")
+        response = FileResponse(path=str(archived_path), media_type=media_type, filename=filename)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{safe_filename}"'
+            if download
+            else f'inline; filename="{safe_filename}"'
+        )
+        response.headers["X-Stemma-Resource-Id"] = str(resource_payload.get("id") or "")
+        return response
+
+    @app.get("/api/viewer/document")
+    def api_viewer_document(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        table_limit: int = Query(default=800, ge=1, le=200000),
+        segment_limit: int = Query(default=12000, ge=1, le=300000),
+        annotation_limit: int = Query(default=12000, ge=1, le=300000),
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            resource = get_resource_repo().get_by_id(target_id)
+            if resource is None:
+                raise HTTPException(status_code=404, detail=f"Resource not found: {target_id}")
+
+            _, archived_path = _resource_archive_abspath(target_id)
+            stat = archived_path.stat()
+        except Exception as exc:
+            if isinstance(exc, HTTPException):
+                raise
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        dump: dict[str, Any] | None = None
+        extraction_error: str | None = None
+        try:
+            dump = get_extraction_service().build_dump(
+                resource_id=target_id,
+                segment_limit=segment_limit,
+                annotation_limit=annotation_limit,
+                table_limit=table_limit,
+            )
+        except Exception as exc:
+            extraction_error = str(exc)
+
+        run_payload = dump.get("run") if isinstance(dump, dict) else None
+        doc_payload = dump.get("document_text") if isinstance(dump, dict) else None
+        text_content = str(doc_payload.get("text_content") or "") if isinstance(doc_payload, dict) else ""
+
+        parsed_tables: list[dict[str, Any]] = []
+        parsed_segments: list[dict[str, Any]] = []
+        parsed_annotations: list[dict[str, Any]] = []
+
+        pages_with_tables: set[int] = set()
+        pages_with_geometry: set[int] = set()
+        bbox_table_count = 0
+        bbox_segment_count = 0
+
+        if isinstance(dump, dict):
+            for row in dump.get("tables", []) or []:
+                row_headers = _parse_json_blob(row.get("row_headers_json"))
+                col_headers = _parse_json_blob(row.get("col_headers_json"))
+                cells = _parse_json_blob(row.get("cells_json"))
+                bbox = _parse_json_blob(row.get("bbox_json"))
+                page_index = row.get("page_index")
+                page_number = (int(page_index) + 1) if isinstance(page_index, int) else None
+                if isinstance(page_index, int):
+                    pages_with_tables.add(page_index)
+                if isinstance(bbox, dict):
+                    bbox_table_count += 1
+                    if isinstance(page_index, int):
+                        pages_with_geometry.add(page_index)
+                parsed_tables.append(
+                    {
+                        "id": row.get("id"),
+                        "table_id": row.get("table_id"),
+                        "caption": row.get("caption"),
+                        "page_index": page_index,
+                        "page_number": page_number,
+                        "row_headers": row_headers if isinstance(row_headers, list) else [],
+                        "col_headers": col_headers if isinstance(col_headers, list) else [],
+                        "cells": cells if isinstance(cells, list) else [],
+                        "bbox": bbox if isinstance(bbox, dict) else None,
+                        "created_at": row.get("created_at"),
+                    }
+                )
+
+            for row in dump.get("segments", []) or []:
+                bbox = _parse_json_blob(row.get("bbox_json"))
+                attrs = _parse_json_blob(row.get("attrs_json"))
+                page_index = row.get("page_index")
+                page_number = (int(page_index) + 1) if isinstance(page_index, int) else None
+                if isinstance(bbox, dict):
+                    bbox_segment_count += 1
+                    if isinstance(page_index, int):
+                        pages_with_geometry.add(page_index)
+                parsed_segments.append(
+                    {
+                        "id": row.get("id"),
+                        "segment_type": row.get("segment_type"),
+                        "start_offset": row.get("start_offset"),
+                        "end_offset": row.get("end_offset"),
+                        "page_index": page_index,
+                        "page_number": page_number,
+                        "order_index": row.get("order_index"),
+                        "bbox": bbox if isinstance(bbox, dict) else None,
+                        "attrs": attrs if isinstance(attrs, dict) else None,
+                        "created_at": row.get("created_at"),
+                    }
+                )
+
+            for row in dump.get("annotations", []) or []:
+                spans = row.get("spans") if isinstance(row.get("spans"), list) else []
+                snippet = None
+                if spans:
+                    first_span = spans[0]
+                    if isinstance(first_span, dict):
+                        start = first_span.get("start")
+                        end = first_span.get("end")
+                        if isinstance(start, int) and isinstance(end, int) and text_content:
+                            snippet = _annotation_snippet(text_content, start, end)
+                parsed_annotations.append(
+                    {
+                        "id": row.get("id"),
+                        "layer": row.get("layer"),
+                        "category": row.get("category"),
+                        "label": row.get("label"),
+                        "confidence": row.get("confidence"),
+                        "source": row.get("source"),
+                        "attrs": _parse_json_blob(row.get("attrs_json")),
+                        "spans": spans,
+                        "snippet": snippet,
+                        "created_at": row.get("created_at"),
+                    }
+                )
+
+        content_url = f"/api/resources/{target_id}/content"
+        return {
+            "ok": True,
+            "resource": _jsonable(resource),
+            "content": {
+                "url": content_url,
+                "kind": _viewer_kind(resource.media_type, resource.original_filename),
+                "size_bytes": int(stat.st_size),
+                "last_modified_epoch": int(stat.st_mtime),
+            },
+            "metadata": {
+                "resource_id": resource.id,
+                "digest_sha256": resource.digest_sha256,
+                "media_type": resource.media_type,
+                "original_filename": resource.original_filename,
+                "source_uri": resource.source_uri,
+                "download_url": resource.download_url,
+                "download_urls_json": _parse_json_blob(resource.download_urls_json),
+                "archived_relpath": resource.archived_relpath,
+                "ingested_at": resource.ingested_at,
+            },
+            "extraction": {
+                "available": dump is not None,
+                "error": extraction_error,
+                "run": run_payload,
+                "document_text": (
+                    {
+                        "id": doc_payload.get("id"),
+                        "char_count": doc_payload.get("char_count"),
+                        "text_digest_sha256": doc_payload.get("text_digest_sha256"),
+                        "created_at": doc_payload.get("created_at"),
+                    }
+                    if isinstance(doc_payload, dict)
+                    else None
+                ),
+                "counts": {
+                    "tables": len(parsed_tables),
+                    "segments": len(parsed_segments),
+                    "annotations": len(parsed_annotations),
+                    "bbox_tables": bbox_table_count,
+                    "bbox_segments": bbox_segment_count,
+                },
+                "pages_with_tables": sorted(x + 1 for x in pages_with_tables),
+                "pages_with_geometry": sorted(x + 1 for x in pages_with_geometry),
+                "overlay_ready": bool(bbox_table_count or bbox_segment_count),
+            },
+            "tables": parsed_tables,
+            "segments": parsed_segments,
+            "annotations": parsed_annotations,
+            "document_text_excerpt": text_content[:4000],
+        }
 
     def _db_tables_payload(limit: int) -> dict[str, Any]:
         with get_connection(paths.db_path) as conn:
@@ -641,6 +1211,66 @@ def create_app(paths: AppPaths) -> FastAPI:
             "create_sql": schema["sql"] if schema else None,
         }
 
+    def _db_table_locate_payload(name: str, column: str, value: str, page_size: int) -> dict[str, Any]:
+        with get_connection(paths.db_path) as conn:
+            table_rows = conn.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+                ORDER BY name ASC
+                """
+            ).fetchall()
+            allowed = {str(r["name"]) for r in table_rows}
+            if name not in allowed:
+                raise HTTPException(status_code=404, detail=f"Table not found: {name}")
+
+            quoted_table = _quote_identifier(name)
+            col_rows = conn.execute(f"PRAGMA table_info({quoted_table})").fetchall()
+            columns = {str(c["name"]) for c in col_rows}
+            if column not in columns:
+                raise HTTPException(status_code=404, detail=f"Column not found on {name}: {column}")
+
+            total_rows = int(conn.execute(f"SELECT COUNT(*) AS c FROM {quoted_table}").fetchone()["c"])
+            quoted_col = _quote_identifier(column)
+
+            # SQLite rowid gives us stable paging position for this read path (SELECT * LIMIT/OFFSET).
+            hit = conn.execute(
+                f"SELECT rowid AS rid FROM {quoted_table} WHERE {quoted_col} = ? LIMIT 1",
+                (value,),
+            ).fetchone()
+            if hit is None:
+                return {
+                    "ok": True,
+                    "table": name,
+                    "column": column,
+                    "value": value,
+                    "found": False,
+                    "offset": 0,
+                    "page_size": page_size,
+                    "total_rows": total_rows,
+                }
+
+            rid = int(hit["rid"])
+            rows_before = int(
+                conn.execute(
+                    f"SELECT COUNT(*) AS c FROM {quoted_table} WHERE rowid < ?",
+                    (rid,),
+                ).fetchone()["c"]
+            )
+            offset = (rows_before // page_size) * page_size
+
+        return {
+            "ok": True,
+            "table": name,
+            "column": column,
+            "value": value,
+            "found": True,
+            "offset": offset,
+            "page_size": page_size,
+            "total_rows": total_rows,
+        }
+
     @app.get("/api/db/tables")
     @app.get("/api/db/tables/")
     def api_db_tables(limit: int = Query(default=500, ge=1, le=2000)) -> dict[str, Any]:
@@ -655,8 +1285,79 @@ def create_app(paths: AppPaths) -> FastAPI:
     ) -> dict[str, Any]:
         return _db_table_payload(name=name, limit=limit, offset=offset)
 
+    @app.get("/api/db/table/locate")
+    @app.get("/api/db/table/locate/")
+    def api_db_table_locate(
+        name: str = Query(..., min_length=1),
+        column: str = Query(..., min_length=1),
+        value: str = Query(...),
+        page_size: int = Query(default=100, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        return _db_table_locate_payload(name=name, column=column, value=value, page_size=page_size)
+
     @app.get("/api/dashboard/summary")
     def api_dashboard_summary(include_doctor: bool = Query(default=False)) -> dict[str, Any]:
+        def _path_size_bytes(path: Path) -> int:
+            try:
+                if not path.exists():
+                    return 0
+                if path.is_file():
+                    return int(path.stat().st_size)
+            except OSError:
+                return 0
+
+            total = 0
+            stack: list[Path] = [path]
+            while stack:
+                current = stack.pop()
+                try:
+                    with os.scandir(current) as entries:
+                        for entry in entries:
+                            try:
+                                if entry.is_symlink():
+                                    continue
+                                if entry.is_file(follow_symlinks=False):
+                                    total += int(entry.stat(follow_symlinks=False).st_size)
+                                elif entry.is_dir(follow_symlinks=False):
+                                    stack.append(Path(entry.path))
+                            except OSError:
+                                continue
+                except OSError:
+                    continue
+            return total
+
+        db_main_path = paths.db_path
+        db_wal_path = Path(f"{db_main_path}-wal")
+        db_shm_path = Path(f"{db_main_path}-shm")
+        archive_path = paths.archive_dir
+        qdrant_path = paths.qdrant_dir
+        device_anchor = db_main_path.parent if db_main_path.parent.exists() else paths.project_root
+        try:
+            device_usage = shutil.disk_usage(device_anchor)
+            device_total = int(device_usage.total)
+            device_free = int(device_usage.free)
+            device_used = int(device_total - device_free)
+        except OSError:
+            device_total = 0
+            device_free = 0
+            device_used = 0
+        project_storage = {
+            "db_main_path": str(db_main_path),
+            "db_main_bytes": _path_size_bytes(db_main_path),
+            "db_wal_path": str(db_wal_path),
+            "db_wal_bytes": _path_size_bytes(db_wal_path),
+            "db_shm_path": str(db_shm_path),
+            "db_shm_bytes": _path_size_bytes(db_shm_path),
+            "archive_dir": str(archive_path),
+            "archive_bytes": _path_size_bytes(archive_path),
+            "qdrant_dir": str(qdrant_path),
+            "qdrant_bytes": _path_size_bytes(qdrant_path),
+            "device_anchor_path": str(device_anchor),
+            "device_total_bytes": device_total,
+            "device_used_bytes": device_used,
+            "device_free_bytes": device_free,
+        }
+
         with get_connection(paths.db_path) as conn:
             counts = {
                 "resources": int(conn.execute("SELECT COUNT(*) AS c FROM resources").fetchone()["c"]),
@@ -731,6 +1432,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "db_path": str(paths.db_path),
                 "archive_dir": str(paths.archive_dir),
                 "qdrant_dir": str(paths.qdrant_dir),
+                "storage": project_storage,
             },
             "counts": counts,
             "latest": {

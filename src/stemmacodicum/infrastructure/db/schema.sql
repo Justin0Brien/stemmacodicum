@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS resources (
     source_uri TEXT,
     download_url TEXT,
     download_urls_json TEXT,
+    display_title TEXT,
+    title_candidates_json TEXT,
     archived_relpath TEXT NOT NULL,
     size_bytes INTEGER NOT NULL,
     ingested_at TEXT NOT NULL
@@ -338,6 +340,34 @@ CREATE TABLE IF NOT EXISTS import_jobs (
     finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS resource_images (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    extraction_run_id TEXT,
+    page_index INTEGER NOT NULL,
+    image_index INTEGER NOT NULL,
+    source_xref INTEGER,
+    source_name TEXT,
+    source_format TEXT,
+    source_width_px INTEGER,
+    source_height_px INTEGER,
+    rendered_width_mm REAL,
+    rendered_height_mm REAL,
+    output_width_px INTEGER NOT NULL,
+    output_height_px INTEGER NOT NULL,
+    output_file_relpath TEXT NOT NULL,
+    output_file_sha256 TEXT NOT NULL,
+    description_text TEXT,
+    description_model TEXT,
+    description_generated_at TEXT,
+    bbox_json TEXT,
+    metadata_json TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT,
+    FOREIGN KEY (extraction_run_id) REFERENCES extraction_runs(id) ON DELETE RESTRICT,
+    UNIQUE(resource_id, page_index, image_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_extraction_runs_resource_created
 ON extraction_runs(resource_id, created_at DESC);
 
@@ -379,6 +409,9 @@ ON import_jobs(queue_name, status, created_at ASC);
 
 CREATE INDEX IF NOT EXISTS idx_import_jobs_queue_updated
 ON import_jobs(queue_name, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_resource_images_resource_created
+ON resource_images(resource_id, created_at DESC);
 
 CREATE TRIGGER IF NOT EXISTS block_delete_resources
 BEFORE DELETE ON resources
@@ -516,4 +549,10 @@ CREATE TRIGGER IF NOT EXISTS block_delete_vector_chunks
 BEFORE DELETE ON vector_chunks
 BEGIN
     SELECT RAISE(ABORT, 'DELETE disabled for vector_chunks');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_resource_images
+BEFORE DELETE ON resource_images
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for resource_images');
 END;

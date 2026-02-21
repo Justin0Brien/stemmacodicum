@@ -69,3 +69,7 @@ def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE resources ADD COLUMN download_url TEXT")
     if not _column_exists(conn, "resources", "download_urls_json"):
         conn.execute("ALTER TABLE resources ADD COLUMN download_urls_json TEXT")
+    if not _column_exists(conn, "resources", "display_title"):
+        conn.execute("ALTER TABLE resources ADD COLUMN display_title TEXT")
+    if not _column_exists(conn, "resources", "title_candidates_json"):
+        conn.execute("ALTER TABLE resources ADD COLUMN title_candidates_json TEXT")

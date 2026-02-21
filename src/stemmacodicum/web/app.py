@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import mimetypes
 import os
 import queue
 import re
 import shutil
+import sys
 import tempfile
 import threading
 from dataclasses import asdict, is_dataclass
@@ -24,7 +26,10 @@ from stemmacodicum.application.services.background_import_queue_service import (
     BackgroundImportQueueService,
 )
 from stemmacodicum.application.services.evidence_binding_service import EvidenceBindingService
-from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.application.services.extraction_service import (
+    ExtractionCancelledError,
+    ExtractionService,
+)
 from stemmacodicum.application.services.health_service import HealthService
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
@@ -121,6 +126,10 @@ class PipelineRequest(BaseModel):
     extract_timeout_seconds: int | None = 300
 
 
+class ImportQueueControlRequest(BaseModel):
+    action: str
+
+
 class VectorSearchRequest(BaseModel):
     query: str
     limit: int = 10
@@ -141,6 +150,27 @@ class VectorBackfillRequest(BaseModel):
     max_process: int | None = None
 
 
+class ResourceTitleUpdateRequest(BaseModel):
+    title: str | None = None
+    title_candidates: list[str] | None = None
+
+
+class SourceRecoverRequest(BaseModel):
+    use_manifest_scan: bool = True
+    manifest_root: str = "/Volumes/X10/data"
+    manifest_max_files: int = 25000
+    enable_wayback_lookup: bool = True
+    enable_web_search: bool = True
+    wayback_delay: float = 1.0
+    shallow_search_dirs: list[str] | None = None
+    deep_search_dirs: list[str] | None = None
+    persist: bool = True
+
+
+class SourcePrimaryUrlRequest(BaseModel):
+    url: str
+
+
 def _jsonable(value: Any) -> Any:
     if is_dataclass(value):
         return asdict(value)
@@ -159,6 +189,17 @@ def create_app(paths: AppPaths) -> FastAPI:
     app = FastAPI(title="Stemma Codicum", version="0.1.0")
     static_dir = Path(__file__).resolve().parent / "static"
 
+    def _env_bool(name: str, default: bool) -> bool:
+        raw = os.getenv(name)
+        if raw is None:
+            return default
+        value = str(raw).strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return default
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -171,6 +212,7 @@ def create_app(paths: AppPaths) -> FastAPI:
     project_service = ProjectService(paths)
     project_service.init_project()
     vector_service_cache: VectorIndexingService | None = None
+    source_recovery_module_cache: Any | None = None
 
     def get_resource_repo() -> ResourceRepo:
         return ResourceRepo(paths.db_path)
@@ -217,6 +259,28 @@ def create_app(paths: AppPaths) -> FastAPI:
             reference_repo=ReferenceRepo(paths.db_path),
             resource_repo=get_resource_repo(),
         )
+
+    def get_source_recovery_module() -> Any:
+        nonlocal source_recovery_module_cache
+        if source_recovery_module_cache is not None:
+            return source_recovery_module_cache
+        candidate_paths = [
+            (paths.project_root / "scripts" / "recover_reference_urls.py").resolve(),
+            (Path(__file__).resolve().parents[3] / "scripts" / "recover_reference_urls.py").resolve(),
+        ]
+        script_path = next((path for path in candidate_paths if path.exists()), None)
+        if script_path is None:
+            raise RuntimeError(
+                "Source recovery script not found in project scripts/ or repository scripts/."
+            )
+        spec = importlib.util.spec_from_file_location("stemma_recover_reference_urls", str(script_path))
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Unable to load source recovery script: {script_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)  # type: ignore[attr-defined]
+        source_recovery_module_cache = module
+        return module
 
     def get_claim_service() -> ClaimService:
         return ClaimService(get_claim_repo())
@@ -370,7 +434,13 @@ def create_app(paths: AppPaths) -> FastAPI:
         media_type: str,
         original_filename: str | None = None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        def ensure_not_cancelled(context: str) -> None:
+            if cancellation_check is not None and bool(cancellation_check()):
+                raise ExtractionCancelledError(f"{context} cancelled by control request.")
+
+        ensure_not_cancelled("extraction scheduling")
         if not DoclingAdapter.supports(media_type, original_filename):
             emit_stage(
                 progress_callback,
@@ -411,7 +481,10 @@ def create_app(paths: AppPaths) -> FastAPI:
                     summary = get_extraction_service().extract_resource(
                         resource_id,
                         progress_callback=progress_callback,
+                        cancellation_check=cancellation_check,
                     )
+                except ExtractionCancelledError:
+                    raise
                 except Exception as exc:
                     emit_stage(
                         progress_callback,
@@ -471,6 +544,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             )
             vector_summary: dict[str, Any] | None = None
             try:
+                ensure_not_cancelled("vector scheduling")
                 vector_summary = _jsonable(
                     get_vector_service().index_extraction(
                         resource_id=resource_id,
@@ -479,6 +553,9 @@ def create_app(paths: AppPaths) -> FastAPI:
                         progress_callback=progress_callback,
                     )
                 )
+                ensure_not_cancelled("vector indexing")
+            except ExtractionCancelledError:
+                raise
             except Exception as exc:
                 vector_summary = {
                     "status": "failed",
@@ -499,7 +576,10 @@ def create_app(paths: AppPaths) -> FastAPI:
             summary = get_extraction_service().extract_resource(
                 resource_id,
                 progress_callback=progress_callback,
+                cancellation_check=cancellation_check,
             )
+        except ExtractionCancelledError:
+            raise
         except Exception as exc:
             emit_stage(
                 progress_callback,
@@ -536,9 +616,16 @@ def create_app(paths: AppPaths) -> FastAPI:
         runner: Callable[[Callable[[dict[str, object]], None]], dict[str, Any]]
     ) -> StreamingResponse:
         event_queue: queue.Queue[tuple[str, dict[str, Any]] | None] = queue.Queue()
+        emit_seq = 0
 
         def emit(event: str, payload: dict[str, Any]) -> None:
-            event_queue.put((event, payload))
+            nonlocal emit_seq
+            emit_seq += 1
+            safe_payload = dict(payload or {})
+            safe_payload.setdefault("emitted_at", now_utc_iso())
+            safe_payload.setdefault("event_seq", emit_seq)
+            safe_payload.setdefault("event_name", event)
+            event_queue.put((event, safe_payload))
 
         def worker() -> None:
             try:
@@ -586,7 +673,13 @@ def create_app(paths: AppPaths) -> FastAPI:
         progress_callback: Callable[[dict[str, object]], None] | None = None,
         resume_resource_id: str | None = None,
         resume_progress: dict[str, Any] | None = None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
+        def ensure_not_cancelled(context: str) -> None:
+            if cancellation_check is not None and bool(cancellation_check()):
+                raise ExtractionCancelledError(f"{context} cancelled by control request.")
+
+        ensure_not_cancelled("import")
         resumed_from_existing_archive = False
         resource = None
         status = "unknown"
@@ -626,12 +719,15 @@ def create_app(paths: AppPaths) -> FastAPI:
             stats=archive_stats,
             resource_id=resource.id if resource is not None else None,
         )
+        ensure_not_cancelled("extraction start")
         extraction = maybe_extract_after_import(
             resource_id=resource.id,
             media_type=resource.media_type,
             original_filename=resource.original_filename,
             progress_callback=progress_callback,
+            cancellation_check=cancellation_check,
         )
+        ensure_not_cancelled("import finalization")
         payload: dict[str, Any] = {
             "ok": True,
             "status": status,
@@ -644,15 +740,19 @@ def create_app(paths: AppPaths) -> FastAPI:
             payload["uploaded_filename"] = uploaded_filename
         return payload
 
-    import_queue_service = BackgroundImportQueueService(
-        db_path=paths.db_path,
-        queue_dir=paths.stemma_dir / "import_queue",
-        run_import_callback=_run_import_file,
-    )
+    import_queue_enabled = _env_bool("STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED", default=True)
+    import_queue_service: BackgroundImportQueueService | None = None
+    if import_queue_enabled:
+        import_queue_service = BackgroundImportQueueService(
+            db_path=paths.db_path,
+            queue_dir=paths.stemma_dir / "import_queue",
+            run_import_callback=_run_import_file,
+        )
 
     @app.on_event("shutdown")
     def _shutdown_background_import_queue() -> None:
-        import_queue_service.shutdown()
+        if import_queue_service is not None:
+            import_queue_service.shutdown()
 
     def _resource_archive_abspath(resource_id: str) -> tuple[dict[str, Any], Path]:
         resource = get_resource_repo().get_by_id(resource_id)
@@ -666,6 +766,110 @@ def create_app(paths: AppPaths) -> FastAPI:
         if not resolved.exists():
             raise HTTPException(status_code=404, detail=f"Archived file missing for resource: {resource_id}")
         return _jsonable(resource), resolved
+
+    def _resource_image_abspath(resource_id: str, image_id: str) -> tuple[dict[str, Any], Path]:
+        with get_connection(paths.db_path) as conn:
+            has_images_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'resource_images'"
+            ).fetchone()
+            if not has_images_table:
+                raise HTTPException(status_code=404, detail="No extracted images are stored in this project yet.")
+            row = conn.execute(
+                """
+                SELECT *
+                FROM resource_images
+                WHERE id = ? AND resource_id = ?
+                LIMIT 1
+                """,
+                (image_id, resource_id),
+            ).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"Resource image not found: {image_id}")
+
+        stemma_root = paths.stemma_dir.resolve()
+        relpath = str(row["output_file_relpath"] or "").strip()
+        if not relpath:
+            raise HTTPException(status_code=404, detail=f"Resource image path is missing: {image_id}")
+        resolved = (stemma_root / relpath).resolve()
+        if stemma_root not in resolved.parents and resolved != stemma_root:
+            raise HTTPException(status_code=400, detail="Invalid resource image path.")
+        if not resolved.exists():
+            raise HTTPException(status_code=404, detail=f"Extracted image file missing for image: {image_id}")
+        return dict(row), resolved
+
+    def _viewer_resource_images(resource_id: str) -> list[dict[str, Any]]:
+        with get_connection(paths.db_path) as conn:
+            has_images_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'resource_images'"
+            ).fetchone()
+            if not has_images_table:
+                return []
+            rows = conn.execute(
+                """
+                SELECT
+                  id,
+                  resource_id,
+                  extraction_run_id,
+                  page_index,
+                  image_index,
+                  source_xref,
+                  source_name,
+                  source_format,
+                  source_width_px,
+                  source_height_px,
+                  rendered_width_mm,
+                  rendered_height_mm,
+                  output_width_px,
+                  output_height_px,
+                  output_file_relpath,
+                  output_file_sha256,
+                  description_text,
+                  description_model,
+                  description_generated_at,
+                  bbox_json,
+                  metadata_json,
+                  created_at
+                FROM resource_images
+                WHERE resource_id = ?
+                ORDER BY page_index ASC, image_index ASC, created_at ASC
+                """,
+                (resource_id,),
+            ).fetchall()
+
+        images: list[dict[str, Any]] = []
+        for row in rows:
+            page_index = _coerce_non_negative_int(row["page_index"])
+            page_number = (page_index + 1) if page_index is not None else None
+            image_id = str(row["id"])
+            images.append(
+                {
+                    "id": image_id,
+                    "resource_id": str(row["resource_id"]),
+                    "extraction_run_id": row["extraction_run_id"],
+                    "page_index": page_index,
+                    "page_number": page_number,
+                    "image_index": _coerce_non_negative_int(row["image_index"]),
+                    "source_xref": _coerce_non_negative_int(row["source_xref"]),
+                    "source_name": row["source_name"],
+                    "source_format": row["source_format"],
+                    "source_width_px": _coerce_non_negative_int(row["source_width_px"]),
+                    "source_height_px": _coerce_non_negative_int(row["source_height_px"]),
+                    "rendered_width_mm": row["rendered_width_mm"],
+                    "rendered_height_mm": row["rendered_height_mm"],
+                    "output_width_px": _coerce_non_negative_int(row["output_width_px"]),
+                    "output_height_px": _coerce_non_negative_int(row["output_height_px"]),
+                    "output_file_relpath": row["output_file_relpath"],
+                    "output_file_sha256": row["output_file_sha256"],
+                    "description_text": row["description_text"],
+                    "description_model": row["description_model"],
+                    "description_generated_at": row["description_generated_at"],
+                    "bbox": _parse_json_blob(row["bbox_json"]),
+                    "metadata": _parse_json_blob(row["metadata_json"]),
+                    "created_at": row["created_at"],
+                    "content_url": f"/api/resources/{resource_id}/images/{image_id}/content",
+                }
+            )
+        return images
 
     def _viewer_kind(media_type: str | None, original_filename: str | None) -> str:
         media = (media_type or "").lower()
@@ -693,6 +897,8 @@ def create_app(paths: AppPaths) -> FastAPI:
             ".xhtml",
         }:
             return "text"
+        if DoclingAdapter.supports(media_type, original_filename):
+            return "structured"
         return "binary"
 
     def _parse_json_blob(value: object) -> object:
@@ -707,6 +913,147 @@ def create_app(paths: AppPaths) -> FastAPI:
         except Exception:
             return None
 
+    _LEGACY_DOCLING_TABLE_CELL_RE = re.compile(
+        r"TableCell\(\s*"
+        r"bbox=BoundingBox\(\s*l=(?P<l>-?\d+(?:\.\d+)?),\s*t=(?P<t>-?\d+(?:\.\d+)?),\s*"
+        r"r=(?P<r>-?\d+(?:\.\d+)?),\s*b=(?P<b>-?\d+(?:\.\d+)?)"
+        r".*?\)\s*,"
+        r".*?start_row_offset_(?:idx|index)=(?P<row_start>\d+),\s*"
+        r"end_row_offset_(?:idx|index)=(?P<row_end>\d+),\s*"
+        r"start_col_offset_(?:idx|index)=(?P<col_start>\d+),\s*"
+        r"end_col_offset_(?:idx|index)=(?P<col_end>\d+),\s*"
+        r"text='(?P<text>(?:\\'|[^'])*)',\s*"
+        r"column_header=(?P<column_header>True|False|true|false),\s*"
+        r"row_header=(?P<row_header>True|False|true|false)",
+        flags=re.DOTALL,
+    )
+
+    def _parse_legacy_docling_table_cells(col_headers: list[object]) -> list[dict[str, Any]]:
+        if not isinstance(col_headers, list) or len(col_headers) < 2:
+            return []
+        raw = col_headers[1]
+        if not isinstance(raw, str) or "TableCell(" not in raw:
+            return []
+
+        out: list[dict[str, Any]] = []
+        for match in _LEGACY_DOCLING_TABLE_CELL_RE.finditer(raw):
+            try:
+                out.append(
+                    {
+                        "row_start": int(match.group("row_start")),
+                        "row_end": int(match.group("row_end")),
+                        "col_start": int(match.group("col_start")),
+                        "col_end": int(match.group("col_end")),
+                        "text": str(match.group("text")).replace("\\'", "'"),
+                        "column_header": str(match.group("column_header")).lower() == "true",
+                        "row_header": str(match.group("row_header")).lower() == "true",
+                        "bbox": {
+                            "x0": float(match.group("l")),
+                            "y0": float(match.group("t")),
+                            "x1": float(match.group("r")),
+                            "y1": float(match.group("b")),
+                        },
+                    }
+                )
+            except Exception:
+                continue
+        return out
+
+    def _extract_legacy_table_dimensions(cells: list[object]) -> tuple[int | None, int | None]:
+        if not isinstance(cells, list):
+            return None, None
+        value_by_pos: dict[tuple[int, int], str] = {}
+        for cell in cells:
+            if not isinstance(cell, dict):
+                continue
+            try:
+                r = int(cell.get("row_index"))
+                c = int(cell.get("col_index"))
+            except Exception:
+                continue
+            value_by_pos[(r, c)] = str(cell.get("value", "")).strip()
+
+        row_count: int | None = None
+        col_count: int | None = None
+        if value_by_pos.get((0, 0), "").lower() == "num_rows":
+            try:
+                row_count = int(float(value_by_pos.get((0, 1), "")))
+            except Exception:
+                row_count = None
+        if value_by_pos.get((1, 0), "").lower() == "num_cols":
+            try:
+                col_count = int(float(value_by_pos.get((1, 1), "")))
+            except Exception:
+                col_count = None
+        return row_count, col_count
+
+    def _repair_legacy_docling_table_payload(
+        row_headers: object,
+        col_headers: object,
+        cells: object,
+        bbox: object,
+    ) -> tuple[list[str], list[str], list[dict[str, Any]], dict[str, float] | None]:
+        safe_row_headers = [str(x) for x in row_headers] if isinstance(row_headers, list) else []
+        safe_col_headers = [str(x) for x in col_headers] if isinstance(col_headers, list) else []
+        safe_cells = [x for x in cells if isinstance(x, dict)] if isinstance(cells, list) else []
+        safe_bbox = bbox if isinstance(bbox, dict) else None
+
+        if not safe_col_headers or safe_col_headers[0] != "table_cells":
+            return safe_row_headers, safe_col_headers, safe_cells, safe_bbox
+
+        legacy_cells = _parse_legacy_docling_table_cells(safe_col_headers)
+        if not legacy_cells:
+            return safe_row_headers, safe_col_headers, safe_cells, safe_bbox
+
+        fallback_rows, fallback_cols = _extract_legacy_table_dimensions(safe_cells)
+        grid_rows = max((int(c["row_end"]) for c in legacy_cells), default=0)
+        grid_cols = max((int(c["col_end"]) for c in legacy_cells), default=0)
+        if isinstance(fallback_rows, int) and fallback_rows > 0:
+            grid_rows = max(grid_rows, fallback_rows)
+        if isinstance(fallback_cols, int) and fallback_cols > 0:
+            grid_cols = max(grid_cols, fallback_cols)
+        if grid_rows <= 0 or grid_cols <= 0:
+            return safe_row_headers, safe_col_headers, safe_cells, safe_bbox
+
+        grid = [["" for _ in range(grid_cols)] for _ in range(grid_rows)]
+        for cell in legacy_cells:
+            value = str(cell.get("text", "")).strip()
+            if not value:
+                continue
+            row_start = max(0, min(grid_rows - 1, int(cell.get("row_start", 0))))
+            row_end = max(row_start + 1, min(grid_rows, int(cell.get("row_end", row_start + 1))))
+            col_start = max(0, min(grid_cols - 1, int(cell.get("col_start", 0))))
+            col_end = max(col_start + 1, min(grid_cols, int(cell.get("col_end", col_start + 1))))
+            for row_idx in range(row_start, row_end):
+                for col_idx in range(col_start, col_end):
+                    if not grid[row_idx][col_idx]:
+                        grid[row_idx][col_idx] = value
+
+        normalized_col_headers = [(grid[0][col] or f"C{col + 1}") for col in range(grid_cols)] if grid_rows else []
+        normalized_row_headers = []
+        normalized_cells: list[dict[str, Any]] = []
+        for row_idx in range(1, grid_rows):
+            normalized_row_headers.append(grid[row_idx][0] or f"R{row_idx}")
+            for col_idx in range(grid_cols):
+                value = grid[row_idx][col_idx]
+                if not value:
+                    continue
+                normalized_cells.append({"row_index": row_idx - 1, "col_index": col_idx, "value": value})
+
+        normalized_bbox = safe_bbox
+        bbox_items = [c.get("bbox") for c in legacy_cells if isinstance(c.get("bbox"), dict)]
+        xs0 = [float(b["x0"]) for b in bbox_items if all(k in b for k in ("x0", "y0", "x1", "y1"))]
+        ys0 = [float(b["y0"]) for b in bbox_items if all(k in b for k in ("x0", "y0", "x1", "y1"))]
+        xs1 = [float(b["x1"]) for b in bbox_items if all(k in b for k in ("x0", "y0", "x1", "y1"))]
+        ys1 = [float(b["y1"]) for b in bbox_items if all(k in b for k in ("x0", "y0", "x1", "y1"))]
+        if xs0 and ys0 and xs1 and ys1:
+            # Prefer legacy cell-derived bounds. They are TOPLEFT coordinates and align with rendered PDF canvas space.
+            normalized_bbox = {"x0": min(xs0), "y0": min(ys0), "x1": max(xs1), "y1": max(ys1)}
+
+        if normalized_cells:
+            return normalized_row_headers, normalized_col_headers, normalized_cells, normalized_bbox
+        return safe_row_headers, safe_col_headers, safe_cells, safe_bbox
+
     def _annotation_snippet(text: str, start: int, end: int, radius: int = 44) -> str:
         safe_start = max(0, min(int(start), len(text)))
         safe_end = max(safe_start, min(int(end), len(text)))
@@ -718,6 +1065,118 @@ def create_app(paths: AppPaths) -> FastAPI:
         if right < len(text):
             snippet = snippet + "..."
         return snippet
+
+    def _coerce_non_negative_int(value: object) -> int | None:
+        try:
+            parsed = int(value)  # type: ignore[arg-type]
+        except Exception:
+            return None
+        return parsed if parsed >= 0 else None
+
+    def _coerce_one_based_page_number(value: object) -> int | None:
+        try:
+            parsed = int(value)  # type: ignore[arg-type]
+        except Exception:
+            return None
+        if parsed < 1:
+            return None
+        return parsed - 1
+
+    def _segment_page_index_from_attrs(attrs: object) -> int | None:
+        if not isinstance(attrs, dict):
+            return None
+
+        direct_keys = ("page_index", "pageIndex")
+        for key in direct_keys:
+            value = _coerce_non_negative_int(attrs.get(key))
+            if value is not None:
+                return value
+
+        one_based_keys = ("page_number", "pageNumber", "page_no", "pageNo", "page")
+        for key in one_based_keys:
+            value = _coerce_one_based_page_number(attrs.get(key))
+            if value is not None:
+                return value
+
+        prov = attrs.get("prov")
+        if not isinstance(prov, list):
+            prov = attrs.get("provenance")
+        if isinstance(prov, list):
+            for entry in prov:
+                if not isinstance(entry, dict):
+                    continue
+                for key in direct_keys:
+                    value = _coerce_non_negative_int(entry.get(key))
+                    if value is not None:
+                        return value
+                for key in one_based_keys:
+                    value = _coerce_one_based_page_number(entry.get(key))
+                    if value is not None:
+                        return value
+        return None
+
+    def _resolve_segment_page_indexes(segments: list[dict[str, Any]]) -> None:
+        if not isinstance(segments, list) or not segments:
+            return
+
+        anchors: list[tuple[int, int, int]] = []
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            page_index = _coerce_non_negative_int(segment.get("page_index"))
+            start_offset = _coerce_non_negative_int(segment.get("start_offset"))
+            end_offset = _coerce_non_negative_int(segment.get("end_offset"))
+            if page_index is None or start_offset is None or end_offset is None:
+                continue
+            start = min(start_offset, end_offset)
+            end = max(start_offset, end_offset)
+            anchors.append((start, end, page_index))
+
+        if not anchors:
+            return
+        anchors.sort(key=lambda item: (item[0], item[1], item[2]))
+
+        def infer_page_for_range(start: int, end: int) -> int | None:
+            mid = (start + end) / 2.0
+            overlap_candidates: list[tuple[int, float, int]] = []
+            nearest_candidates: list[tuple[float, int, int]] = []
+            for anchor_start, anchor_end, anchor_page in anchors:
+                if anchor_end > start and anchor_start < end:
+                    overlap_span = max(1, anchor_end - anchor_start)
+                    overlap_mid_distance = abs(((anchor_start + anchor_end) / 2.0) - mid)
+                    overlap_candidates.append((overlap_span, overlap_mid_distance, anchor_page))
+                    continue
+                if end <= anchor_start:
+                    distance = anchor_start - end
+                elif start >= anchor_end:
+                    distance = start - anchor_end
+                else:
+                    distance = 0
+                nearest_candidates.append((float(distance), abs(((anchor_start + anchor_end) / 2.0) - mid), anchor_page))
+            if overlap_candidates:
+                overlap_candidates.sort(key=lambda item: (item[0], item[1]))
+                return overlap_candidates[0][2]
+            if nearest_candidates:
+                nearest_candidates.sort(key=lambda item: (item[0], item[1]))
+                return nearest_candidates[0][2]
+            return None
+
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            if _coerce_non_negative_int(segment.get("page_index")) is not None:
+                continue
+            start_offset = _coerce_non_negative_int(segment.get("start_offset"))
+            end_offset = _coerce_non_negative_int(segment.get("end_offset"))
+            if start_offset is None or end_offset is None:
+                continue
+            start = min(start_offset, end_offset)
+            end = max(start_offset, end_offset)
+            inferred_page = infer_page_for_range(start, end)
+            if inferred_page is None:
+                continue
+            segment["page_index"] = inferred_page
+            segment["page_number"] = inferred_page + 1
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
@@ -851,6 +1310,14 @@ def create_app(paths: AppPaths) -> FastAPI:
 
     @app.post("/api/import/queue/enqueue-upload")
     async def api_import_queue_enqueue_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+        if import_queue_service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Background import queue is disabled. "
+                    "Set STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED=1 to enable it."
+                ),
+            )
         try:
             content = await file.read()
             filename = file.filename or "upload.bin"
@@ -864,8 +1331,41 @@ def create_app(paths: AppPaths) -> FastAPI:
         return {"ok": True, "job": job}
 
     @app.get("/api/import/queue/status")
-    def api_import_queue_status(limit: int = Query(default=200, ge=1, le=5000)) -> dict[str, Any]:
+    def api_import_queue_status(limit: int = Query(default=200, ge=1, le=50000)) -> dict[str, Any]:
+        if import_queue_service is None:
+            return {
+                "ok": True,
+                "disabled": True,
+                "queue": {
+                    "total": 0,
+                    "queued": 0,
+                    "processing": 0,
+                    "done": 0,
+                    "failed": 0,
+                    "skipped": 0,
+                    "cancelled": 0,
+                },
+                "jobs": [],
+            }
         return import_queue_service.status(limit=limit)
+
+    @app.post("/api/import/queue/jobs/{job_id}/control")
+    def api_import_queue_job_control(job_id: str, req: ImportQueueControlRequest) -> dict[str, Any]:
+        if import_queue_service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Background import queue is disabled. "
+                    "Set STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED=1 to enable it."
+                ),
+            )
+        try:
+            job = import_queue_service.request_control(job_id=job_id, action=req.action)
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 404 if detail.lower().startswith("import job not found") else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+        return {"ok": True, "job": job}
 
     @app.get("/api/import/queue/jobs/{job_id}/content")
     def api_import_queue_job_content(job_id: str, download: bool = False) -> FileResponse:
@@ -936,6 +1436,35 @@ def create_app(paths: AppPaths) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
         return {"ok": True, "resource": _jsonable(resource)}
 
+    @app.post("/api/resources/{resource_id}/title")
+    def api_resource_set_title(resource_id: str, req: ResourceTitleUpdateRequest) -> dict[str, Any]:
+        repo = get_resource_repo()
+        resource = repo.get_by_id(resource_id)
+        if resource is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+
+        title = str(req.title or "").strip() or None
+        candidates: list[str] = []
+        for candidate in req.title_candidates or []:
+            value = str(candidate or "").strip()
+            if not value:
+                continue
+            if value in candidates:
+                continue
+            candidates.append(value)
+            if len(candidates) >= 12:
+                break
+        candidates_json = json.dumps(candidates, ensure_ascii=True) if candidates else None
+        repo.update_title_metadata(
+            resource_id=resource_id,
+            display_title=title,
+            title_candidates_json=candidates_json,
+        )
+        updated = repo.get_by_id(resource_id)
+        if updated is None:
+            raise HTTPException(status_code=500, detail=f"Unable to read updated resource: {resource_id}")
+        return {"ok": True, "resource": _jsonable(updated)}
+
     @app.get("/api/resources/{resource_id}/content")
     def api_resource_content(resource_id: str, download: bool = False) -> FileResponse:
         resource_payload, archived_path = _resource_archive_abspath(resource_id)
@@ -950,6 +1479,24 @@ def create_app(paths: AppPaths) -> FastAPI:
             else f'inline; filename="{safe_filename}"'
         )
         response.headers["X-Stemma-Resource-Id"] = str(resource_payload.get("id") or "")
+        return response
+
+    @app.get("/api/resources/{resource_id}/images/{image_id}/content")
+    def api_resource_image_content(resource_id: str, image_id: str, download: bool = False) -> FileResponse:
+        row, image_path = _resource_image_abspath(resource_id, image_id)
+        filename = Path(str(row.get("output_file_relpath") or image_path.name)).name
+        media_type = mimetypes.guess_type(filename)[0] or (
+            "image/avif" if filename.lower().endswith(".avif") else "application/octet-stream"
+        )
+        safe_filename = filename.replace('"', "")
+        response = FileResponse(path=str(image_path), media_type=media_type, filename=filename)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{safe_filename}"'
+            if download
+            else f'inline; filename="{safe_filename}"'
+        )
+        response.headers["X-Stemma-Resource-Id"] = resource_id
+        response.headers["X-Stemma-Resource-Image-Id"] = image_id
         return response
 
     @app.get("/api/viewer/document")
@@ -992,6 +1539,7 @@ def create_app(paths: AppPaths) -> FastAPI:
         parsed_tables: list[dict[str, Any]] = []
         parsed_segments: list[dict[str, Any]] = []
         parsed_annotations: list[dict[str, Any]] = []
+        parsed_images = _viewer_resource_images(target_id)
 
         pages_with_tables: set[int] = set()
         pages_with_geometry: set[int] = set()
@@ -1004,11 +1552,17 @@ def create_app(paths: AppPaths) -> FastAPI:
                 col_headers = _parse_json_blob(row.get("col_headers_json"))
                 cells = _parse_json_blob(row.get("cells_json"))
                 bbox = _parse_json_blob(row.get("bbox_json"))
+                fixed_row_headers, fixed_col_headers, fixed_cells, fixed_bbox = _repair_legacy_docling_table_payload(
+                    row_headers=row_headers,
+                    col_headers=col_headers,
+                    cells=cells,
+                    bbox=bbox,
+                )
                 page_index = row.get("page_index")
                 page_number = (int(page_index) + 1) if isinstance(page_index, int) else None
                 if isinstance(page_index, int):
                     pages_with_tables.add(page_index)
-                if isinstance(bbox, dict):
+                if isinstance(fixed_bbox, dict):
                     bbox_table_count += 1
                     if isinstance(page_index, int):
                         pages_with_geometry.add(page_index)
@@ -1019,10 +1573,10 @@ def create_app(paths: AppPaths) -> FastAPI:
                         "caption": row.get("caption"),
                         "page_index": page_index,
                         "page_number": page_number,
-                        "row_headers": row_headers if isinstance(row_headers, list) else [],
-                        "col_headers": col_headers if isinstance(col_headers, list) else [],
-                        "cells": cells if isinstance(cells, list) else [],
-                        "bbox": bbox if isinstance(bbox, dict) else None,
+                        "row_headers": fixed_row_headers,
+                        "col_headers": fixed_col_headers,
+                        "cells": fixed_cells,
+                        "bbox": fixed_bbox if isinstance(fixed_bbox, dict) else None,
                         "created_at": row.get("created_at"),
                     }
                 )
@@ -1030,7 +1584,9 @@ def create_app(paths: AppPaths) -> FastAPI:
             for row in dump.get("segments", []) or []:
                 bbox = _parse_json_blob(row.get("bbox_json"))
                 attrs = _parse_json_blob(row.get("attrs_json"))
-                page_index = row.get("page_index")
+                page_index = _coerce_non_negative_int(row.get("page_index"))
+                if page_index is None:
+                    page_index = _segment_page_index_from_attrs(attrs)
                 page_number = (int(page_index) + 1) if isinstance(page_index, int) else None
                 if isinstance(bbox, dict):
                     bbox_segment_count += 1
@@ -1050,6 +1606,15 @@ def create_app(paths: AppPaths) -> FastAPI:
                         "created_at": row.get("created_at"),
                     }
                 )
+            _resolve_segment_page_indexes(parsed_segments)
+            for segment in parsed_segments:
+                if not isinstance(segment, dict):
+                    continue
+                page_index = _coerce_non_negative_int(segment.get("page_index"))
+                if page_index is None:
+                    continue
+                if isinstance(segment.get("bbox"), dict):
+                    pages_with_geometry.add(page_index)
 
             for row in dump.get("annotations", []) or []:
                 spans = row.get("spans") if isinstance(row.get("spans"), list) else []
@@ -1091,6 +1656,8 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "digest_sha256": resource.digest_sha256,
                 "media_type": resource.media_type,
                 "original_filename": resource.original_filename,
+                "display_title": resource.display_title,
+                "title_candidates_json": resource.title_candidates_json,
                 "source_uri": resource.source_uri,
                 "download_url": resource.download_url,
                 "download_urls_json": _parse_json_blob(resource.download_urls_json),
@@ -1115,6 +1682,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                     "tables": len(parsed_tables),
                     "segments": len(parsed_segments),
                     "annotations": len(parsed_annotations),
+                    "images": len(parsed_images),
                     "bbox_tables": bbox_table_count,
                     "bbox_segments": bbox_segment_count,
                 },
@@ -1125,6 +1693,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             "tables": parsed_tables,
             "segments": parsed_segments,
             "annotations": parsed_annotations,
+            "images": parsed_images,
             "document_text_excerpt": text_content[:4000],
         }
 
@@ -1471,6 +2040,279 @@ def create_app(paths: AppPaths) -> FastAPI:
             },
             "health": health_payload,
         }
+
+    @app.get("/api/sources/resources")
+    def api_sources_resources(
+        limit: int = Query(default=500, ge=1, le=100000),
+        q: str | None = Query(default=None),
+        missing_only: bool = Query(default=False),
+    ) -> dict[str, Any]:
+        # Ensure legacy projects are migrated with source metadata columns.
+        get_resource_repo()
+        where: list[str] = []
+        params: list[object] = []
+        if q:
+            like = f"%{q.strip()}%"
+            where.append(
+                "("
+                "r.id LIKE ? OR "
+                "COALESCE(r.display_title, '') LIKE ? OR "
+                "COALESCE(r.original_filename, '') LIKE ? OR "
+                "COALESCE(r.download_url, '') LIKE ? OR "
+                "COALESCE(r.source_uri, '') LIKE ?"
+                ")"
+            )
+            params.extend([like, like, like, like, like])
+        if missing_only:
+            where.append(
+                "("
+                "LOWER(COALESCE(r.download_url, '')) NOT LIKE 'http://%' AND "
+                "LOWER(COALESCE(r.download_url, '')) NOT LIKE 'https://%'"
+                ")"
+            )
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        with get_connection(paths.db_path) as conn:
+            has_document_texts = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_texts'"
+                ).fetchone()
+            )
+            has_text_expr = (
+                "EXISTS(SELECT 1 FROM document_texts dt WHERE dt.resource_id = r.id LIMIT 1)"
+                if has_document_texts
+                else "0"
+            )
+            rows = conn.execute(
+                f"""
+                SELECT
+                  r.id,
+                  r.display_title,
+                  r.original_filename,
+                  r.media_type,
+                  r.source_uri,
+                  r.download_url,
+                  r.download_urls_json,
+                  r.ingested_at,
+                  {has_text_expr} AS has_text
+                FROM resources r
+                {where_sql}
+                ORDER BY r.ingested_at DESC
+                LIMIT ?
+                """,
+                (*params, limit),
+            ).fetchall()
+        resources: list[dict[str, Any]] = []
+        for row in rows:
+            urls_blob = _parse_json_blob(row["download_urls_json"])
+            urls = urls_blob if isinstance(urls_blob, list) else []
+            primary = str(row["download_url"] or "").strip()
+            if primary and primary not in urls:
+                urls.insert(0, primary)
+            resources.append(
+                {
+                    "id": str(row["id"]),
+                    "display_title": row["display_title"],
+                    "original_filename": row["original_filename"],
+                    "media_type": row["media_type"],
+                    "source_uri": row["source_uri"],
+                    "download_url": row["download_url"],
+                    "download_urls": urls,
+                    "ingested_at": row["ingested_at"],
+                    "has_text": bool(row["has_text"]),
+                    "has_external_source": bool(
+                        str(row["download_url"] or "").lower().startswith("http://")
+                        or str(row["download_url"] or "").lower().startswith("https://")
+                    ),
+                }
+            )
+        return {"ok": True, "count": len(resources), "resources": resources}
+
+    @app.get("/api/sources/resources/{resource_id}")
+    def api_sources_resource_detail(resource_id: str) -> dict[str, Any]:
+        resource = get_resource_repo().get_by_id(resource_id)
+        if resource is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+
+        with get_connection(paths.db_path) as conn:
+            has_reference_entries = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reference_entries'"
+                ).fetchone()
+            )
+            has_reference_resources = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'reference_resources'"
+                ).fetchone()
+            )
+            has_document_texts = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'document_texts'"
+                ).fetchone()
+            )
+            has_extraction_runs = bool(
+                conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'extraction_runs'"
+                ).fetchone()
+            )
+
+            if has_reference_entries and has_reference_resources:
+                ref_rows = conn.execute(
+                    """
+                    SELECT re.id, re.cite_id, re.title, re.author, re.year, re.doi, re.url
+                    FROM reference_entries re
+                    INNER JOIN reference_resources rr ON rr.reference_id = re.id
+                    WHERE rr.resource_id = ?
+                    ORDER BY re.imported_at DESC, re.id DESC
+                    LIMIT 100
+                    """,
+                    (resource_id,),
+                ).fetchall()
+            else:
+                ref_rows = []
+
+            if has_document_texts and has_extraction_runs:
+                text_row = conn.execute(
+                    """
+                    SELECT dt.text_content, dt.char_count, dt.text_digest_sha256, er.id AS extraction_run_id, er.created_at
+                    FROM document_texts dt
+                    INNER JOIN extraction_runs er ON er.id = dt.extraction_run_id
+                    WHERE dt.resource_id = ?
+                    ORDER BY er.created_at DESC
+                    LIMIT 1
+                    """,
+                    (resource_id,),
+                ).fetchone()
+            else:
+                text_row = None
+
+        parsed_urls = _parse_json_blob(resource.download_urls_json)
+        source_candidates = parsed_urls if isinstance(parsed_urls, list) else []
+        if resource.download_url and resource.download_url not in source_candidates:
+            source_candidates.insert(0, resource.download_url)
+
+        extracted_preview = ""
+        extracted_char_count = 0
+        extraction_run_id = None
+        text_digest = None
+        extraction_created_at = None
+        if text_row is not None:
+            extracted_full = str(text_row["text_content"] or "")
+            extracted_char_count = int(text_row["char_count"] or len(extracted_full))
+            extracted_preview = extracted_full[:4000]
+            extraction_run_id = text_row["extraction_run_id"]
+            text_digest = text_row["text_digest_sha256"]
+            extraction_created_at = text_row["created_at"]
+
+        references = [
+            {
+                "id": str(row["id"]),
+                "cite_id": row["cite_id"],
+                "title": row["title"],
+                "author": row["author"],
+                "year": row["year"],
+                "doi": row["doi"],
+                "url": row["url"],
+            }
+            for row in ref_rows
+        ]
+        return {
+            "ok": True,
+            "resource": _jsonable(resource),
+            "sources": {
+                "primary_url": resource.download_url,
+                "source_uri": resource.source_uri,
+                "candidates": source_candidates,
+                "has_external_source": bool(
+                    str(resource.download_url or "").lower().startswith("http://")
+                    or str(resource.download_url or "").lower().startswith("https://")
+                ),
+            },
+            "references": references,
+            "extraction": {
+                "available": text_row is not None,
+                "char_count": extracted_char_count,
+                "text_digest_sha256": text_digest,
+                "extraction_run_id": extraction_run_id,
+                "created_at": extraction_created_at,
+                "text_preview": extracted_preview,
+            },
+        }
+
+    @app.post("/api/sources/resources/{resource_id}/recover")
+    def api_sources_resource_recover(resource_id: str, req: SourceRecoverRequest) -> dict[str, Any]:
+        if get_resource_repo().get_by_id(resource_id) is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+        try:
+            recovery_mod = get_source_recovery_module()
+            manifest_raw = str(req.manifest_root or "").strip() or "/Volumes/X10/data"
+            manifest_root = Path(manifest_raw).expanduser()
+            if not req.use_manifest_scan:
+                manifest_root = Path("/__stemma_manifest_scan_disabled__")
+            shallow = [Path(item).expanduser() for item in (req.shallow_search_dirs or []) if str(item).strip()] or None
+            deep = [Path(item).expanduser() for item in (req.deep_search_dirs or []) if str(item).strip()] or None
+            result = recovery_mod.recover_resource_by_id(
+                db_path=paths.db_path,
+                archive_dir=paths.archive_dir,
+                resource_id=resource_id,
+                manifest_root=manifest_root,
+                manifest_max_files=max(100, int(req.manifest_max_files)),
+                shallow_dirs=shallow,
+                deep_dirs=deep,
+                enable_wayback_lookup=bool(req.enable_wayback_lookup),
+                wayback_delay=max(0.0, float(req.wayback_delay)),
+                enable_web_search=bool(req.enable_web_search),
+                persist=bool(req.persist),
+                verbose=False,
+            )
+            reference_updates = int(recovery_mod.update_reference_urls_from_resources(paths.db_path))
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        updated = get_resource_repo().get_by_id(resource_id)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found after recovery: {resource_id}")
+        return {
+            "ok": True,
+            "result": result,
+            "reference_updates": reference_updates,
+            "resource": _jsonable(updated),
+        }
+
+    @app.post("/api/sources/resources/{resource_id}/primary")
+    def api_sources_resource_primary(resource_id: str, req: SourcePrimaryUrlRequest) -> dict[str, Any]:
+        resource = get_resource_repo().get_by_id(resource_id)
+        if resource is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found: {resource_id}")
+        try:
+            recovery_mod = get_source_recovery_module()
+            raw = str(req.url or "").strip()
+            normalized = raw
+            if not recovery_mod.is_external_url(normalized):
+                doi_url = recovery_mod.doi_to_url(raw)
+                normalized = doi_url if doi_url else raw
+            if not recovery_mod.is_external_url(normalized):
+                raise ValueError("Provide an external URL or DOI.")
+            merged_urls = recovery_mod.merge_urls(
+                resource.download_urls_json,
+                [resource.download_url or "", normalized],
+            )
+            primary = normalized
+            get_resource_repo().update_download_metadata(
+                resource_id=resource_id,
+                download_url=primary,
+                download_urls_json=json.dumps(merged_urls, ensure_ascii=True),
+            )
+            reference_updates = int(recovery_mod.update_reference_urls_from_resources(paths.db_path))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        updated = get_resource_repo().get_by_id(resource_id)
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Resource not found after update: {resource_id}")
+        return {"ok": True, "resource": _jsonable(updated), "reference_updates": reference_updates}
 
     @app.post("/api/refs/import-bib")
     def api_refs_import_bib(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:

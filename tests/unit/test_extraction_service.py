@@ -96,6 +96,7 @@ def test_extract_resource_persists_tables_and_text_layers(tmp_path: Path) -> Non
 
 
 def test_extract_resource_emits_heartbeat_progress_during_parse(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("STEMMA_NON_PDF_PARSE_SUBPROCESS", "0")
     resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
 
     source = tmp_path / "report.md"
@@ -142,6 +143,7 @@ def test_extract_resource_emits_heartbeat_progress_during_parse(tmp_path: Path, 
 
 
 def test_extract_resource_retries_when_pdf_worker_crashes(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("STEMMA_PDF_PAGE_SPLIT_MODE", "0")
     resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
 
     source = tmp_path / "sample.pdf"

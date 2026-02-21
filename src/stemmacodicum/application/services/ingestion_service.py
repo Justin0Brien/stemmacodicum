@@ -8,6 +8,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from stemmacodicum.core.document_titles import derive_human_title
 from stemmacodicum.core.errors import ResourceIngestError
 from stemmacodicum.core.hashing import compute_file_digest
 from stemmacodicum.core.ids import new_uuid
@@ -49,12 +50,28 @@ class IngestionService:
             merged_urls = self._merge_download_urls(existing.download_urls_json, merge_candidates)
             merged_download_url = existing.download_url or self._pick_primary_download_url(merged_urls)
             merged_urls_json = json.dumps(merged_urls, ensure_ascii=True) if merged_urls else None
+            merged_display_title = existing.display_title or derive_human_title(
+                original_filename=existing.original_filename or path.name,
+                source_uri=source_uri or existing.source_uri,
+                fallback_id=existing.id,
+            )
             if merged_download_url != existing.download_url or merged_urls_json != existing.download_urls_json:
                 self.resource_repo.update_download_metadata(
                     existing.id,
                     download_url=merged_download_url,
                     download_urls_json=merged_urls_json,
                 )
+            if merged_display_title != existing.display_title:
+                self.resource_repo.update_title_metadata(
+                    existing.id,
+                    display_title=merged_display_title,
+                    title_candidates_json=existing.title_candidates_json,
+                )
+            if (
+                merged_download_url != existing.download_url
+                or merged_urls_json != existing.download_urls_json
+                or merged_display_title != existing.display_title
+            ):
                 refreshed = self.resource_repo.get_by_id(existing.id)
                 if refreshed is not None:
                     existing = refreshed
@@ -75,6 +92,10 @@ class IngestionService:
             ingested_at=now_utc_iso(),
             download_url=download_url,
             download_urls_json=download_urls_json,
+            display_title=derive_human_title(
+                original_filename=path.name,
+                source_uri=source_uri or str(path),
+            ),
         )
         self.resource_repo.insert(resource)
 

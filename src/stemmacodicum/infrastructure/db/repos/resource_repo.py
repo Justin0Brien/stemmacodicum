@@ -23,10 +23,12 @@ class ResourceRepo:
                     source_uri,
                     download_url,
                     download_urls_json,
+                    display_title,
+                    title_candidates_json,
                     archived_relpath,
                     size_bytes,
                     ingested_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     resource.id,
@@ -36,6 +38,8 @@ class ResourceRepo:
                     resource.source_uri,
                     resource.download_url,
                     resource.download_urls_json,
+                    resource.display_title,
+                    resource.title_candidates_json,
                     resource.archived_relpath,
                     resource.size_bytes,
                     resource.ingested_at,
@@ -65,6 +69,24 @@ class ResourceRepo:
                 WHERE id = ?
                 """,
                 (download_url, download_urls_json, resource_id),
+            )
+            conn.commit()
+
+    def update_title_metadata(
+        self,
+        resource_id: str,
+        *,
+        display_title: str | None,
+        title_candidates_json: str | None,
+    ) -> None:
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE resources
+                SET display_title = ?, title_candidates_json = ?
+                WHERE id = ?
+                """,
+                (display_title, title_candidates_json, resource_id),
             )
             conn.commit()
 
@@ -109,6 +131,8 @@ class ResourceRepo:
             ingested_at=row["ingested_at"],
             download_url=row["download_url"] if "download_url" in row.keys() else None,
             download_urls_json=row["download_urls_json"] if "download_urls_json" in row.keys() else None,
+            display_title=row["display_title"] if "display_title" in row.keys() else None,
+            title_candidates_json=row["title_candidates_json"] if "title_candidates_json" in row.keys() else None,
         )
 
     def _ensure_resource_metadata_columns(self) -> None:
@@ -123,4 +147,8 @@ class ResourceRepo:
                 conn.execute("ALTER TABLE resources ADD COLUMN download_url TEXT")
             if "download_urls_json" not in columns:
                 conn.execute("ALTER TABLE resources ADD COLUMN download_urls_json TEXT")
+            if "display_title" not in columns:
+                conn.execute("ALTER TABLE resources ADD COLUMN display_title TEXT")
+            if "title_candidates_json" not in columns:
+                conn.execute("ALTER TABLE resources ADD COLUMN title_candidates_json TEXT")
             conn.commit()

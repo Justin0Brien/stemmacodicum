@@ -85,3 +85,23 @@ When server mode is active and the URL is local (`127.0.0.1`/`localhost`), Stemm
 (`stemma-qdrant`, restart policy `unless-stopped` by default).
 
 The web GUI includes a per-card `?` help icon (single popup with Basic then Comprehensive guidance) and a Database Explorer card to inspect tables, schema, and sample rows.
+
+## Helper Scripts
+
+The repository now includes workflow scripts for reference URL recovery, PDF image extraction, and human-readable titles:
+
+```bash
+# Issue 1: recover missing external source URLs (xattr -> manifests -> web -> Playwright fallback)
+python scripts/recover_reference_urls.py --project-root .
+
+# Issue 4: extract embedded PDF images to AVIF archive + moondream descriptions
+python scripts/extract_pdf_images_archive.py --project-root .
+
+# Issue 5: generate and persist human-readable resource titles + candidates
+python scripts/generate_readable_titles.py --project-root . --model qwen3:4b
+```
+
+Notes:
+- `scripts/recover_reference_urls.py` supports browser escalation via Playwright CDP (`--cdp-url http://127.0.0.1:9222`).
+- `scripts/extract_pdf_images_archive.py` requires `pymupdf`, `Pillow`, and either AVIF plugin support or `ffmpeg`.
+- Title/image description scripts use the Ollama Python client when available.

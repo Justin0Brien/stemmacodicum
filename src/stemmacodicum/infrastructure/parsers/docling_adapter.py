@@ -6,6 +6,7 @@ import logging
 import os
 import platform
 import re
+import shutil
 import subprocess
 import time
 import zipfile
@@ -180,6 +181,7 @@ class DoclingAdapter:
     TEXT_EXTENSIONS = {".txt", ".md", ".csv", ".rst", ".adoc", ".tex"}
     HTML_EXTENSIONS = {".html", ".htm", ".xhtml"}
     XML_EXTENSIONS = {".xml", ".svg", ".fb2", ".dita", ".dbk"}
+    LEGACY_WORD_EXTENSIONS = {".doc"}
     OOXML_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
     ODF_EXTENSIONS = {".odt", ".ods", ".odp", ".odg"}
     ZIP_XML_EXTENSIONS = {".epub", ".oxps", ".3mf"}
@@ -189,6 +191,7 @@ class DoclingAdapter:
         *TEXT_EXTENSIONS,
         *HTML_EXTENSIONS,
         *XML_EXTENSIONS,
+        *LEGACY_WORD_EXTENSIONS,
         *OOXML_EXTENSIONS,
         *ODF_EXTENSIONS,
         *ZIP_XML_EXTENSIONS,
@@ -204,6 +207,7 @@ class DoclingAdapter:
         "application/xml",
         "text/xml",
         "image/svg+xml",
+        "application/msword",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -256,6 +260,9 @@ class DoclingAdapter:
 
         if media_type in {"application/xml", "text/xml", "image/svg+xml"} or suffix in self.XML_EXTENSIONS:
             return self._parse_xml_markup(file_path, media_type)
+
+        if media_type == "application/msword" or suffix == ".doc":
+            return self._parse_doc(file_path)
 
         if suffix == ".docx":
             return self._parse_docx(file_path)
@@ -501,6 +508,56 @@ class DoclingAdapter:
             config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
             tables=tables,
             full_text=full_text,
+            blocks=blocks,
+            elapsed_seconds=None,
+            page_count=1,
+            timings=None,
+        )
+
+    def _parse_doc(self, file_path: Path) -> ParseResult:
+        converter_attempts: list[tuple[str, list[str]]] = []
+        if platform.system().lower() == "darwin" and shutil.which("textutil"):
+            converter_attempts.append(("textutil", ["textutil", "-convert", "txt", "-stdout", str(file_path)]))
+        if shutil.which("catdoc"):
+            converter_attempts.append(("catdoc", ["catdoc", str(file_path)]))
+        if shutil.which("antiword"):
+            converter_attempts.append(("antiword", ["antiword", str(file_path)]))
+
+        extracted_text = ""
+        selected_converter = "binary-fallback"
+        for converter_name, cmd in converter_attempts:
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=25,
+                    check=False,
+                )
+            except Exception:
+                continue
+            if proc.returncode == 0 and proc.stdout.strip():
+                extracted_text = proc.stdout
+                selected_converter = converter_name
+                break
+
+        if not extracted_text.strip():
+            # Last resort: decode byte stream without structure guarantees.
+            extracted_text = file_path.read_text(encoding="latin-1", errors="replace")
+
+        config = {
+            "profile": self.profile,
+            "mode": "doc_legacy",
+            "converter": selected_converter,
+        }
+        blocks = self._default_blocks_for_text(extracted_text)
+        return ParseResult(
+            parser_name="doc-parser",
+            parser_version="0.1",
+            config_digest=compute_bytes_digest(json.dumps(config, sort_keys=True).encode("utf-8")),
+            tables=[],
+            full_text=extracted_text,
             blocks=blocks,
             elapsed_seconds=None,
             page_count=1,

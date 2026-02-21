@@ -1,9 +1,11 @@
+import json
 from pathlib import Path
 import time
 
 from fastapi.testclient import TestClient
 
 from stemmacodicum.core.config import AppPaths
+from stemmacodicum.infrastructure.db.sqlite import get_connection
 from stemmacodicum.web.app import create_app
 
 
@@ -80,6 +82,19 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.status_code == 200
     assert r.json()["resource"]["id"] == resource_id
 
+    r = client.post(
+        f"/api/resources/{resource_id}/title",
+        json={
+            "title": "Example University - Annual Report - 2024/25",
+            "title_candidates": [
+                "Example University - Annual Report - 2024/25",
+                "Example University Annual Report 2024/25",
+            ],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["resource"]["display_title"] == "Example University - Annual Report - 2024/25"
+
     r = client.get(f"/api/resources/{resource_id}/content")
     assert r.status_code == 200
     assert r.headers.get("content-disposition", "").startswith("inline;")
@@ -92,6 +107,7 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert "content" in viewer_payload
     assert "metadata" in viewer_payload
     assert "extraction" in viewer_payload
+    assert viewer_payload["metadata"]["display_title"] == "Example University - Annual Report - 2024/25"
 
     # Import now auto-attempts extraction+vector indexing; confirm vector status exists.
     r = client.get(f"/api/vector/status?resource_id={resource_id}")
@@ -224,6 +240,217 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.json()["stats"]["already_processed"] >= 1
 
 
+def test_viewer_document_repairs_legacy_docling_table_payload(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+    client = TestClient(create_app(paths))
+
+    source = tmp_path / "report.md"
+    source.write_text("| Metric | Value |\n|---|---:|\n| Cash | 5631 |\n", encoding="utf-8")
+    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    assert ingest_resp.status_code == 200
+    resource_id = ingest_resp.json()["resource"]["id"]
+
+    with get_connection(paths.db_path) as conn:
+        table_row = conn.execute(
+            "SELECT id FROM extracted_tables WHERE resource_id = ? ORDER BY created_at ASC LIMIT 1",
+            (resource_id,),
+        ).fetchone()
+        assert table_row is not None
+        legacy_table_cells = (
+            "[TableCell(bbox=BoundingBox(l=10.0, t=20.0, r=90.0, b=30.0, coord_origin=<CoordOrigin.TOPLEFT: "
+            "'TOPLEFT'>), row_span=1, col_span=2, start_row_offset_idx=0, end_row_offset_idx=1, "
+            "start_col_offset_idx=0, end_col_offset_idx=2, text='Metric', column_header=True, row_header=False, "
+            "row_section=False, fillable=False), "
+            "TableCell(bbox=BoundingBox(l=10.0, t=31.0, r=50.0, b=40.0, coord_origin=<CoordOrigin.TOPLEFT: "
+            "'TOPLEFT'>), row_span=1, col_span=1, start_row_offset_idx=1, end_row_offset_idx=2, "
+            "start_col_offset_idx=0, end_col_offset_idx=1, text='Cash', column_header=False, row_header=True, "
+            "row_section=False, fillable=False), "
+            "TableCell(bbox=BoundingBox(l=51.0, t=31.0, r=90.0, b=40.0, coord_origin=<CoordOrigin.TOPLEFT: "
+            "'TOPLEFT'>), row_span=1, col_span=1, start_row_offset_idx=1, end_row_offset_idx=2, "
+            "start_col_offset_idx=1, end_col_offset_idx=2, text='5631', column_header=False, row_header=False, "
+            "row_section=False, fillable=False)]"
+        )
+        conn.execute(
+            """
+            UPDATE extracted_tables
+            SET
+              row_headers_json = ?,
+              col_headers_json = ?,
+              cells_json = ?,
+              bbox_json = ?
+            WHERE id = ?
+            """,
+            (
+                json.dumps(["num_rows", "num_cols"]),
+                json.dumps(["table_cells", legacy_table_cells]),
+                json.dumps(
+                    [
+                        {"row_index": 0, "col_index": 0, "value": "num_rows"},
+                        {"row_index": 0, "col_index": 1, "value": "2"},
+                        {"row_index": 1, "col_index": 0, "value": "num_cols"},
+                        {"row_index": 1, "col_index": 1, "value": "2"},
+                    ]
+                ),
+                json.dumps({"x0": 10.0, "y0": 960.0, "x1": 90.0, "y1": 970.0}),
+                str(table_row["id"]),
+            ),
+        )
+        conn.commit()
+
+    viewer_resp = client.get(f"/api/viewer/document?resource_id={resource_id}")
+    assert viewer_resp.status_code == 200
+    payload = viewer_resp.json()
+    assert payload["ok"] is True
+    assert len(payload["tables"]) >= 1
+    table = payload["tables"][0]
+    assert table["col_headers"][0] == "Metric"
+    assert any(str(cell.get("value")) == "5631" for cell in table["cells"])
+    assert isinstance(table["bbox"], dict)
+    assert table["bbox"]["x0"] == 10.0
+    assert table["bbox"]["y0"] == 20.0
+    assert table["bbox"]["x1"] == 90.0
+    assert table["bbox"]["y1"] == 40.0
+
+
+def test_viewer_document_infers_segment_page_index_from_overlapping_anchor(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+    client = TestClient(create_app(paths))
+
+    source = tmp_path / "segment-page-source.txt"
+    source.write_text(
+        "Paragraph one. Sentence one.\nParagraph two. Sentence two.\nParagraph three.\n",
+        encoding="utf-8",
+    )
+    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    assert ingest_resp.status_code == 200
+    resource_id = ingest_resp.json()["resource"]["id"]
+
+    with get_connection(paths.db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, start_offset, end_offset
+            FROM text_segments
+            WHERE resource_id = ?
+            ORDER BY start_offset ASC, end_offset ASC
+            LIMIT 2
+            """,
+            (resource_id,),
+        ).fetchall()
+        assert len(rows) >= 2
+        anchor_id = str(rows[0]["id"])
+        target_id = str(rows[1]["id"])
+
+        anchor_start = int(rows[0]["start_offset"] or 0)
+        anchor_end = max(anchor_start + 200, int(rows[1]["end_offset"] or (anchor_start + 200)))
+        target_start = anchor_start + 10
+        target_end = target_start + 20
+
+        conn.execute(
+            """
+            UPDATE text_segments
+            SET
+              segment_type = 'layout:paragraph',
+              start_offset = ?,
+              end_offset = ?,
+              page_index = 4
+            WHERE id = ?
+            """,
+            (anchor_start, anchor_end, anchor_id),
+        )
+        conn.execute(
+            """
+            UPDATE text_segments
+            SET
+              segment_type = 'structure:sentence',
+              start_offset = ?,
+              end_offset = ?,
+              page_index = NULL
+            WHERE id = ?
+            """,
+            (target_start, target_end, target_id),
+        )
+        conn.commit()
+
+    viewer_resp = client.get(f"/api/viewer/document?resource_id={resource_id}")
+    assert viewer_resp.status_code == 200
+    payload = viewer_resp.json()
+    assert payload["ok"] is True
+    inferred = next((segment for segment in payload["segments"] if segment.get("id") == target_id), None)
+    assert inferred is not None
+    assert inferred["page_index"] == 4
+    assert inferred["page_number"] == 5
+
+
+def test_viewer_document_reads_segment_page_from_attrs_provenance(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+    client = TestClient(create_app(paths))
+
+    source = tmp_path / "segment-attrs-page-source.txt"
+    source.write_text("Alpha.\nBravo.\nCharlie.\n", encoding="utf-8")
+    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    assert ingest_resp.status_code == 200
+    resource_id = ingest_resp.json()["resource"]["id"]
+
+    with get_connection(paths.db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM text_segments
+            WHERE resource_id = ?
+            ORDER BY start_offset ASC, end_offset ASC
+            LIMIT 1
+            """,
+            (resource_id,),
+        ).fetchone()
+        assert row is not None
+        target_id = str(row["id"])
+        conn.execute(
+            """
+            UPDATE text_segments
+            SET page_index = NULL, attrs_json = ?
+            WHERE id = ?
+            """,
+            (json.dumps({"prov": [{"page_no": 3}]}), target_id),
+        )
+        conn.commit()
+
+    viewer_resp = client.get(f"/api/viewer/document?resource_id={resource_id}")
+    assert viewer_resp.status_code == 200
+    payload = viewer_resp.json()
+    assert payload["ok"] is True
+    inferred = next((segment for segment in payload["segments"] if segment.get("id") == target_id), None)
+    assert inferred is not None
+    assert inferred["page_index"] == 2
+    assert inferred["page_number"] == 3
+
+
 def test_background_import_queue_persists_across_client_reopen(tmp_path: Path) -> None:
     project_root = tmp_path / "proj"
     project_root.mkdir(parents=True, exist_ok=True)
@@ -269,3 +496,100 @@ def test_background_import_queue_persists_across_client_reopen(tmp_path: Path) -
         reopened_job = next((job for job in jobs if job.get("id") == queued_job_id), None)
         assert reopened_job is not None
         assert reopened_job.get("status") == "done"
+
+
+def test_background_import_queue_status_supports_large_limit(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    with TestClient(create_app(paths)) as client:
+        files = {"file": ("queued-upload.txt", b"background import queue smoke", "text/plain")}
+        enqueue_resp = client.post("/api/import/queue/enqueue-upload", files=files)
+        assert enqueue_resp.status_code == 200
+        enqueue_payload = enqueue_resp.json()
+        assert enqueue_payload.get("ok") is True
+        queued_job_id = enqueue_payload["job"]["id"]
+
+        status_resp = client.get("/api/import/queue/status?limit=10000")
+        assert status_resp.status_code == 200
+        payload = status_resp.json()
+        assert payload.get("ok") is True
+        jobs = payload.get("jobs", [])
+        assert isinstance(jobs, list)
+        assert any(str(job.get("id")) == queued_job_id for job in jobs)
+
+
+def test_sources_panel_api_recovery_and_primary_update(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+    client = TestClient(create_app(paths))
+
+    source = tmp_path / "origin-check.txt"
+    source.write_text("Source recovery endpoint test.\n", encoding="utf-8")
+    ingest_resp = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/documents/origin-check"},
+    )
+    assert ingest_resp.status_code == 200
+    resource_id = ingest_resp.json()["resource"]["id"]
+
+    with get_connection(paths.db_path) as conn:
+        conn.execute(
+            """
+            UPDATE resources
+            SET download_url = NULL, download_urls_json = NULL
+            WHERE id = ?
+            """,
+            (resource_id,),
+        )
+        conn.commit()
+
+    list_resp = client.get("/api/sources/resources?limit=100&missing_only=true")
+    assert list_resp.status_code == 200
+    list_payload = list_resp.json()
+    assert list_payload["ok"] is True
+    assert any(str(item.get("id")) == resource_id for item in list_payload.get("resources", []))
+
+    detail_resp = client.get(f"/api/sources/resources/{resource_id}")
+    assert detail_resp.status_code == 200
+    detail_payload = detail_resp.json()
+    assert detail_payload["ok"] is True
+    assert detail_payload["sources"]["has_external_source"] is False
+
+    recover_resp = client.post(
+        f"/api/sources/resources/{resource_id}/recover",
+        json={
+            "enable_web_search": False,
+            "enable_wayback_lookup": False,
+            "use_manifest_scan": False,
+        },
+    )
+    assert recover_resp.status_code == 200
+    recover_payload = recover_resp.json()
+    assert recover_payload["ok"] is True
+    assert recover_payload["result"]["resolved_url"] == "https://example.org/documents/origin-check"
+
+    primary_resp = client.post(
+        f"/api/sources/resources/{resource_id}/primary",
+        json={"url": "10.1234/example.doi.record"},
+    )
+    assert primary_resp.status_code == 200
+    primary_payload = primary_resp.json()
+    assert primary_payload["ok"] is True
+    assert primary_payload["resource"]["download_url"] == "https://doi.org/10.1234/example.doi.record"

@@ -15,3 +15,5 @@ class Resource:
     ingested_at: str
     download_url: str | None = None
     download_urls_json: str | None = None
+    display_title: str | None = None
+    title_candidates_json: str | None = None

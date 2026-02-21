@@ -5622,6 +5622,11 @@ function viewerCurrentAnnotation() {
   return viewerState.payload.annotations.find((a) => a.id === viewerState.selectedAnnotationId) || null;
 }
 
+function viewerCurrentImage() {
+  if (!viewerState.payload || !Array.isArray(viewerState.payload.images)) return null;
+  return viewerState.payload.images.find((img) => img.id === viewerState.selectedImageId) || null;
+}
+
 function viewerSelectionKey(kind, id) {
   const safeKind = String(kind || '').trim();
   const safeId = String(id || '').trim();
@@ -6021,6 +6026,13 @@ function viewerRenderMetadata() {
   const run = extraction.run || {};
   const pagesGeom = Array.isArray(extraction.pages_with_geometry) ? extraction.pages_with_geometry : [];
   const pagesTables = Array.isArray(extraction.pages_with_tables) ? extraction.pages_with_tables : [];
+  const images = Array.isArray(payload.images) ? payload.images : [];
+  const pagesImages = new Set(
+    images
+      .map((img) => Number(img?.page_number))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .map((n) => Math.floor(n))
+  );
   const sourceUri = String(meta.source_uri || 'n/a');
   const titleCandidates = viewerTitleCandidates(payload);
   const processingState = extraction.error
@@ -6071,8 +6083,10 @@ function viewerRenderMetadata() {
       ${row('Tables', counts.tables ?? 0)}
       ${row('Segments', counts.segments ?? 0)}
       ${row('Annotations', counts.annotations ?? 0)}
+      ${row('Images', counts.images ?? images.length)}
       ${row('Pages with tables', pagesTables.length || 0)}
       ${row('Pages with geometry', pagesGeom.length || 0)}
+      ${row('Pages with images', pagesImages.size || 0)}
     </section>
     <details class="viewer-tech-details">
       <summary>Technical details</summary>
@@ -6091,6 +6105,81 @@ function viewerRenderMetadata() {
       await viewerCopyField(text, label);
     });
   });
+}
+
+function viewerRenderImageGallery() {
+  const container = document.getElementById('viewer-image-gallery');
+  if (!container) return;
+  const images = Array.isArray(viewerState.payload?.images) ? viewerState.payload.images : [];
+  if (!images.length) {
+    container.innerHTML = '<p class="small">No extracted images available for this document.</p>';
+    return;
+  }
+  const shown = images.slice(0, 200);
+  container.innerHTML = shown.map((image, idx) => {
+    const imageId = String(image?.id || '');
+    const pageNumberRaw = Number(image?.page_number);
+    const pageLabel = Number.isFinite(pageNumberRaw) && pageNumberRaw > 0
+      ? `Page ${Math.floor(pageNumberRaw)}`
+      : 'Page n/a';
+    const imageIndexRaw = Number(image?.image_index);
+    const imageLabel = Number.isFinite(imageIndexRaw) && imageIndexRaw >= 1
+      ? `Image ${Math.floor(imageIndexRaw)}`
+      : `Image ${idx + 1}`;
+    const src = viewerResolveContentUrl(String(image?.content_url || ''));
+    const desc = String(image?.description_text || '').trim();
+    const fallbackDesc = desc || 'No generated description available.';
+    const sourceW = Number(image?.source_width_px);
+    const sourceH = Number(image?.source_height_px);
+    const outW = Number(image?.output_width_px);
+    const outH = Number(image?.output_height_px);
+    const renderedWmm = Number(image?.rendered_width_mm);
+    const renderedHmm = Number(image?.rendered_height_mm);
+    const sourceDims = Number.isFinite(sourceW) && Number.isFinite(sourceH) && sourceW > 0 && sourceH > 0
+      ? `${Math.floor(sourceW)}×${Math.floor(sourceH)} px`
+      : 'n/a';
+    const outputDims = Number.isFinite(outW) && Number.isFinite(outH) && outW > 0 && outH > 0
+      ? `${Math.floor(outW)}×${Math.floor(outH)} px`
+      : 'n/a';
+    const renderedMm = Number.isFinite(renderedWmm) && Number.isFinite(renderedHmm) && renderedWmm > 0 && renderedHmm > 0
+      ? `${renderedWmm.toFixed(1)}×${renderedHmm.toFixed(1)} mm`
+      : 'n/a';
+    const descriptionModel = String(image?.description_model || '').trim();
+    const active = imageId && imageId === viewerState.selectedImageId && viewerState.selectedKind === 'image'
+      ? ' active'
+      : '';
+    const openLink = src
+      ? `<a class="small" data-viewer-image-open href="${dbEscapeHtml(src)}" target="_blank" rel="noopener">Open image</a>`
+      : '';
+    return `
+      <article class="viewer-image-card${active}" data-viewer-image-id="${dbEscapeHtml(imageId)}">
+        <div class="viewer-image-card-head">
+          <h5>${dbEscapeHtml(`${imageLabel} • ${pageLabel}`)}</h5>
+          ${openLink}
+        </div>
+        ${src ? `<img class="viewer-image-thumb" src="${dbEscapeHtml(src)}" loading="lazy" alt="${dbEscapeHtml(`${imageLabel} ${pageLabel}`)}" />` : ''}
+        <p>${dbEscapeHtml(fallbackDesc)}</p>
+        <p>Original: ${dbEscapeHtml(sourceDims)} • Stored: ${dbEscapeHtml(outputDims)} • Rendered: ${dbEscapeHtml(renderedMm)}</p>
+        ${descriptionModel ? `<p class="small">Description model: ${dbEscapeHtml(descriptionModel)}</p>` : ''}
+      </article>
+    `;
+  }).join('');
+  container.querySelectorAll('[data-viewer-image-id]').forEach((node) => {
+    node.addEventListener('click', () => {
+      viewerSelectImage(node.getAttribute('data-viewer-image-id') || '', { jumpPage: true });
+    });
+  });
+  container.querySelectorAll('[data-viewer-image-open]').forEach((node) => {
+    node.addEventListener('click', (event) => {
+      event.stopPropagation();
+    });
+  });
+  if (images.length > shown.length) {
+    container.insertAdjacentHTML(
+      'beforeend',
+      `<p class="small">Showing ${shown.length} of ${images.length} extracted images.</p>`
+    );
+  }
 }
 
 function viewerRenderAnnotations() {
@@ -6246,6 +6335,7 @@ function viewerRenderSelectionSummary() {
   if (!summaryEl) return;
 
   const table = viewerCurrentTable();
+  const image = viewerCurrentImage();
   const segment = viewerCurrentSegment();
   const annotation = viewerCurrentAnnotation();
   let summary = 'Select an extracted item from the left index or click a highlighted region in the PDF.';
@@ -6262,6 +6352,14 @@ function viewerRenderSelectionSummary() {
       const mark = viewerState.reviewByKey[key];
       reviewStatus.textContent = mark ? `Status: ${mark.replace('_', ' ')}` : '';
     }
+  } else if (image && viewerState.selectedKind === 'image') {
+    const page = Number.isFinite(Number(image?.page_number)) ? `Page ${image.page_number}` : 'Page n/a';
+    const idx = Number.isFinite(Number(image?.image_index)) ? `Image ${image.image_index}` : 'Image';
+    const description = String(image?.description_text || '').trim();
+    summary = `Selected ${idx}: ${page}${description ? ` • ${description}` : ''}`;
+    rawPayload = image;
+    if (actionRow) actionRow.hidden = true;
+    if (reviewStatus) reviewStatus.textContent = '';
   } else if (annotation && viewerState.selectedKind === 'annotation') {
     const spans = Array.isArray(annotation.spans) ? annotation.spans : [];
     const spanText = spans.length ? spans.slice(0, 2).map((s) => `${s.start}-${s.end}`).join(', ') : 'none';
@@ -6430,6 +6528,7 @@ function viewerRenderExtractionIndex() {
 
 function viewerRenderStructuredData() {
   viewerRenderExtractionIndex();
+  viewerRenderImageGallery();
   viewerRenderSelectionSummary();
   viewerUpdateStructuredSelection();
 }
@@ -6471,9 +6570,47 @@ function viewerOpenOverlayTable(tableId) {
   viewerSelectTable(tableId, { jumpPage: true, source: 'overlay-list' });
 }
 
+function viewerSelectImage(imageId, options = {}) {
+  const { jumpPage = true } = options;
+  viewerState.selectedKind = 'image';
+  viewerState.selectedImageId = String(imageId || '');
+  viewerState.selectedTableId = '';
+  viewerState.selectedSegmentId = '';
+  viewerState.selectedAnnotationId = '';
+  viewerState.selectedCellRow = null;
+  viewerState.selectedCellCol = null;
+  viewerState.tableEditMode = false;
+  const image = viewerCurrentImage();
+  const currentPage = viewerState.page;
+  const pageNumber = Number(image?.page_number);
+  const targetPage = jumpPage && Number.isFinite(pageNumber) && pageNumber > 0
+    ? Math.floor(pageNumber)
+    : null;
+  const didPageChange = jumpPage && targetPage !== null && targetPage !== currentPage;
+  if (jumpPage && targetPage !== null) {
+    viewerState.page = targetPage;
+    if (didPageChange) viewerResetPdfScrollPosition();
+  }
+  viewerToggleInspector(true);
+  viewerRenderStructuredData();
+  viewerRenderOverlayList();
+  viewerRenderTableGrid();
+  viewerRenderAnnotations();
+  viewerRenderOverlay();
+  if (jumpPage && didPageChange) {
+    if (viewerState.pdfDoc) viewerRenderCurrentPdfPage();
+    else viewerSyncFallbackPdfView();
+  }
+  const statusNote = Number.isFinite(pageNumber) && pageNumber > 0
+    ? `Selected extracted image on page ${Math.floor(pageNumber)}.`
+    : 'Selected extracted image.';
+  viewerSetStatus(statusNote);
+}
+
 function viewerSelectTable(tableId, options = {}) {
   const { jumpPage = true } = options;
   viewerState.selectedKind = 'table';
+  viewerState.selectedImageId = '';
   viewerState.selectedTableId = String(tableId || '');
   viewerState.selectedSegmentId = '';
   viewerState.selectedAnnotationId = '';
@@ -6505,6 +6642,7 @@ function viewerSelectSegment(segmentId, options = {}) {
   const { jumpPage = true } = options;
   const selectedId = String(segmentId || '');
   viewerState.selectedKind = 'segment';
+  viewerState.selectedImageId = '';
   viewerState.selectedSegmentId = selectedId;
   viewerState.selectedTableId = '';
   viewerState.selectedAnnotationId = '';
@@ -6588,6 +6726,7 @@ function viewerFindSegmentForAnnotation(annotation) {
 function viewerSelectAnnotation(annotationId, options = {}) {
   const { jumpPage = true } = options;
   viewerState.selectedKind = 'annotation';
+  viewerState.selectedImageId = '';
   viewerState.selectedAnnotationId = String(annotationId || '');
   viewerState.selectedTableId = '';
   viewerState.selectedCellRow = null;
@@ -7602,7 +7741,11 @@ function viewerDerivePageCount(payload) {
   const pagesFromExtraction = []
     .concat(Array.isArray(extraction.pages_with_tables) ? extraction.pages_with_tables : [])
     .concat(Array.isArray(extraction.pages_with_geometry) ? extraction.pages_with_geometry : []);
+  const pagesFromImages = Array.isArray(payload?.images)
+    ? payload.images.map((img) => img?.page_number ?? img?.page_index)
+    : [];
   const values = pagesFromExtraction
+    .concat(pagesFromImages)
     .map((p) => Number(p))
     .filter((n) => Number.isFinite(n) && n >= 0)
     .map((n) => Math.floor(n));
@@ -7654,10 +7797,12 @@ async function viewerOpenPayload(payload) {
   if (indexSearch) indexSearch.value = '';
   if (indexType) indexType.value = 'all';
   const firstTable = Array.isArray(payload?.tables) && payload.tables.length ? payload.tables[0] : null;
+  const firstImage = Array.isArray(payload?.images) && payload.images.length ? payload.images[0] : null;
   viewerState.selectedTableId = firstTable?.id || '';
+  viewerState.selectedImageId = firstImage?.id || '';
   viewerState.selectedSegmentId = '';
   viewerState.selectedAnnotationId = '';
-  viewerState.selectedKind = firstTable?.id ? 'table' : '';
+  viewerState.selectedKind = firstTable?.id ? 'table' : (firstImage?.id ? 'image' : '');
   viewerSetActiveResource(payload?.resource?.id || '');
   viewerRenderHeader();
   viewerRenderMetadata();
@@ -7666,8 +7811,10 @@ async function viewerOpenPayload(payload) {
   viewerRenderTableGrid();
   viewerRenderStructuredData();
   const hasTables = Array.isArray(payload?.tables) && payload.tables.length > 0;
+  const hasImages = Array.isArray(payload?.images) && payload.images.length > 0;
   const hasAnnotations = Array.isArray(payload?.annotations) && payload.annotations.length > 0;
   if (hasTables) viewerSetInspectorTab('tables');
+  else if (hasImages) viewerSetInspectorTab('overlays');
   else if (hasAnnotations) viewerSetInspectorTab('annotations');
   else viewerSetInspectorTab('overlays');
   viewerToggleInspector(true);

@@ -451,6 +451,106 @@ def test_viewer_document_reads_segment_page_from_attrs_provenance(tmp_path: Path
     assert inferred["page_number"] == 3
 
 
+def test_viewer_document_includes_extracted_images_and_serves_image_content(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+    client = TestClient(create_app(paths))
+
+    source = tmp_path / "image-evidence-source.txt"
+    source.write_text("Image evidence source test.\n", encoding="utf-8")
+    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    assert ingest_resp.status_code == 200
+    resource_id = ingest_resp.json()["resource"]["id"]
+
+    image_relpath = Path("image_archive") / "viewer-image-test.avif"
+    image_abspath = paths.stemma_dir / image_relpath
+    image_abspath.parent.mkdir(parents=True, exist_ok=True)
+    image_bytes = b"FAKE_AVIF_IMAGE_PAYLOAD"
+    image_abspath.write_bytes(image_bytes)
+    image_id = "11111111-2222-3333-4444-555555555555"
+
+    with get_connection(paths.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO resource_images (
+              id,
+              resource_id,
+              extraction_run_id,
+              page_index,
+              image_index,
+              source_xref,
+              source_name,
+              source_format,
+              source_width_px,
+              source_height_px,
+              rendered_width_mm,
+              rendered_height_mm,
+              output_width_px,
+              output_height_px,
+              output_file_relpath,
+              output_file_sha256,
+              description_text,
+              description_model,
+              description_generated_at,
+              bbox_json,
+              metadata_json,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                image_id,
+                resource_id,
+                None,
+                2,
+                1,
+                42,
+                "xref_42",
+                "png",
+                1200,
+                800,
+                100.0,
+                60.0,
+                300,
+                180,
+                str(image_relpath).replace("\\", "/"),
+                "deadbeef",
+                "A revenue bar chart with annual totals.",
+                "moondream:latest",
+                "2026-01-01T00:00:00Z",
+                json.dumps({"x0": 10.0, "y0": 20.0, "x1": 80.0, "y1": 50.0}),
+                json.dumps({"compression": "lossy_avif"}),
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        conn.commit()
+
+    viewer_resp = client.get(f"/api/viewer/document?resource_id={resource_id}")
+    assert viewer_resp.status_code == 200
+    payload = viewer_resp.json()
+    assert payload["ok"] is True
+    assert payload["extraction"]["counts"]["images"] >= 1
+    images = payload.get("images", [])
+    assert isinstance(images, list)
+    assert any(str(item.get("id")) == image_id for item in images)
+    image_payload = next(item for item in images if str(item.get("id")) == image_id)
+    assert image_payload["page_index"] == 2
+    assert image_payload["page_number"] == 3
+    assert image_payload["description_text"] == "A revenue bar chart with annual totals."
+    assert image_payload["content_url"] == f"/api/resources/{resource_id}/images/{image_id}/content"
+
+    image_resp = client.get(image_payload["content_url"])
+    assert image_resp.status_code == 200
+    assert image_resp.content == image_bytes
+
+
 def test_background_import_queue_persists_across_client_reopen(tmp_path: Path) -> None:
     project_root = tmp_path / "proj"
     project_root.mkdir(parents=True, exist_ok=True)

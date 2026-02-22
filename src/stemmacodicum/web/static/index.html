@@ -2005,6 +2005,325 @@
       gap: 12px;
       margin: 12px 0;
     }
+    .dashboard-overview-panel {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: linear-gradient(
+        160deg,
+        color-mix(in srgb, var(--card) 98%, var(--surface-tint)),
+        color-mix(in srgb, var(--accent) 4%, var(--card))
+      );
+      padding: 11px;
+      display: grid;
+      gap: 10px;
+    }
+    .dashboard-loading {
+      display: none;
+      margin-top: 8px;
+      margin-bottom: 2px;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+      border-radius: 10px;
+      padding: 8px 9px;
+      background: color-mix(in srgb, var(--accent) 8%, var(--card));
+      gap: 7px;
+    }
+    .dashboard-loading.active {
+      display: grid;
+    }
+    .dashboard-loading-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-size: 12px;
+      color: color-mix(in srgb, var(--accent) 72%, var(--text));
+      line-height: 1.3;
+    }
+    .dashboard-loading-spinner {
+      width: 13px;
+      height: 13px;
+      border-radius: 999px;
+      border: 2px solid color-mix(in srgb, var(--accent) 32%, transparent);
+      border-top-color: color-mix(in srgb, var(--accent) 82%, var(--text));
+      animation: navActivitySpin 850ms linear infinite;
+      flex: 0 0 auto;
+    }
+    .dashboard-loading-track {
+      height: 7px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: color-mix(in srgb, var(--border) 60%, transparent);
+      border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+    }
+    .dashboard-loading-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--accent) 78%, #64748b),
+        color-mix(in srgb, var(--accent-2) 80%, #64748b)
+      );
+      transition: width 180ms linear;
+    }
+    .dashboard-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 8px;
+    }
+    .dashboard-overview-item {
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      padding: 8px 9px;
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .dashboard-overview-label {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.2;
+      letter-spacing: 0.01em;
+    }
+    .dashboard-overview-value {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.15;
+      font-weight: 650;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      word-break: break-word;
+    }
+    .dashboard-overview-meta {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.3;
+      word-break: break-word;
+    }
+    .dashboard-insight-grid {
+      margin-top: 10px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .dashboard-insight-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 10px;
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+    .dashboard-insight-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .dashboard-insight-head h4 {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .dashboard-insight-head p {
+      margin: 0;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .dashboard-dist-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 7px;
+    }
+    .dashboard-dist-item {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .dashboard-dist-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .dashboard-dist-label {
+      font-size: 12px;
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dashboard-dist-value {
+      font-size: 11px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      flex: 0 0 auto;
+      text-align: right;
+    }
+    .dashboard-dist-track {
+      height: 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--border) 62%, transparent);
+      overflow: hidden;
+    }
+    .dashboard-dist-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--accent) 76%, #64748b),
+        color-mix(in srgb, var(--accent-2) 78%, #64748b)
+      );
+    }
+    .dashboard-cover-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 7px;
+    }
+    .dashboard-cover-item {
+      border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+      border-radius: 8px;
+      padding: 7px 8px;
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      display: grid;
+      gap: 5px;
+    }
+    .dashboard-cover-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .dashboard-cover-label {
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.2;
+    }
+    .dashboard-cover-value {
+      font-size: 11px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      flex: 0 0 auto;
+    }
+    .dashboard-cover-track {
+      height: 7px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--border) 62%, transparent);
+      overflow: hidden;
+    }
+    .dashboard-cover-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #0f7a4f, #15a16a);
+    }
+    .dashboard-cover-fill.warn {
+      background: linear-gradient(90deg, #b45309, #f59e0b);
+    }
+    .dashboard-cover-fill.error {
+      background: linear-gradient(90deg, #b42318, #ef4444);
+    }
+    .dashboard-chip-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .dashboard-chip {
+      border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      color: var(--text);
+      background: color-mix(in srgb, var(--card) 98%, var(--surface-tint));
+      white-space: nowrap;
+    }
+    .dashboard-chip code {
+      font-size: 11px;
+    }
+    .dashboard-activity-panel {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--card) 99%, var(--surface-tint));
+      padding: 10px;
+      display: grid;
+      gap: 9px;
+    }
+    .dashboard-activity-legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .dashboard-activity-legend .dashboard-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dashboard-activity-legend .swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
+    .dashboard-activity-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 6px;
+    }
+    .dashboard-activity-item {
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) 38px;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .dashboard-activity-day {
+      font-size: 11px;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .dashboard-activity-track {
+      height: 12px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+      background: color-mix(in srgb, var(--card) 100%, var(--surface-tint));
+      overflow: hidden;
+      position: relative;
+    }
+    .dashboard-activity-fill {
+      height: 100%;
+      display: flex;
+      min-width: 0;
+    }
+    .dashboard-activity-seg {
+      height: 100%;
+      min-width: 1px;
+    }
+    .dashboard-activity-seg.ingested { background: #2563eb; }
+    .dashboard-activity-seg.extracted { background: #0ea5a4; }
+    .dashboard-activity-seg.verified { background: #16a34a; }
+    .dashboard-activity-seg.claims { background: #a855f7; }
+    .dashboard-activity-total {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
     .metric-card {
       border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
       border-radius: 12px;
@@ -2721,6 +3040,13 @@
         grid-template-columns: 1fr;
         gap: 10px;
       }
+      .dashboard-overview-grid,
+      .dashboard-insight-grid {
+        grid-template-columns: 1fr;
+      }
+      .dashboard-activity-item {
+        grid-template-columns: 64px minmax(0, 1fr) 32px;
+      }
       .storage-donut {
         width: 170px;
         height: 170px;
@@ -2775,15 +3101,37 @@
     <section class="workspace">
       <section class="card workspace-panel" data-pane="dashboard" data-help-key="dashboard">
       <div class="row">
-        <button onclick="loadDashboard()">Refresh Summary</button>
-        <button class="secondary" onclick="loadDashboard(true)">Refresh + Doctor</button>
+        <button id="dashboard-refresh-btn" onclick="loadDashboard()">Refresh Summary</button>
+        <button id="dashboard-refresh-doctor-btn" class="secondary" onclick="loadDashboard(true)">Refresh + Doctor</button>
       </div>
       <p id="dashboard-status" class="small">Load summary to view overall system status.</p>
-      <h3 class="dashboard-section-title">System Snapshot</h3>
-      <div id="dashboard-kpis" class="dashboard-grid"></div>
+      <div id="dashboard-loading" class="dashboard-loading" role="status" aria-live="polite" aria-hidden="true">
+        <div class="dashboard-loading-head">
+          <span class="dashboard-loading-spinner" aria-hidden="true"></span>
+          <span id="dashboard-loading-text">Loading dashboard summary...</span>
+        </div>
+        <div class="dashboard-loading-track">
+          <div id="dashboard-loading-fill" class="dashboard-loading-fill"></div>
+        </div>
+      </div>
+      <div id="dashboard-overview" class="dashboard-overview-panel">
+        <p class="small">No dashboard summary loaded yet.</p>
+      </div>
+      <h3 class="dashboard-section-title">Archive Composition</h3>
+      <div id="dashboard-composition" class="dashboard-insight-grid">
+        <p class="small">No archive composition available yet.</p>
+      </div>
+      <h3 class="dashboard-section-title">Coverage and Quality</h3>
+      <div id="dashboard-coverage" class="dashboard-insight-grid">
+        <p class="small">No coverage summary available yet.</p>
+      </div>
       <h3 class="dashboard-section-title">Storage and Paths</h3>
       <div id="dashboard-storage" class="dashboard-storage-panel">
         <p class="small">No storage summary loaded yet.</p>
+      </div>
+      <h3 class="dashboard-section-title">Recent Activity (14 Days)</h3>
+      <div id="dashboard-activity" class="dashboard-activity-panel">
+        <p class="small">No recent activity available yet.</p>
       </div>
       <h3 class="dashboard-section-title">Recent Runs</h3>
       <div id="dashboard-runs" class="issue-list">
@@ -3303,18 +3651,19 @@ const HELP_CONTENT = {
   dashboard: {
     title: "Home",
     basic: `
-      <p>Use this panel for a single-page summary of core system health and workload state.</p>
+      <p>Use this panel for a dense archive intelligence snapshot: composition, coverage, storage, and recent workflow activity.</p>
       <ul>
-        <li><code>Refresh Summary</code>: lightweight snapshot (counts + recent runs + vector state).</li>
-        <li><code>Refresh + Doctor</code>: includes full integrity checks.</li>
+        <li><code>Refresh Summary</code>: updates archive composition, coverage, and activity visualizations.</li>
+        <li><code>Refresh + Doctor</code>: includes full integrity checks and overlays health status.</li>
       </ul>
     `,
     full: `
-      <p>The dashboard is intended for triage and routine checks before deeper workflows.</p>
+      <p>The dashboard is optimized for triage: what has been ingested, what has been extracted, and where coverage gaps remain.</p>
       <h4>Recommended cadence</h4>
       <ul>
-        <li>Use lightweight summary during active work.</li>
-        <li>Use doctor refresh before major ingest/extract batches.</li>
+        <li>Use lightweight refresh during import/extraction work.</li>
+        <li>Use doctor refresh before major batches or exports.</li>
+        <li>Watch coverage bars and 14-day activity to spot stale or partial archives.</li>
       </ul>
       <pre><code>GET /api/dashboard/summary
 GET /api/dashboard/summary?include_doctor=true</code></pre>
@@ -4031,11 +4380,512 @@ async function runDoctor() {
   renderProjectHealth(payload);
 }
 
+let dashboardLoadingInterval = null;
+let dashboardLoadingHideTimer = null;
+let dashboardLoadingStartedAtMs = 0;
+let dashboardLoadingIncludeDoctor = false;
+let dashboardHasRenderedData = false;
+const DASHBOARD_CACHE_KEY = `stemmaDashboardSummaryCache:${window.location.pathname || '/'}`;
+
+function dashboardSetRefreshLoading(disabled) {
+  const refreshBtn = document.getElementById('dashboard-refresh-btn');
+  const doctorBtn = document.getElementById('dashboard-refresh-doctor-btn');
+  if (refreshBtn) refreshBtn.disabled = Boolean(disabled);
+  if (doctorBtn) doctorBtn.disabled = Boolean(disabled);
+}
+
+function dashboardReadCache() {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const payload = parsed.payload;
+    if (!payload || payload.ok !== true) return null;
+    return {
+      payload,
+      cachedAt: String(parsed.cached_at || ''),
+      includeDoctor: Boolean(parsed.include_doctor),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function dashboardWriteCache(payload, includeDoctor) {
+  if (!payload || payload.ok !== true) return;
+  const envelope = {
+    cached_at: new Date().toISOString(),
+    include_doctor: Boolean(includeDoctor),
+    payload,
+  };
+  try {
+    localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(envelope));
+  } catch {
+  }
+}
+
+function dashboardRenderCachedSummary() {
+  const cached = dashboardReadCache();
+  if (!cached) return false;
+  renderDashboard(cached.payload, cached.includeDoctor);
+  const statusEl = document.getElementById('dashboard-status');
+  if (statusEl) {
+    const when = cached.cachedAt || String(cached.payload.generated_at || '');
+    statusEl.textContent = `Showing cached summary from ${when || 'previous session'} while refreshing...`;
+  }
+  const rawOut = document.getElementById('out-dashboard');
+  if (rawOut) {
+    rawOut.textContent = JSON.stringify(
+      {
+        ...cached.payload,
+        cache_meta: {
+          source: 'localStorage',
+          cached_at: cached.cachedAt || null,
+          include_doctor: cached.includeDoctor,
+        },
+      },
+      null,
+      2
+    );
+  }
+  return true;
+}
+
+function dashboardLoadingEstimatePct(elapsedMs) {
+  const seconds = Math.max(0, Number(elapsedMs) || 0) / 1000;
+  return Math.min(92, 10 + ((1 - Math.exp(-seconds / 3.6)) * 74));
+}
+
+function dashboardLoadingTick() {
+  const fillEl = document.getElementById('dashboard-loading-fill');
+  const textEl = document.getElementById('dashboard-loading-text');
+  const elapsedMs = Math.max(0, Date.now() - dashboardLoadingStartedAtMs);
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  if (fillEl) fillEl.style.width = `${dashboardLoadingEstimatePct(elapsedMs).toFixed(2)}%`;
+  if (textEl) {
+    const base = dashboardLoadingIncludeDoctor
+      ? 'Loading dashboard summary and doctor checks'
+      : 'Loading dashboard summary';
+    textEl.textContent = `${base} (${elapsedSec}s)`;
+  }
+}
+
+function setDashboardLoading(active, includeDoctor = false) {
+  const loadingEl = document.getElementById('dashboard-loading');
+  const fillEl = document.getElementById('dashboard-loading-fill');
+  const panel = document.querySelector('.workspace-panel[data-pane="dashboard"]');
+  if (!loadingEl) {
+    dashboardSetRefreshLoading(false);
+    return;
+  }
+
+  if (dashboardLoadingInterval) {
+    clearInterval(dashboardLoadingInterval);
+    dashboardLoadingInterval = null;
+  }
+  if (dashboardLoadingHideTimer) {
+    clearTimeout(dashboardLoadingHideTimer);
+    dashboardLoadingHideTimer = null;
+  }
+
+  if (active) {
+    dashboardLoadingIncludeDoctor = Boolean(includeDoctor);
+    dashboardLoadingStartedAtMs = Date.now();
+    dashboardSetRefreshLoading(true);
+    loadingEl.classList.add('active');
+    loadingEl.setAttribute('aria-hidden', 'false');
+    if (panel) panel.setAttribute('aria-busy', 'true');
+    if (fillEl) fillEl.style.width = '0%';
+    dashboardLoadingTick();
+    dashboardLoadingInterval = setInterval(dashboardLoadingTick, 220);
+    return;
+  }
+
+  dashboardSetRefreshLoading(false);
+  if (panel) panel.removeAttribute('aria-busy');
+  if (fillEl) fillEl.style.width = '100%';
+  dashboardLoadingHideTimer = setTimeout(() => {
+    loadingEl.classList.remove('active');
+    loadingEl.setAttribute('aria-hidden', 'true');
+    if (fillEl) fillEl.style.width = '0%';
+    dashboardLoadingHideTimer = null;
+  }, 220);
+}
+
+const DASHBOARD_NUMBER_FORMAT = new Intl.NumberFormat();
+const DASHBOARD_COMPACT_FORMAT = new Intl.NumberFormat(undefined, {
+  notation: 'compact',
+  maximumFractionDigits: 1,
+});
+
+function dashboardFormatNumber(value, compact = false) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0';
+  const rounded = Math.round(n);
+  return compact ? DASHBOARD_COMPACT_FORMAT.format(rounded) : DASHBOARD_NUMBER_FORMAT.format(rounded);
+}
+
+function dashboardFormatPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '0%';
+  const clamped = Math.max(0, Math.min(100, n));
+  return `${clamped.toFixed(clamped >= 10 ? 0 : 1)}%`;
+}
+
+function dashboardCoverageTone(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return 'error';
+  if (n >= 75) return 'ok';
+  if (n >= 40) return 'warn';
+  return 'error';
+}
+
+function dashboardStatusEntries(statusMap) {
+  if (!statusMap || typeof statusMap !== 'object') return [];
+  return Object.entries(statusMap)
+    .map(([label, count]) => ({ label: String(label), count: Number(count) || 0 }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+function dashboardDistributionList(rows, totalCount, includeBytes = false) {
+  const total = Number(totalCount) || 0;
+  if (!Array.isArray(rows) || !rows.length) {
+    return '<p class="small">No data.</p>';
+  }
+  return `
+    <ul class="dashboard-dist-list">
+      ${rows.map((row) => {
+        const count = Number(row.count || 0);
+        const pct = total > 0 ? (count / total) * 100 : 0;
+        const width = count > 0 ? Math.max(2, pct) : 0;
+        const valueParts = [
+          dashboardFormatNumber(count),
+          dashboardFormatPercent(pct),
+        ];
+        if (includeBytes) {
+          valueParts.push(importFileSizeText(Number(row.bytes || 0)));
+        }
+        return `
+          <li class="dashboard-dist-item">
+            <div class="dashboard-dist-row">
+              <span class="dashboard-dist-label">${dbEscapeHtml(String(row.label || 'unknown'))}</span>
+              <span class="dashboard-dist-value">${dbEscapeHtml(valueParts.join(' • '))}</span>
+            </div>
+            <div class="dashboard-dist-track">
+              <div class="dashboard-dist-fill" style="width:${width.toFixed(2)}%"></div>
+            </div>
+          </li>
+        `;
+      }).join('')}
+    </ul>
+  `;
+}
+
+function dashboardCoverageItem(label, current, total, pct) {
+  const tone = dashboardCoverageTone(pct);
+  return `
+    <li class="dashboard-cover-item">
+      <div class="dashboard-cover-top">
+        <span class="dashboard-cover-label">${dbEscapeHtml(label)}</span>
+        <span class="dashboard-cover-value">${dbEscapeHtml(`${dashboardFormatNumber(current)}/${dashboardFormatNumber(total)} • ${dashboardFormatPercent(pct)}`)}</span>
+      </div>
+      <div class="dashboard-cover-track">
+        <div class="dashboard-cover-fill ${tone}" style="width:${Math.max(0, Math.min(100, Number(pct) || 0)).toFixed(2)}%"></div>
+      </div>
+    </li>
+  `;
+}
+
+function dashboardStatusChips(statusMap) {
+  const entries = dashboardStatusEntries(statusMap);
+  if (!entries.length) {
+    return '<p class="small">No status history.</p>';
+  }
+  return `
+    <div class="dashboard-chip-list">
+      ${entries.map((entry) => `
+        <span class="dashboard-chip">
+          <code>${dbEscapeHtml(entry.label)}</code>&nbsp;${dbEscapeHtml(dashboardFormatNumber(entry.count))}
+        </span>
+      `).join('')}
+    </div>
+  `;
+}
+
+function dashboardOverviewPanel(data, includeDoctor) {
+  const container = document.getElementById('dashboard-overview');
+  if (!container) return;
+  if (!data || data.ok !== true) {
+    container.innerHTML = '<p class="small">No dashboard summary available.</p>';
+    return;
+  }
+
+  const archive = data.archive || {};
+  const counts = data.counts || {};
+  const vector = data.vector || {};
+  const health = data.health || null;
+  const healthLabel = health
+    ? (health.ok ? (health.warning_count > 0 ? 'WARNING' : 'OK') : 'ERROR')
+    : 'NOT RUN';
+  const healthTone = health
+    ? (health.ok ? (health.warning_count > 0 ? 'warning' : 'ok') : 'error')
+    : 'neutral';
+
+  const resourcesTotal = Number(archive.resources_total ?? counts.resources ?? 0);
+  const resources7d = Number(archive.resources_ingested_7d ?? 0);
+  const claimsTotal = Number(counts.claims ?? 0);
+  const bindingsTotal = Number(counts.claim_evidence_bindings ?? 0);
+  const vectorPoints = Number(vector.qdrant_points ?? 0);
+
+  const stats = [
+    {
+      label: 'System Health',
+      valueHtml: `<span class="status-pill ${statusClass(healthTone)}">${dbEscapeHtml(healthLabel)}</span>`,
+      meta: includeDoctor ? 'Doctor included in this refresh.' : 'Run Refresh + Doctor for full checks.',
+    },
+    {
+      label: 'Documents',
+      valueHtml: dbEscapeHtml(dashboardFormatNumber(resourcesTotal)),
+      meta: `${dashboardFormatNumber(resources7d)} ingested in the last 7 days`,
+    },
+    {
+      label: 'Archive Size',
+      valueHtml: dbEscapeHtml(importFileSizeText(Number(archive.resource_bytes_total ?? 0))),
+      meta: `Average ${importFileSizeText(Number(archive.resource_bytes_avg ?? 0))} per document`,
+    },
+    {
+      label: 'Extracted Text',
+      valueHtml: dbEscapeHtml(dashboardFormatNumber(archive.resources_with_text ?? 0)),
+      meta: `${dbEscapeHtml(dashboardFormatPercent(archive?.coverage?.text_coverage_pct ?? 0))} document coverage`,
+    },
+    {
+      label: 'Vectorized Docs',
+      valueHtml: dbEscapeHtml(dashboardFormatNumber(archive.resources_with_vector_chunks ?? 0)),
+      meta: `${dbEscapeHtml(dashboardFormatNumber(vectorPoints, true))} vector points`,
+    },
+    {
+      label: 'Claims',
+      valueHtml: dbEscapeHtml(dashboardFormatNumber(claimsTotal)),
+      meta: `${dashboardFormatNumber(bindingsTotal)} claim-evidence bindings`,
+    },
+  ];
+
+  container.innerHTML = `
+    <div class="dashboard-overview-grid">
+      ${stats.map((item) => `
+        <article class="dashboard-overview-item">
+          <p class="dashboard-overview-label">${dbEscapeHtml(item.label)}</p>
+          <p class="dashboard-overview-value">${item.valueHtml}</p>
+          <p class="dashboard-overview-meta">${dbEscapeHtml(item.meta)}</p>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function dashboardCompositionCards(data) {
+  const container = document.getElementById('dashboard-composition');
+  if (!container) return;
+  if (!data || data.ok !== true) {
+    container.innerHTML = '<p class="small">No archive composition available.</p>';
+    return;
+  }
+
+  const archive = data.archive || {};
+  const counts = data.counts || {};
+  const resourcesTotal = Number(archive.resources_total ?? counts.resources ?? 0);
+  const documentsByType = Array.isArray(archive.documents_by_type) ? archive.documents_by_type : [];
+  const mediaTypeCounts = Array.isArray(archive.media_type_counts) ? archive.media_type_counts : [];
+
+  const footprintEntries = [
+    { label: 'Extraction Runs', count: Number(counts.extraction_runs ?? 0) },
+    { label: 'Document Texts', count: Number(counts.document_texts ?? 0) },
+    { label: 'Extracted Tables', count: Number(counts.extracted_tables ?? 0) },
+    { label: 'Text Segments', count: Number(counts.text_segments ?? 0) },
+    { label: 'Annotations', count: Number(counts.text_annotations ?? 0) },
+    { label: 'Extracted Images', count: Number(counts.resource_images ?? 0) },
+  ];
+  const maxFootprint = Math.max(...footprintEntries.map((entry) => Number(entry.count || 0)), 0);
+  const footprintRows = footprintEntries.map((entry) => ({
+    label: entry.label,
+    count: entry.count,
+    bytes: null,
+    pct: maxFootprint > 0 ? (entry.count / maxFootprint) * 100 : 0,
+  }));
+
+  container.innerHTML = `
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Document Families</h4>
+        <p>${dbEscapeHtml(`${dashboardFormatNumber(resourcesTotal)} documents`)}</p>
+      </div>
+      ${dashboardDistributionList(documentsByType, resourcesTotal, true)}
+    </article>
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Top Media Types</h4>
+        <p>MIME breakdown</p>
+      </div>
+      ${dashboardDistributionList(mediaTypeCounts, resourcesTotal, false)}
+    </article>
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Extraction Footprint</h4>
+        <p>${dbEscapeHtml(`${dashboardFormatNumber(archive.text_char_total ?? 0)} extracted chars`)}</p>
+      </div>
+      <ul class="dashboard-dist-list">
+        ${footprintRows.map((row) => `
+          <li class="dashboard-dist-item">
+            <div class="dashboard-dist-row">
+              <span class="dashboard-dist-label">${dbEscapeHtml(row.label)}</span>
+              <span class="dashboard-dist-value">${dbEscapeHtml(dashboardFormatNumber(row.count))}</span>
+            </div>
+            <div class="dashboard-dist-track">
+              <div class="dashboard-dist-fill" style="width:${Math.max(0, Math.min(100, Number(row.pct) || 0)).toFixed(2)}%"></div>
+            </div>
+          </li>
+        `).join('')}
+      </ul>
+    </article>
+  `;
+}
+
+function dashboardCoverageCards(data) {
+  const container = document.getElementById('dashboard-coverage');
+  if (!container) return;
+  if (!data || data.ok !== true) {
+    container.innerHTML = '<p class="small">No coverage summary available.</p>';
+    return;
+  }
+
+  const archive = data.archive || {};
+  const counts = data.counts || {};
+  const coverage = archive.coverage || {};
+
+  const resourcesTotal = Number(archive.resources_total ?? counts.resources ?? 0);
+  const claimsTotal = Number(counts.claims ?? 0);
+  const evidenceTotal = Number(counts.evidence_items ?? 0);
+
+  const archiveCoverageRows = [
+    dashboardCoverageItem('Text coverage', archive.resources_with_text ?? 0, resourcesTotal, coverage.text_coverage_pct ?? 0),
+    dashboardCoverageItem('Vector coverage', archive.resources_with_vector_chunks ?? 0, resourcesTotal, coverage.vector_coverage_pct ?? 0),
+    dashboardCoverageItem('Reference coverage', archive.resources_with_references ?? 0, resourcesTotal, coverage.reference_coverage_pct ?? 0),
+    dashboardCoverageItem('Evidence coverage', archive.resources_with_evidence ?? 0, resourcesTotal, coverage.evidence_coverage_pct ?? 0),
+  ].join('');
+
+  const claimCoverageRows = [
+    dashboardCoverageItem('Claims with bindings', archive.claims_with_bindings ?? 0, claimsTotal, coverage.claim_binding_pct ?? 0),
+    dashboardCoverageItem('Claims verified', archive.claims_with_verification ?? 0, claimsTotal, coverage.claim_verification_pct ?? 0),
+    dashboardCoverageItem('Evidence with selectors', archive.evidence_with_selectors ?? 0, evidenceTotal, coverage.evidence_selector_pct ?? 0),
+  ].join('');
+
+  container.innerHTML = `
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Archive Coverage</h4>
+        <p>How much of the archive is process-ready</p>
+      </div>
+      <ul class="dashboard-cover-list">${archiveCoverageRows}</ul>
+    </article>
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Claim Pipeline Coverage</h4>
+        <p>Binding and verification completeness</p>
+      </div>
+      <ul class="dashboard-cover-list">${claimCoverageRows}</ul>
+      <div class="dashboard-insight-head">
+        <h4>Claim Status</h4>
+        <p>Current claim lifecycle labels</p>
+      </div>
+      ${dashboardStatusChips(archive.claim_status_counts)}
+    </article>
+    <article class="dashboard-insight-card">
+      <div class="dashboard-insight-head">
+        <h4>Run Outcomes</h4>
+        <p>Recent system behavior by status</p>
+      </div>
+      <p class="small">Extraction Runs</p>
+      ${dashboardStatusChips(archive.extraction_status_counts)}
+      <p class="small">Verification Results</p>
+      ${dashboardStatusChips(archive.verification_result_status_counts)}
+      <p class="small">Vector Index Runs</p>
+      ${dashboardStatusChips(archive.vector_run_status_counts)}
+    </article>
+  `;
+}
+
+function dashboardActivityCards(data) {
+  const container = document.getElementById('dashboard-activity');
+  if (!container) return;
+  if (!data || data.ok !== true) {
+    container.innerHTML = '<p class="small">No recent activity available.</p>';
+    return;
+  }
+
+  const series = Array.isArray(data?.archive?.activity?.series) ? data.archive.activity.series : [];
+  if (!series.length) {
+    container.innerHTML = '<p class="small">No recent activity available.</p>';
+    return;
+  }
+
+  const totals = series.reduce(
+    (acc, row) => {
+      acc.ingested += Number(row.ingested || 0);
+      acc.extracted += Number(row.extracted || 0);
+      acc.verified += Number(row.verified || 0);
+      acc.claims += Number(row.claims_added || 0);
+      return acc;
+    },
+    { ingested: 0, extracted: 0, verified: 0, claims: 0 }
+  );
+  const maxTotal = Math.max(1, ...series.map((row) => Number(row.total || 0)));
+
+  const rowsHtml = series
+    .map((row) => {
+      const day = String(row.day || '');
+      const shortDay = day.length >= 10 ? day.slice(5) : day;
+      const ingested = Math.max(0, Number(row.ingested || 0));
+      const extracted = Math.max(0, Number(row.extracted || 0));
+      const verified = Math.max(0, Number(row.verified || 0));
+      const claims = Math.max(0, Number(row.claims_added || 0));
+      const total = Math.max(0, Number(row.total || (ingested + extracted + verified + claims)));
+      const widthPct = Math.max(0, Math.min(100, (total / maxTotal) * 100));
+      const divisor = total > 0 ? total : 1;
+      return `
+        <li class="dashboard-activity-item">
+          <span class="dashboard-activity-day">${dbEscapeHtml(shortDay)}</span>
+          <div class="dashboard-activity-track">
+            <div class="dashboard-activity-fill" style="width:${widthPct.toFixed(2)}%;">
+              <span class="dashboard-activity-seg ingested" style="width:${((ingested / divisor) * 100).toFixed(2)}%;"></span>
+              <span class="dashboard-activity-seg extracted" style="width:${((extracted / divisor) * 100).toFixed(2)}%;"></span>
+              <span class="dashboard-activity-seg verified" style="width:${((verified / divisor) * 100).toFixed(2)}%;"></span>
+              <span class="dashboard-activity-seg claims" style="width:${((claims / divisor) * 100).toFixed(2)}%;"></span>
+            </div>
+          </div>
+          <span class="dashboard-activity-total">${dbEscapeHtml(dashboardFormatNumber(total))}</span>
+        </li>
+      `;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <div class="dashboard-activity-legend">
+      <span class="dashboard-chip"><span class="swatch" style="background:#2563eb;"></span>Ingested ${dbEscapeHtml(dashboardFormatNumber(totals.ingested))}</span>
+      <span class="dashboard-chip"><span class="swatch" style="background:#0ea5a4;"></span>Extracted ${dbEscapeHtml(dashboardFormatNumber(totals.extracted))}</span>
+      <span class="dashboard-chip"><span class="swatch" style="background:#16a34a;"></span>Verified ${dbEscapeHtml(dashboardFormatNumber(totals.verified))}</span>
+      <span class="dashboard-chip"><span class="swatch" style="background:#a855f7;"></span>Claims Added ${dbEscapeHtml(dashboardFormatNumber(totals.claims))}</span>
+    </div>
+    <ul class="dashboard-activity-list">${rowsHtml}</ul>
+  `;
+}
+
 function dashboardRunCards(data) {
   const container = document.getElementById('dashboard-runs');
   if (!container) return;
   const extraction = data?.latest?.extraction_run || null;
   const verification = data?.latest?.verification_run || null;
+  const latestVector = Array.isArray(data?.vector?.runs) && data.vector.runs.length ? data.vector.runs[0] : null;
   const cards = [];
   if (extraction) {
     cards.push(
@@ -4047,6 +4897,11 @@ function dashboardRunCards(data) {
     const statusSummary = Object.keys(counts).sort().map((k) => `${k}=${counts[k]}`).join(', ') || 'no results';
     cards.push(
       `<article class="issue-item issue-info"><strong>Verification</strong>run ${dbEscapeHtml(verification.id)} (${dbEscapeHtml(verification.policy_profile || 'n/a')}) at ${dbEscapeHtml(verification.created_at || 'n/a')} | ${dbEscapeHtml(statusSummary)}</article>`
+    );
+  }
+  if (latestVector) {
+    cards.push(
+      `<article class="issue-item issue-info"><strong>Vector</strong>run ${dbEscapeHtml(String(latestVector.id || 'n/a'))} (${dbEscapeHtml(String(latestVector.status || 'unknown'))}) at ${dbEscapeHtml(String(latestVector.created_at || 'n/a'))}</article>`
     );
   }
   if (!cards.length) {
@@ -4158,51 +5013,63 @@ function dashboardStorageCards(data) {
 
 function renderDashboard(data, includeDoctor) {
   const statusEl = document.getElementById('dashboard-status');
-  const kpiEl = document.getElementById('dashboard-kpis');
-  if (!statusEl || !kpiEl) return;
+  const overviewEl = document.getElementById('dashboard-overview');
+  const compositionEl = document.getElementById('dashboard-composition');
+  const coverageEl = document.getElementById('dashboard-coverage');
+  const activityEl = document.getElementById('dashboard-activity');
+  if (!statusEl || !overviewEl || !compositionEl || !coverageEl || !activityEl) return;
 
   if (!data || data.ok !== true) {
+    dashboardHasRenderedData = false;
     statusEl.textContent = 'Failed to load dashboard summary.';
-    kpiEl.innerHTML = '';
+    overviewEl.innerHTML = '<p class="small">No dashboard summary available.</p>';
+    compositionEl.innerHTML = '<p class="small">No archive composition available.</p>';
+    coverageEl.innerHTML = '<p class="small">No coverage summary available.</p>';
+    activityEl.innerHTML = '<p class="small">No recent activity available.</p>';
     dashboardStorageCards(null);
     dashboardRunCards(null);
     return;
   }
 
-  const counts = data.counts || {};
-  const vector = data.vector || {};
-  const health = data.health || null;
-  const healthLabel = health
-    ? (health.ok ? (health.warning_count > 0 ? 'WARNING' : 'OK') : 'ERROR')
-    : 'NOT RUN';
-  const healthTone = health
-    ? (health.ok ? (health.warning_count > 0 ? 'warning' : 'ok') : 'error')
-    : 'neutral';
-
-  kpiEl.innerHTML = `
-    ${metricCard('System Health', `<span class="status-pill ${statusClass(healthTone)}">${dbEscapeHtml(healthLabel)}</span>`, 'Doctor status snapshot.')}
-    ${metricCard('Resources', dbEscapeHtml(String(counts.resources ?? 0)), 'Ingested source documents.')}
-    ${metricCard('Claims', dbEscapeHtml(String(counts.claims ?? 0)), 'Claims available for verification.')}
-    ${metricCard('Evidence Bindings', dbEscapeHtml(String(counts.claim_evidence_bindings ?? 0)), 'Claim-to-evidence links.')}
-    ${metricCard('Extraction Runs', dbEscapeHtml(String(counts.extraction_runs ?? 0)), 'Total extraction runs in project history.')}
-    ${metricCard('Verification Runs', dbEscapeHtml(String(counts.verification_runs ?? 0)), 'Total verification runs in project history.')}
-    ${metricCard('Vector Backend', dbEscapeHtml(String(vector.backend || 'n/a')), 'Current vector backend mode.')}
-    ${metricCard('Vector Points', dbEscapeHtml(String(vector.qdrant_points ?? 0)), 'Point count in vector database collection.')}
-  `;
-
+  dashboardHasRenderedData = true;
   statusEl.textContent = `Summary refreshed at ${data.generated_at || 'n/a'}${includeDoctor ? ' (doctor included).' : '.'}`;
+  dashboardOverviewPanel(data, includeDoctor);
+  dashboardCompositionCards(data);
+  dashboardCoverageCards(data);
+  dashboardActivityCards(data);
   dashboardStorageCards(data);
   dashboardRunCards(data);
 
-  if (health) {
-    renderProjectHealth(health);
+  if (data.health) {
+    renderProjectHealth(data.health);
   }
 }
 
 async function loadDashboard(includeDoctor = false) {
-  const query = includeDoctor ? '?include_doctor=true' : '';
-  const payload = await callApi('GET', `/api/dashboard/summary${query}`, null, 'out-dashboard');
-  renderDashboard(payload, includeDoctor);
+  const statusEl = document.getElementById('dashboard-status');
+  if (statusEl) {
+    statusEl.textContent = includeDoctor
+      ? 'Loading dashboard summary and doctor checks...'
+      : 'Loading dashboard summary...';
+  }
+  setDashboardLoading(true, includeDoctor);
+  try {
+    const query = includeDoctor ? '?include_doctor=true' : '';
+    const payload = await callApi('GET', `/api/dashboard/summary${query}`, null, 'out-dashboard');
+    renderDashboard(payload, includeDoctor);
+    dashboardWriteCache(payload, includeDoctor);
+  } catch (error) {
+    if (!dashboardHasRenderedData) {
+      renderDashboard(null, includeDoctor);
+    }
+    if (statusEl) {
+      statusEl.textContent = dashboardHasRenderedData
+        ? `Refresh failed (${String(error)}). Showing last cached summary.`
+        : `Dashboard request failed: ${String(error)}`;
+    }
+  } finally {
+    setDashboardLoading(false);
+  }
 }
 
 function vectorTargetPayload() {
@@ -6023,6 +6890,7 @@ function viewerRenderMetadata() {
   const meta = payload.metadata;
   const extraction = payload.extraction || {};
   const counts = extraction.counts || {};
+  const imageInventory = extraction.image_inventory || {};
   const run = extraction.run || {};
   const pagesGeom = Array.isArray(extraction.pages_with_geometry) ? extraction.pages_with_geometry : [];
   const pagesTables = Array.isArray(extraction.pages_with_tables) ? extraction.pages_with_tables : [];
@@ -6084,6 +6952,8 @@ function viewerRenderMetadata() {
       ${row('Segments', counts.segments ?? 0)}
       ${row('Annotations', counts.annotations ?? 0)}
       ${row('Images', counts.images ?? images.length)}
+      ${row('Image records (DB)', imageInventory.resource_total ?? (counts.images ?? images.length))}
+      ${row('Images for active run', imageInventory.active_run_total ?? 'n/a')}
       ${row('Pages with tables', pagesTables.length || 0)}
       ${row('Pages with geometry', pagesGeom.length || 0)}
       ${row('Pages with images', pagesImages.size || 0)}
@@ -6110,9 +6980,29 @@ function viewerRenderMetadata() {
 function viewerRenderImageGallery() {
   const container = document.getElementById('viewer-image-gallery');
   if (!container) return;
+  const extraction = viewerState.payload?.extraction || {};
+  const imageInventory = extraction.image_inventory || {};
+  const activeRunId = String(extraction?.run?.id || imageInventory.active_run_id || '').trim();
   const images = Array.isArray(viewerState.payload?.images) ? viewerState.payload.images : [];
   if (!images.length) {
-    container.innerHTML = '<p class="small">No extracted images available for this document.</p>';
+    const resourceTotal = Number(imageInventory.resource_total || 0);
+    const activeRunTotal = Number(imageInventory.active_run_total || 0);
+    const linkedRunOnly = Number(imageInventory.linked_run_only_total || 0);
+    const detailBits = [];
+    detailBits.push(`resource_images rows for this resource: ${resourceTotal}`);
+    if (activeRunId) {
+      detailBits.push(`active extraction run: ${activeRunId}`);
+      detailBits.push(`rows for active run: ${activeRunTotal}`);
+    } else {
+      detailBits.push('active extraction run: none');
+    }
+    if (linkedRunOnly > 0) {
+      detailBits.push(`rows linked by run-id under other resource ids: ${linkedRunOnly}`);
+    }
+    container.innerHTML = `
+      <p class="small">No extracted images available for this document.</p>
+      <p class="small">Database lookup: ${dbEscapeHtml(detailBits.join(' • '))}</p>
+    `;
     return;
   }
   const shown = images.slice(0, 200);
@@ -11651,6 +12541,7 @@ initVectorPane();
 initSourcesPane();
 initResizableOutputs();
 dbListTables();
+dashboardRenderCachedSummary();
 loadDashboard();
 vectorStatus();
 importStartServerQueuePolling();

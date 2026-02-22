@@ -107,6 +107,7 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert "content" in viewer_payload
     assert "metadata" in viewer_payload
     assert "extraction" in viewer_payload
+    assert "image_inventory" in viewer_payload["extraction"]
     assert viewer_payload["metadata"]["display_title"] == "Example University - Annual Report - 2024/25"
 
     # Import now auto-attempts extraction+vector indexing; confirm vector status exists.
@@ -183,6 +184,10 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     payload = r.json()
     assert payload["ok"] is True
     assert "counts" in payload
+    assert "archive" in payload
+    assert "documents_by_type" in payload["archive"]
+    assert "coverage" in payload["archive"]
+    assert "activity" in payload["archive"]
     assert "vector" in payload
     assert payload["health"] is None
 
@@ -190,6 +195,8 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.status_code == 200
     payload = r.json()
     assert payload["ok"] is True
+    assert payload["archive"]["resources_total"] >= 1
+    assert payload["archive"]["coverage"]["text_coverage_pct"] >= 0
     assert payload["health"]["db_runtime"]["journal_mode"] == "wal"
 
     # Database explorer APIs

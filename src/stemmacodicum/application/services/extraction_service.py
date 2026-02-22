@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -930,46 +930,50 @@ class ExtractionService:
             completed_pages = 0
 
             if worker_count > 1:
-                with ThreadPoolExecutor(max_workers=worker_count) as executor:
-                    active_pages: dict[int, float] = {}
-                    active_lock = threading.Lock()
-                    wait_monitor_stop = threading.Event()
+                executor = ThreadPoolExecutor(max_workers=worker_count)
+                active_pages: dict[int, float] = {}
+                active_lock = threading.Lock()
+                wait_monitor_stop = threading.Event()
+                future_map: dict[object, int] = {}
+                force_abort = False
+                stall_timeout_seconds = self._pdf_page_split_worker_stall_timeout_seconds()
 
-                    def wait_monitor() -> None:
-                        while not wait_monitor_stop.wait(2.0):
-                            with active_lock:
-                                waiting = sorted(active_pages.items())
-                            if not waiting:
-                                continue
-                            now_ts = time.perf_counter()
-                            oldest_page = waiting[0][0]
-                            oldest_age = max(0.0, now_ts - waiting[0][1])
-                            waiting_pages = [idx for idx, _started in waiting[:8]]
-                            emit(
-                                {
-                                    "stage": "extract",
-                                    "state": "active",
-                                    "progress": min(
-                                        55,
-                                        6 + int((49.0 * completed_pages) / max(total_pages, 1)),
-                                    ),
-                                    "detail": (
-                                        f"Waiting on {len(waiting)} page worker(s); "
-                                        f"{completed_pages}/{total_pages} complete."
-                                    ),
-                                    "stats": (
-                                        f"oldest page {oldest_page} waiting {oldest_age:.1f}s • "
-                                        f"active {waiting_pages}"
-                                    ),
-                                    "page_count": total_pages,
-                                    "page_current": oldest_page,
-                                    "component": "scheduler",
-                                    "event": "page_wait",
-                                }
-                            )
+                def wait_monitor() -> None:
+                    while not wait_monitor_stop.wait(2.0):
+                        with active_lock:
+                            waiting = sorted(active_pages.items())
+                        if not waiting:
+                            continue
+                        now_ts = time.perf_counter()
+                        oldest_page = waiting[0][0]
+                        oldest_age = max(0.0, now_ts - waiting[0][1])
+                        waiting_pages = [idx for idx, _started in waiting[:8]]
+                        emit(
+                            {
+                                "stage": "extract",
+                                "state": "active",
+                                "progress": min(
+                                    55,
+                                    6 + int((49.0 * completed_pages) / max(total_pages, 1)),
+                                ),
+                                "detail": (
+                                    f"Waiting on {len(waiting)} page worker(s); "
+                                    f"{completed_pages}/{total_pages} complete."
+                                ),
+                                "stats": (
+                                    f"oldest page {oldest_page} waiting {oldest_age:.1f}s • "
+                                    f"active {waiting_pages}"
+                                ),
+                                "page_count": total_pages,
+                                "page_current": oldest_page,
+                                "component": "scheduler",
+                                "event": "page_wait",
+                            }
+                        )
 
-                    monitor_thread = threading.Thread(target=wait_monitor, daemon=True)
-                    monitor_thread.start()
+                monitor_thread = threading.Thread(target=wait_monitor, daemon=True)
+                monitor_thread.start()
+                try:
                     future_map = {
                         executor.submit(
                             self._parse_pdf_split_single_page,
@@ -990,51 +994,84 @@ class ExtractionService:
                         now_ts = time.perf_counter()
                         for page_idx in future_map.values():
                             active_pages[page_idx] = now_ts
-                    for future in as_completed(future_map):
-                        page_idx = future_map[future]
-                        try:
-                            parsed_page_idx, page_result, page_elapsed_ms = future.result()
-                        except ExtractionCancelledError:
-                            wait_monitor_stop.set()
-                            monitor_thread.join(timeout=0.2)
-                            raise
-                        except Exception as exc:
-                            wait_monitor_stop.set()
-                            monitor_thread.join(timeout=0.2)
-                            raise ExtractionError(
-                                f"Per-page parse failed for page {page_idx}/{total_pages}: {exc}"
-                            ) from exc
-                        with active_lock:
-                            active_pages.pop(parsed_page_idx, None)
-                        page_results[parsed_page_idx] = (page_result, page_elapsed_ms)
-                        completed_pages += 1
-                        page_text = page_result.full_text or ""
-                        emit(
-                            {
-                                "stage": "extract",
-                                "state": "active",
-                                "progress": min(
-                                    55,
-                                    6 + int((49.0 * completed_pages) / max(total_pages, 1)),
-                                ),
-                                "detail": (
-                                    f"Completed {completed_pages}/{total_pages} pages "
-                                    f"(latest page {parsed_page_idx}/{total_pages})."
-                                ),
-                                "stats": (
-                                    f"{page_elapsed_ms}ms • "
-                                    f"{len(page_result.tables)} tables • "
-                                    f"{len(page_text)} chars"
-                                ),
-                                "page_count": total_pages,
-                                "page_current": parsed_page_idx,
-                                "component": "docling",
-                                "event": "page_parse_done",
-                                "duration_ms": page_elapsed_ms,
-                            }
+                    pending = set(future_map.keys())
+                    while pending:
+                        if cancellation_check is not None and bool(cancellation_check()):
+                            raise ExtractionCancelledError("PDF split parse cancelled by control request.")
+                        done, pending = wait(
+                            pending,
+                            timeout=self._PDF_WORKER_JOIN_POLL_SECONDS,
+                            return_when=FIRST_COMPLETED,
                         )
+                        if not done:
+                            with active_lock:
+                                waiting = sorted(active_pages.items(), key=lambda item: item[1])
+                            if waiting:
+                                now_ts = time.perf_counter()
+                                oldest_page = waiting[0][0]
+                                oldest_age = max(0.0, now_ts - waiting[0][1])
+                                if oldest_age >= float(stall_timeout_seconds):
+                                    waiting_pages = ", ".join(str(idx) for idx, _ in waiting[:8])
+                                    raise ExtractionError(
+                                        "Per-page parser appears stalled: "
+                                        f"page {oldest_page}/{total_pages} has been running for "
+                                        f"{oldest_age:.1f}s (limit {stall_timeout_seconds}s). "
+                                        f"Active pages: {waiting_pages}"
+                                    )
+                            continue
+                        for future in done:
+                            page_idx = future_map.get(future)
+                            if page_idx is None:
+                                continue
+                            try:
+                                parsed_page_idx, page_result, page_elapsed_ms = future.result()
+                            except ExtractionCancelledError:
+                                raise
+                            except Exception as exc:
+                                raise ExtractionError(
+                                    f"Per-page parse failed for page {page_idx}/{total_pages}: {exc}"
+                                ) from exc
+                            with active_lock:
+                                active_pages.pop(parsed_page_idx, None)
+                            page_results[parsed_page_idx] = (page_result, page_elapsed_ms)
+                            completed_pages += 1
+                            page_text = page_result.full_text or ""
+                            emit(
+                                {
+                                    "stage": "extract",
+                                    "state": "active",
+                                    "progress": min(
+                                        55,
+                                        6 + int((49.0 * completed_pages) / max(total_pages, 1)),
+                                    ),
+                                    "detail": (
+                                        f"Completed {completed_pages}/{total_pages} pages "
+                                        f"(latest page {parsed_page_idx}/{total_pages})."
+                                    ),
+                                    "stats": (
+                                        f"{page_elapsed_ms}ms • "
+                                        f"{len(page_result.tables)} tables • "
+                                        f"{len(page_text)} chars"
+                                    ),
+                                    "page_count": total_pages,
+                                    "page_current": parsed_page_idx,
+                                    "component": "docling",
+                                    "event": "page_parse_done",
+                                    "duration_ms": page_elapsed_ms,
+                                }
+                            )
+                except Exception:
+                    force_abort = True
+                    raise
+                finally:
                     wait_monitor_stop.set()
                     monitor_thread.join(timeout=0.2)
+                    if force_abort:
+                        for future in future_map:
+                            future.cancel()
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    else:
+                        executor.shutdown(wait=True, cancel_futures=False)
             else:
                 for page_idx, page_path in enumerate(page_files, start=1):
                     try:
@@ -1294,6 +1331,14 @@ class ExtractionService:
             log_settings=base.log_settings,
         )
 
+    def _pdf_page_split_worker_stall_timeout_seconds(self) -> int:
+        attempt_timeout = max(0, int(self.pdf_parse_attempt_timeout_seconds))
+        attempts_total = max(1, self.pdf_parse_max_restarts + 1)
+        if attempt_timeout <= 0:
+            return 900
+        # Allow for parser timeout, restart backoff, and subprocess shutdown overhead.
+        return max(90, int((attempt_timeout + 8) * attempts_total + 15))
+
     def _run_pdf_parse_subprocess_attempt(
         self,
         *,
@@ -1379,8 +1424,14 @@ class ExtractionService:
         except queue.Empty:
             pass
         finally:
-            result_queue.close()
-            result_queue.join_thread()
+            try:
+                result_queue.cancel_join_thread()
+            except Exception:
+                pass
+            try:
+                result_queue.close()
+            except Exception:
+                pass
 
         if process.exitcode == 0:
             if isinstance(payload, dict) and payload.get("ok") is True:

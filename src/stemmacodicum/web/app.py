@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -797,13 +798,64 @@ def create_app(paths: AppPaths) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"Extracted image file missing for image: {image_id}")
         return dict(row), resolved
 
-    def _viewer_resource_images(resource_id: str) -> list[dict[str, Any]]:
+    def _viewer_resource_images(
+        resource_id: str,
+        *,
+        extraction_run_id: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        image_inventory: dict[str, Any] = {
+            "table_available": False,
+            "resource_id": resource_id,
+            "active_run_id": extraction_run_id,
+            "resource_total": 0,
+            "active_run_total": 0,
+            "linked_run_only_total": 0,
+            "selected_total": 0,
+        }
         with get_connection(paths.db_path) as conn:
             has_images_table = conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'resource_images'"
             ).fetchone()
             if not has_images_table:
-                return []
+                return [], image_inventory
+            image_inventory["table_available"] = True
+            image_inventory["resource_total"] = int(
+                conn.execute(
+                    """
+                    SELECT COUNT(*) AS c
+                    FROM resource_images
+                    WHERE resource_id = ?
+                    """,
+                    (resource_id,),
+                ).fetchone()["c"]
+            )
+
+            active_run_total = 0
+            linked_run_only_total = 0
+            if extraction_run_id:
+                active_run_total = int(
+                    conn.execute(
+                        """
+                        SELECT COUNT(*) AS c
+                        FROM resource_images
+                        WHERE extraction_run_id = ? AND resource_id = ?
+                        """,
+                        (extraction_run_id, resource_id),
+                    ).fetchone()["c"]
+                )
+                linked_run_only_total = int(
+                    conn.execute(
+                        """
+                        SELECT COUNT(*) AS c
+                        FROM resource_images
+                        WHERE extraction_run_id = ? AND resource_id <> ?
+                        """,
+                        (extraction_run_id, resource_id),
+                    ).fetchone()["c"]
+                )
+            image_inventory["active_run_total"] = active_run_total
+            image_inventory["linked_run_only_total"] = linked_run_only_total
+
             rows = conn.execute(
                 """
                 SELECT
@@ -830,21 +882,46 @@ def create_app(paths: AppPaths) -> FastAPI:
                   metadata_json,
                   created_at
                 FROM resource_images
-                WHERE resource_id = ?
-                ORDER BY page_index ASC, image_index ASC, created_at ASC
+                WHERE
+                  resource_id = ?
+                  OR (? IS NOT NULL AND extraction_run_id = ?)
+                ORDER BY
+                  CASE
+                    WHEN ? IS NOT NULL AND extraction_run_id = ? THEN 0
+                    ELSE 1
+                  END,
+                  page_index ASC,
+                  image_index ASC,
+                  created_at ASC
                 """,
-                (resource_id,),
+                (
+                    resource_id,
+                    extraction_run_id,
+                    extraction_run_id,
+                    extraction_run_id,
+                    extraction_run_id,
+                ),
             ).fetchall()
 
-        images: list[dict[str, Any]] = []
+        deduped_rows: list[Any] = []
+        seen_image_ids: set[str] = set()
         for row in rows:
+            image_id = str(row["id"])
+            if image_id in seen_image_ids:
+                continue
+            seen_image_ids.add(image_id)
+            deduped_rows.append(row)
+
+        images: list[dict[str, Any]] = []
+        for row in deduped_rows:
             page_index = _coerce_non_negative_int(row["page_index"])
             page_number = (page_index + 1) if page_index is not None else None
             image_id = str(row["id"])
+            row_resource_id = str(row["resource_id"])
             images.append(
                 {
                     "id": image_id,
-                    "resource_id": str(row["resource_id"]),
+                    "resource_id": row_resource_id,
                     "extraction_run_id": row["extraction_run_id"],
                     "page_index": page_index,
                     "page_number": page_number,
@@ -866,10 +943,11 @@ def create_app(paths: AppPaths) -> FastAPI:
                     "bbox": _parse_json_blob(row["bbox_json"]),
                     "metadata": _parse_json_blob(row["metadata_json"]),
                     "created_at": row["created_at"],
-                    "content_url": f"/api/resources/{resource_id}/images/{image_id}/content",
+                    "content_url": f"/api/resources/{row_resource_id}/images/{image_id}/content",
                 }
             )
-        return images
+        image_inventory["selected_total"] = len(images)
+        return images, image_inventory
 
     def _viewer_kind(media_type: str | None, original_filename: str | None) -> str:
         media = (media_type or "").lower()
@@ -1539,7 +1617,11 @@ def create_app(paths: AppPaths) -> FastAPI:
         parsed_tables: list[dict[str, Any]] = []
         parsed_segments: list[dict[str, Any]] = []
         parsed_annotations: list[dict[str, Any]] = []
-        parsed_images = _viewer_resource_images(target_id)
+        active_run_id = str(run_payload.get("id")) if isinstance(run_payload, dict) and run_payload.get("id") else None
+        parsed_images, image_inventory = _viewer_resource_images(
+            target_id,
+            extraction_run_id=active_run_id,
+        )
 
         pages_with_tables: set[int] = set()
         pages_with_geometry: set[int] = set()
@@ -1686,6 +1768,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                     "bbox_tables": bbox_table_count,
                     "bbox_segments": bbox_segment_count,
                 },
+                "image_inventory": image_inventory,
                 "pages_with_tables": sorted(x + 1 for x in pages_with_tables),
                 "pages_with_geometry": sorted(x + 1 for x in pages_with_geometry),
                 "overlay_ready": bool(bbox_table_count or bbox_segment_count),
@@ -1866,6 +1949,11 @@ def create_app(paths: AppPaths) -> FastAPI:
 
     @app.get("/api/dashboard/summary")
     def api_dashboard_summary(include_doctor: bool = Query(default=False)) -> dict[str, Any]:
+        def _safe_ratio(numerator: int, denominator: int) -> float:
+            if denominator <= 0:
+                return 0.0
+            return round((max(0, numerator) / denominator) * 100, 2)
+
         def _path_size_bytes(path: Path) -> int:
             try:
                 if not path.exists():
@@ -1927,21 +2015,232 @@ def create_app(paths: AppPaths) -> FastAPI:
             "device_free_bytes": device_free,
         }
 
+        now_dt = datetime.now(timezone.utc).replace(microsecond=0)
+        recent_7d = (now_dt - timedelta(days=7)).isoformat()
+        recent_30d = (now_dt - timedelta(days=30)).isoformat()
+        activity_window_days = 14
+        activity_start_day = (now_dt - timedelta(days=activity_window_days - 1)).date().isoformat()
+        activity_start_iso = f"{activity_start_day}T00:00:00+00:00"
+
         with get_connection(paths.db_path) as conn:
             counts = {
                 "resources": int(conn.execute("SELECT COUNT(*) AS c FROM resources").fetchone()["c"]),
                 "citations": int(conn.execute("SELECT COUNT(*) AS c FROM citations").fetchone()["c"]),
                 "references": int(conn.execute("SELECT COUNT(*) AS c FROM reference_entries").fetchone()["c"]),
+                "reference_resources": int(conn.execute("SELECT COUNT(*) AS c FROM reference_resources").fetchone()["c"]),
+                "claim_sets": int(conn.execute("SELECT COUNT(*) AS c FROM claim_sets").fetchone()["c"]),
                 "claims": int(conn.execute("SELECT COUNT(*) AS c FROM claims").fetchone()["c"]),
                 "evidence_items": int(conn.execute("SELECT COUNT(*) AS c FROM evidence_items").fetchone()["c"]),
+                "evidence_selectors": int(conn.execute("SELECT COUNT(*) AS c FROM evidence_selectors").fetchone()["c"]),
                 "claim_evidence_bindings": int(
                     conn.execute("SELECT COUNT(*) AS c FROM claim_evidence_bindings").fetchone()["c"]
                 ),
                 "extraction_runs": int(conn.execute("SELECT COUNT(*) AS c FROM extraction_runs").fetchone()["c"]),
+                "extracted_tables": int(conn.execute("SELECT COUNT(*) AS c FROM extracted_tables").fetchone()["c"]),
+                "document_texts": int(conn.execute("SELECT COUNT(*) AS c FROM document_texts").fetchone()["c"]),
+                "text_segments": int(conn.execute("SELECT COUNT(*) AS c FROM text_segments").fetchone()["c"]),
+                "text_annotations": int(conn.execute("SELECT COUNT(*) AS c FROM text_annotations").fetchone()["c"]),
+                "text_annotation_spans": int(conn.execute("SELECT COUNT(*) AS c FROM text_annotation_spans").fetchone()["c"]),
+                "text_annotation_relations": int(
+                    conn.execute("SELECT COUNT(*) AS c FROM text_annotation_relations").fetchone()["c"]
+                ),
+                "resource_images": int(conn.execute("SELECT COUNT(*) AS c FROM resource_images").fetchone()["c"]),
                 "verification_runs": int(conn.execute("SELECT COUNT(*) AS c FROM verification_runs").fetchone()["c"]),
+                "verification_results": int(conn.execute("SELECT COUNT(*) AS c FROM verification_results").fetchone()["c"]),
+                "propositions": int(conn.execute("SELECT COUNT(*) AS c FROM propositions").fetchone()["c"]),
+                "assertion_events": int(conn.execute("SELECT COUNT(*) AS c FROM assertion_events").fetchone()["c"]),
+                "argument_relations": int(conn.execute("SELECT COUNT(*) AS c FROM argument_relations").fetchone()["c"]),
                 "vector_index_runs": int(conn.execute("SELECT COUNT(*) AS c FROM vector_index_runs").fetchone()["c"]),
                 "vector_chunks": int(conn.execute("SELECT COUNT(*) AS c FROM vector_chunks").fetchone()["c"]),
+                "import_jobs": int(conn.execute("SELECT COUNT(*) AS c FROM import_jobs").fetchone()["c"]),
             }
+
+            resource_profile_row = conn.execute(
+                """
+                SELECT
+                  COALESCE(SUM(size_bytes), 0) AS resource_bytes_total,
+                  COALESCE(AVG(size_bytes), 0) AS resource_bytes_avg,
+                  MIN(ingested_at) AS first_ingested_at,
+                  MAX(ingested_at) AS last_ingested_at,
+                  COALESCE(SUM(CASE WHEN ingested_at >= ? THEN 1 ELSE 0 END), 0) AS resources_ingested_7d,
+                  COALESCE(SUM(CASE WHEN ingested_at >= ? THEN 1 ELSE 0 END), 0) AS resources_ingested_30d,
+                  COALESCE(SUM(
+                    CASE
+                      WHEN LOWER(COALESCE(download_url, '')) LIKE 'http://%'
+                        OR LOWER(COALESCE(download_url, '')) LIKE 'https://%'
+                      THEN 1 ELSE 0
+                    END
+                  ), 0) AS resources_with_external_source
+                FROM resources
+                """,
+                (recent_7d, recent_30d),
+            ).fetchone()
+
+            text_volume_row = conn.execute(
+                """
+                SELECT
+                  COALESCE(SUM(char_count), 0) AS chars_total,
+                  COALESCE(AVG(char_count), 0) AS chars_avg,
+                  COALESCE(MAX(char_count), 0) AS chars_max
+                FROM document_texts
+                """
+            ).fetchone()
+
+            coverage_row = conn.execute(
+                """
+                SELECT
+                  (SELECT COUNT(DISTINCT resource_id) FROM extraction_runs WHERE LOWER(status) = 'success')
+                    AS resources_with_successful_extraction,
+                  (SELECT COUNT(DISTINCT resource_id) FROM document_texts) AS resources_with_text,
+                  (SELECT COUNT(DISTINCT resource_id) FROM vector_chunks) AS resources_with_vector_chunks,
+                  (SELECT COUNT(DISTINCT resource_id) FROM reference_resources) AS resources_with_references,
+                  (SELECT COUNT(DISTINCT resource_id) FROM evidence_items) AS resources_with_evidence,
+                  (SELECT COUNT(DISTINCT claim_id) FROM claim_evidence_bindings) AS claims_with_bindings,
+                  (SELECT COUNT(DISTINCT evidence_id) FROM evidence_selectors) AS evidence_with_selectors,
+                  (SELECT COUNT(DISTINCT claim_id) FROM verification_results) AS claims_with_verification
+                """
+            ).fetchone()
+
+            documents_by_type_rows = conn.execute(
+                """
+                SELECT
+                  CASE
+                    WHEN LOWER(COALESCE(media_type, '')) LIKE 'application/pdf%' THEN 'PDF'
+                    WHEN LOWER(COALESCE(media_type, '')) LIKE 'image/%' THEN 'Image'
+                    WHEN LOWER(COALESCE(media_type, '')) IN (
+                      'application/msword',
+                      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                      'application/vnd.oasis.opendocument.text',
+                      'application/rtf'
+                    ) THEN 'Word Document'
+                    WHEN LOWER(COALESCE(media_type, '')) IN (
+                      'application/vnd.ms-excel',
+                      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                      'application/vnd.oasis.opendocument.spreadsheet',
+                      'text/csv'
+                    ) THEN 'Spreadsheet / CSV'
+                    WHEN LOWER(COALESCE(media_type, '')) IN (
+                      'application/vnd.ms-powerpoint',
+                      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                      'application/vnd.oasis.opendocument.presentation'
+                    ) THEN 'Presentation'
+                    WHEN LOWER(COALESCE(media_type, '')) LIKE 'text/html%' THEN 'HTML'
+                    WHEN LOWER(COALESCE(media_type, '')) IN ('application/json', 'application/xml', 'text/xml')
+                      THEN 'Structured Text'
+                    WHEN LOWER(COALESCE(media_type, '')) LIKE 'text/%' THEN 'Plain Text'
+                    ELSE 'Other'
+                  END AS label,
+                  COUNT(*) AS c,
+                  COALESCE(SUM(size_bytes), 0) AS bytes
+                FROM resources
+                GROUP BY label
+                ORDER BY c DESC, bytes DESC, label ASC
+                """
+            ).fetchall()
+
+            media_type_rows = conn.execute(
+                """
+                SELECT
+                  CASE
+                    WHEN TRIM(COALESCE(media_type, '')) = '' THEN 'unknown'
+                    ELSE LOWER(media_type)
+                  END AS media_type,
+                  COUNT(*) AS c
+                FROM resources
+                GROUP BY media_type
+                ORDER BY c DESC, media_type ASC
+                LIMIT 8
+                """
+            ).fetchall()
+
+            claim_status_rows = conn.execute(
+                """
+                SELECT LOWER(COALESCE(status, 'unknown')) AS status, COUNT(*) AS c
+                FROM claims
+                GROUP BY status
+                ORDER BY c DESC, status ASC
+                """
+            ).fetchall()
+
+            extraction_status_rows = conn.execute(
+                """
+                SELECT LOWER(COALESCE(status, 'unknown')) AS status, COUNT(*) AS c
+                FROM extraction_runs
+                GROUP BY status
+                ORDER BY c DESC, status ASC
+                """
+            ).fetchall()
+
+            vector_run_status_rows = conn.execute(
+                """
+                SELECT LOWER(COALESCE(status, 'unknown')) AS status, COUNT(*) AS c
+                FROM vector_index_runs
+                GROUP BY status
+                ORDER BY c DESC, status ASC
+                """
+            ).fetchall()
+
+            verification_result_rows = conn.execute(
+                """
+                SELECT LOWER(COALESCE(status, 'unknown')) AS status, COUNT(*) AS c
+                FROM verification_results
+                GROUP BY status
+                ORDER BY c DESC, status ASC
+                """
+            ).fetchall()
+
+            import_job_status_rows = conn.execute(
+                """
+                SELECT LOWER(COALESCE(status, 'unknown')) AS status, COUNT(*) AS c
+                FROM import_jobs
+                GROUP BY status
+                ORDER BY c DESC, status ASC
+                """
+            ).fetchall()
+
+            ingest_activity_rows = conn.execute(
+                """
+                SELECT substr(ingested_at, 1, 10) AS day, COUNT(*) AS c
+                FROM resources
+                WHERE ingested_at >= ?
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                (activity_start_iso,),
+            ).fetchall()
+
+            extraction_activity_rows = conn.execute(
+                """
+                SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS c
+                FROM extraction_runs
+                WHERE created_at >= ?
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                (activity_start_iso,),
+            ).fetchall()
+
+            verification_activity_rows = conn.execute(
+                """
+                SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS c
+                FROM verification_runs
+                WHERE created_at >= ?
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                (activity_start_iso,),
+            ).fetchall()
+
+            claim_activity_rows = conn.execute(
+                """
+                SELECT substr(created_at, 1, 10) AS day, COUNT(*) AS c
+                FROM claims
+                WHERE created_at >= ?
+                GROUP BY day
+                ORDER BY day ASC
+                """,
+                (activity_start_iso,),
+            ).fetchall()
 
             latest_extraction_row = conn.execute(
                 """
@@ -1974,6 +2273,119 @@ def create_app(paths: AppPaths) -> FastAPI:
                 ).fetchall()
                 verification_status_counts = {str(row["status"]): int(row["c"]) for row in rows}
 
+        resources_total = int(counts["resources"])
+        claims_total = int(counts["claims"])
+        evidence_total = int(counts["evidence_items"])
+
+        resources_with_external_source = int(resource_profile_row["resources_with_external_source"] or 0)
+        resources_with_successful_extraction = int(coverage_row["resources_with_successful_extraction"] or 0)
+        resources_with_text = int(coverage_row["resources_with_text"] or 0)
+        resources_with_vector_chunks = int(coverage_row["resources_with_vector_chunks"] or 0)
+        resources_with_references = int(coverage_row["resources_with_references"] or 0)
+        resources_with_evidence = int(coverage_row["resources_with_evidence"] or 0)
+        claims_with_bindings = int(coverage_row["claims_with_bindings"] or 0)
+        evidence_with_selectors = int(coverage_row["evidence_with_selectors"] or 0)
+        claims_with_verification = int(coverage_row["claims_with_verification"] or 0)
+
+        documents_by_type = [
+            {
+                "label": str(row["label"]),
+                "count": int(row["c"]),
+                "bytes": int(row["bytes"] or 0),
+            }
+            for row in documents_by_type_rows
+        ]
+        media_type_counts = [
+            {
+                "label": str(row["media_type"]),
+                "count": int(row["c"]),
+            }
+            for row in media_type_rows
+        ]
+
+        def _rows_to_dict(rows: list[Any], key_name: str = "status") -> dict[str, int]:
+            result: dict[str, int] = {}
+            for row in rows:
+                key = str(row[key_name])
+                result[key] = int(row["c"])
+            return result
+
+        claim_status_counts = _rows_to_dict(claim_status_rows)
+        extraction_status_counts = _rows_to_dict(extraction_status_rows)
+        vector_run_status_counts_all = _rows_to_dict(vector_run_status_rows)
+        verification_result_status_counts_all = _rows_to_dict(verification_result_rows)
+        import_job_status_counts = _rows_to_dict(import_job_status_rows)
+
+        ingest_activity_map = {str(row["day"]): int(row["c"]) for row in ingest_activity_rows if row["day"]}
+        extraction_activity_map = {str(row["day"]): int(row["c"]) for row in extraction_activity_rows if row["day"]}
+        verification_activity_map = {str(row["day"]): int(row["c"]) for row in verification_activity_rows if row["day"]}
+        claim_activity_map = {str(row["day"]): int(row["c"]) for row in claim_activity_rows if row["day"]}
+
+        activity_days = [
+            (now_dt - timedelta(days=offset)).date().isoformat()
+            for offset in range(activity_window_days - 1, -1, -1)
+        ]
+        activity_series: list[dict[str, int | str]] = []
+        for day in activity_days:
+            ingested = ingest_activity_map.get(day, 0)
+            extracted = extraction_activity_map.get(day, 0)
+            verified = verification_activity_map.get(day, 0)
+            claims_added = claim_activity_map.get(day, 0)
+            activity_series.append(
+                {
+                    "day": day,
+                    "ingested": ingested,
+                    "extracted": extracted,
+                    "verified": verified,
+                    "claims_added": claims_added,
+                    "total": ingested + extracted + verified + claims_added,
+                }
+            )
+
+        archive_payload = {
+            "resources_total": resources_total,
+            "resource_bytes_total": int(resource_profile_row["resource_bytes_total"] or 0),
+            "resource_bytes_avg": int(round(float(resource_profile_row["resource_bytes_avg"] or 0))),
+            "first_ingested_at": resource_profile_row["first_ingested_at"],
+            "last_ingested_at": resource_profile_row["last_ingested_at"],
+            "resources_ingested_7d": int(resource_profile_row["resources_ingested_7d"] or 0),
+            "resources_ingested_30d": int(resource_profile_row["resources_ingested_30d"] or 0),
+            "resources_with_external_source": resources_with_external_source,
+            "resources_local_only": max(0, resources_total - resources_with_external_source),
+            "resources_with_references": resources_with_references,
+            "resources_with_successful_extraction": resources_with_successful_extraction,
+            "resources_with_text": resources_with_text,
+            "resources_with_vector_chunks": resources_with_vector_chunks,
+            "resources_with_evidence": resources_with_evidence,
+            "claims_with_bindings": claims_with_bindings,
+            "claims_with_verification": claims_with_verification,
+            "evidence_with_selectors": evidence_with_selectors,
+            "text_char_total": int(text_volume_row["chars_total"] or 0),
+            "text_char_avg": int(round(float(text_volume_row["chars_avg"] or 0))),
+            "text_char_max": int(text_volume_row["chars_max"] or 0),
+            "coverage": {
+                "extraction_success_pct": _safe_ratio(resources_with_successful_extraction, resources_total),
+                "text_coverage_pct": _safe_ratio(resources_with_text, resources_total),
+                "vector_coverage_pct": _safe_ratio(resources_with_vector_chunks, resources_total),
+                "reference_coverage_pct": _safe_ratio(resources_with_references, resources_total),
+                "evidence_coverage_pct": _safe_ratio(resources_with_evidence, resources_total),
+                "claim_binding_pct": _safe_ratio(claims_with_bindings, claims_total),
+                "claim_verification_pct": _safe_ratio(claims_with_verification, claims_total),
+                "evidence_selector_pct": _safe_ratio(evidence_with_selectors, evidence_total),
+            },
+            "documents_by_type": documents_by_type,
+            "media_type_counts": media_type_counts,
+            "claim_status_counts": claim_status_counts,
+            "extraction_status_counts": extraction_status_counts,
+            "verification_result_status_counts": verification_result_status_counts_all,
+            "vector_run_status_counts": vector_run_status_counts_all,
+            "import_job_status_counts": import_job_status_counts,
+            "activity": {
+                "window_days": activity_window_days,
+                "series": activity_series,
+            },
+        }
+
         vector_payload = get_vector_service().status(limit_runs=25)
         run_status_counts: dict[str, int] = {}
         for run in vector_payload.get("runs", []):
@@ -2004,6 +2416,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "storage": project_storage,
             },
             "counts": counts,
+            "archive": archive_payload,
             "latest": {
                 "extraction_run": (
                     {

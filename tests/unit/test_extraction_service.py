@@ -1,13 +1,17 @@
 import time
+import threading
 from pathlib import Path
+
+import pytest
 
 from stemmacodicum.application.services.extraction_service import ExtractionService, _PdfSubprocessCrashError
 from stemmacodicum.application.services.ingestion_service import IngestionService
+from stemmacodicum.core.errors import ExtractionError
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 from stemmacodicum.infrastructure.db.sqlite import initialize_schema
-from stemmacodicum.infrastructure.parsers.docling_adapter import ParseResult, ParsedCell, ParsedTable
+from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter, ParseResult, ParsedCell, ParsedTable
 
 
 def _bootstrap(tmp_path: Path) -> tuple[ResourceRepo, ExtractionRepo, Path]:
@@ -189,3 +193,66 @@ def test_extract_resource_retries_when_pdf_worker_crashes(tmp_path: Path, monkey
     assert attempts["count"] == 2
     assert summary.text_chars > 0
     assert any("restarting" in str(e.get("detail", "")).lower() for e in events)
+
+
+def test_parse_pdf_split_pages_fails_fast_when_worker_stalls(tmp_path: Path, monkeypatch) -> None:
+    resource_repo, extraction_repo, archive_dir = _bootstrap(tmp_path)
+    service = ExtractionService(
+        resource_repo=resource_repo,
+        extraction_repo=extraction_repo,
+        archive_dir=archive_dir,
+    )
+
+    source_pdf = tmp_path / "stall.pdf"
+    source_pdf.write_bytes(b"%PDF-1.5\n%fake\n")
+    stop_hang = threading.Event()
+
+    def fake_pdfseparate(*_args, **_kwargs):
+        output_pattern = _args[0][2]
+        Path(output_pattern % 1).write_bytes(b"%PDF-1.5\n%p1\n")
+        Path(output_pattern % 2).write_bytes(b"%PDF-1.5\n%p2\n")
+        return type(
+            "ProcResult",
+            (),
+            {"returncode": 0, "stdout": "", "stderr": ""},
+        )()
+
+    page_result = ParseResult(
+        parser_name="stub-parser",
+        parser_version="1.0",
+        config_digest="cfg",
+        tables=[],
+        full_text="ok",
+        blocks=[],
+        elapsed_seconds=0.1,
+        page_count=1,
+        timings={},
+    )
+
+    def fake_parse_single_page(*, page_idx: int, **_kwargs):
+        if page_idx == 1:
+            return page_idx, page_result, 15
+        while not stop_hang.wait(0.05):
+            pass
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(
+        "stemmacodicum.application.services.extraction_service.subprocess.run",
+        fake_pdfseparate,
+    )
+    monkeypatch.setattr(service, "_resolve_pdf_page_split_workers", lambda _total_pages: 2)
+    monkeypatch.setattr(service, "_pdf_page_split_worker_stall_timeout_seconds", lambda: 1)
+    monkeypatch.setattr(service, "_parse_pdf_split_single_page", fake_parse_single_page)
+
+    try:
+        with pytest.raises(ExtractionError, match="stalled"):
+            service._parse_pdf_split_pages(
+                archived_path=source_pdf,
+                media_type="application/pdf",
+                parser_profile="default",
+                emit=lambda _payload: None,
+                adapter=DoclingAdapter(profile="default"),
+                cancellation_check=None,
+            )
+    finally:
+        stop_hang.set()

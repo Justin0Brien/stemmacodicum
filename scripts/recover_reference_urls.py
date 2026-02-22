@@ -2,6 +2,14 @@
 """Recover missing download URLs for ingested resources.
 
 Strategy (in order):
+  Phase 0c – Catalog database lookup (/Volumes/X10/data/sources/catalog.sqlite)
+              Match by SHA-256 digest; follow bib_object_links to bib_entries
+              to retrieve url_normalized / doi_normalized.  Skipped when the
+              catalog file is absent.  Fully deterministic — no heuristics.
+  Phase 0 – Browser download histories (Safari, Arc/Chrome, Brave, Edge,
+             Firefox) — matched by target path, filename + size, or filename +
+             time proximity.  Highest-confidence source because these are
+             verbatim records of what the browser fetched.
   Phase 1 – macOS extended attributes on the archived file
              (kMDItemWhereFroms + quarantine)
   Phase 2 – macOS extended attributes on the original source path
@@ -27,13 +35,18 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime
 import hashlib
 import html
+import html.parser
 import json
 import os
 import plistlib
 import re
+import shutil
+import sqlite3
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.request
@@ -76,6 +89,10 @@ DEEP_SEARCH_DIRS: list[Path] = [
     Path("/Volumes/X10/data"),
 ]
 
+# External catalog database — used as Phase 0c for SHA-256-based URL lookup.
+# If this path does not exist the phase is silently skipped.
+CATALOG_DB: Path = Path("/Volumes/X10/data/sources/catalog.sqlite")
+
 
 @dataclass(slots=True)
 class ResourceTask:
@@ -90,6 +107,17 @@ class ResourceTask:
     ref_author: str | None
     ref_url: str | None
     ref_doi: str | None
+
+
+@dataclass(slots=True)
+class BrowserDownloadRecord:
+    """A single download record from a browser's history database."""
+    browser: str        # "safari" | "chrome" | "brave" | "firefox" | etc.
+    source_url: str     # URL the file was downloaded from
+    target_path: str    # Local file path where the browser saved the file
+    total_bytes: int    # Reported file size in bytes; -1 if unknown
+    download_time: float  # Unix timestamp of download start; -1.0 if unknown
+    referrer: str       # HTTP Referer URL (may be empty)
 
 
 # ---------------------------------------------------------------------------
@@ -596,6 +624,423 @@ def web_search_urls(query: str, *, timeout: float = 25.0, max_results: int = 8) 
     return found, None
 
 # ---------------------------------------------------------------------------
+# Phase 0: Browser download history (Safari, Chromium variants, Firefox)
+# ---------------------------------------------------------------------------
+
+# Safari stores Mac Absolute Time: seconds since 2001-01-01 00:00:00 UTC
+_MAC_EPOCH_OFFSET: float = 978_307_200.0
+# Chrome/Chromium store microseconds since 1601-01-01 00:00:00 UTC
+_CHROME_EPOCH_OFFSET: float = 11_644_473_600.0
+
+# Generous matching window — files may have been moved/copied after downloading.
+_BROWSER_TIME_WINDOW: float = 14 * 24 * 3600.0  # 14 days
+
+# Chromium-based browsers: (label, base user-data dir)
+# Arc stores its profiles under Google/Chrome — intentional.
+_CHROMIUM_BROWSER_DIRS: list[tuple[str, Path]] = [
+    ("arc/chrome", Path.home() / "Library" / "Application Support" / "Google" / "Chrome"),
+    ("chromium",   Path.home() / "Library" / "Application Support" / "Chromium"),
+    ("brave",      Path.home() / "Library" / "Application Support" / "BraveSoftware" / "Brave-Browser"),
+    ("edge",       Path.home() / "Library" / "Application Support" / "Microsoft Edge"),
+    ("edge-beta",  Path.home() / "Library" / "Application Support" / "Microsoft Edge Beta"),
+    ("edge-dev",   Path.home() / "Library" / "Application Support" / "Microsoft Edge Dev"),
+    ("edge-canary",Path.home() / "Library" / "Application Support" / "Microsoft Edge Canary"),
+    ("vivaldi",    Path.home() / "Library" / "Application Support" / "Vivaldi"),
+    ("opera",      Path.home() / "Library" / "Application Support" / "com.operasoftware.Opera"),
+]
+
+
+# Maps id(connection) -> tmp file path so we can delete it on close.
+# Python 3.14 sqlite3.Connection uses __slots__ and rejects arbitrary attrs.
+_sqlite_tmp_paths: dict[int, str] = {}
+
+
+def _open_sqlite_copy(db_path: Path) -> "sqlite3.Connection | None":
+    """Open a SQLite DB by copying it to a temp file first.
+
+    This avoids "database is locked" errors when the browser is running.
+    The caller is responsible for calling _close_sqlite_copy() when done.
+    """
+    if not db_path.exists():
+        return None
+    tmp_name: str | None = None
+    try:
+        tmp_fd, tmp_name = tempfile.mkstemp(suffix=".db")
+        os.close(tmp_fd)
+        shutil.copy2(db_path, tmp_name)
+        conn = sqlite3.connect(tmp_name)
+        conn.row_factory = sqlite3.Row
+        _sqlite_tmp_paths[id(conn)] = tmp_name
+        return conn
+    except Exception:
+        if tmp_name:
+            try:
+                os.unlink(tmp_name)
+            except Exception:
+                pass
+        return None
+
+
+def _close_sqlite_copy(conn: "sqlite3.Connection") -> None:
+    tmp_path = _sqlite_tmp_paths.pop(id(conn), None)
+    try:
+        conn.close()
+    except Exception:
+        pass
+    if tmp_path:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def load_safari_downloads() -> list[BrowserDownloadRecord]:
+    """Load download records from Safari's Downloads.plist."""
+    plist_path = Path.home() / "Library" / "Safari" / "Downloads.plist"
+    if not plist_path.exists():
+        return []
+    try:
+        with open(plist_path, "rb") as fh:
+            data = plistlib.load(fh)
+    except Exception:
+        return []
+    records: list[BrowserDownloadRecord] = []
+    for entry in data.get("DownloadHistory", []):
+        url = str(entry.get("DownloadEntryURL") or "").strip()
+        if not is_external_url(url):
+            continue
+        target = str(entry.get("DownloadEntryPath") or "").strip()
+        size = int(entry.get("DownloadEntryProgressTotalToLoad") or -1)
+        # Date is an NSDate stored as a Mac Absolute Time float or a datetime.
+        ts_raw = entry.get("DownloadEntryDateAddedKey")
+        ts: float = -1.0
+        if isinstance(ts_raw, datetime.datetime):
+            ts = ts_raw.timestamp()
+        elif isinstance(ts_raw, (int, float)):
+            ts = float(ts_raw) + _MAC_EPOCH_OFFSET
+        records.append(BrowserDownloadRecord(
+            browser="safari",
+            source_url=url,
+            target_path=target,
+            total_bytes=size,
+            download_time=ts,
+            referrer="",
+        ))
+    return records
+
+
+# SQL for modern Chromium: original URL lives in downloads_url_chains (chain_index=0)
+_CHROMIUM_QUERY_CHAINS = """
+    SELECT d.target_path, duc.url AS original_url, d.referrer,
+           d.total_bytes, d.start_time, d.tab_url
+    FROM downloads d
+    LEFT JOIN downloads_url_chains duc ON duc.id = d.id AND duc.chain_index = 0
+    WHERE duc.url IS NOT NULL OR d.tab_url IS NOT NULL
+"""
+# SQL for older Chromium: original_url was a direct column on downloads
+_CHROMIUM_QUERY_LEGACY = """
+    SELECT target_path, original_url, referrer, total_bytes, start_time, tab_url
+    FROM downloads
+    WHERE (original_url IS NOT NULL AND original_url != '')
+       OR (tab_url IS NOT NULL AND tab_url != '')
+"""
+
+
+def load_chromium_downloads() -> list[BrowserDownloadRecord]:
+    """Load download records from all Chromium-based browsers (Arc/Chrome, Brave, Edge, etc.).
+
+    Handles both modern Chromium (original URL in downloads_url_chains) and
+    legacy Chromium (original_url column directly on downloads).
+    """
+    records: list[BrowserDownloadRecord] = []
+    seen_profile_paths: set[Path] = set()
+    for browser_name, base_dir in _CHROMIUM_BROWSER_DIRS:
+        if not base_dir.is_dir():
+            continue
+        # Each profile subdirectory may contain its own History DB.
+        # Exclude snapshot/cache directories to avoid duplicates.
+        for history_path in sorted(base_dir.glob("*/History")):
+            real = history_path.resolve()
+            if real in seen_profile_paths:
+                continue
+            if "Snapshots" in history_path.parts:
+                continue  # skip snapshot copies
+            seen_profile_paths.add(real)
+            conn = _open_sqlite_copy(history_path)
+            if conn is None:
+                continue
+            try:
+                # Try modern query first (downloads_url_chains), fall back to legacy.
+                rows = None
+                try:
+                    rows = conn.execute(_CHROMIUM_QUERY_CHAINS).fetchall()
+                except Exception:
+                    pass
+                if rows is None:
+                    try:
+                        rows = conn.execute(_CHROMIUM_QUERY_LEGACY).fetchall()
+                    except Exception:
+                        continue
+                for row in rows:
+                    url = str(row["original_url"] or "").strip()
+                    if not is_external_url(url):
+                        tab = str(row["tab_url"] or "").strip()
+                        if is_external_url(tab):
+                            url = tab
+                        else:
+                            continue
+                    raw_ts = row["start_time"] or 0
+                    ts = (int(raw_ts) / 1_000_000.0) - _CHROME_EPOCH_OFFSET if raw_ts else -1.0
+                    records.append(BrowserDownloadRecord(
+                        browser=browser_name,
+                        source_url=url,
+                        target_path=str(row["target_path"] or "").strip(),
+                        total_bytes=int(row["total_bytes"] or -1),
+                        download_time=ts,
+                        referrer=str(row["referrer"] or "").strip(),
+                    ))
+            finally:
+                _close_sqlite_copy(conn)
+    return records
+
+
+def load_firefox_downloads() -> list[BrowserDownloadRecord]:
+    """Load download records from all Firefox profiles via places.sqlite."""
+    records: list[BrowserDownloadRecord] = []
+    profiles_dir = (
+        Path.home() / "Library" / "Application Support" / "Firefox" / "Profiles"
+    )
+    if not profiles_dir.is_dir():
+        return []
+    for places_path in sorted(profiles_dir.glob("*/places.sqlite")):
+        conn = _open_sqlite_copy(places_path)
+        if conn is None:
+            continue
+        try:
+            # Firefox stores the destination as a file:// annotation on the
+            # download source URL entry in moz_places.
+            try:
+                # Firefox stores two `downloads/metaData` annotations per
+                # download: one old-style bare file:// path and one JSON blob
+                # with fileSize/endTime.  A plain GROUP BY p.id picks
+                # arbitrarily, so we use correlated subqueries to force
+                # selection of the correct row for each purpose.
+                rows = conn.execute(
+                    """
+                    SELECT
+                        p.url AS source_url,
+                        MAX(h.visit_date) AS visit_date,
+                        -- Canonical destination URI (downloads/destinationFileURI)
+                        (SELECT ma.content
+                           FROM moz_annos ma
+                           JOIN moz_anno_attributes maa ON maa.id = ma.anno_attribute_id
+                          WHERE ma.place_id = p.id
+                            AND maa.name = 'downloads/destinationFileURI'
+                          LIMIT 1
+                        ) AS dest_uri,
+                        -- Fallback: old-style file:// path stored in metaData
+                        (SELECT ma.content
+                           FROM moz_annos ma
+                           JOIN moz_anno_attributes maa ON maa.id = ma.anno_attribute_id
+                          WHERE ma.place_id = p.id
+                            AND maa.name = 'downloads/metaData'
+                            AND ma.content LIKE 'file://%'
+                          LIMIT 1
+                        ) AS dest_uri_fallback,
+                        -- JSON metadata (has fileSize) — must start with '{'
+                        (SELECT ma.content
+                           FROM moz_annos ma
+                           JOIN moz_anno_attributes maa ON maa.id = ma.anno_attribute_id
+                          WHERE ma.place_id = p.id
+                            AND maa.name = 'downloads/metaData'
+                            AND ma.content LIKE '{%'
+                          LIMIT 1
+                        ) AS meta_json
+                    FROM moz_places p
+                    JOIN moz_historyvisits h ON h.place_id = p.id
+                    -- Must have at least one download annotation to count as a download
+                    JOIN moz_annos dl_check ON dl_check.place_id = p.id
+                    JOIN moz_anno_attributes dl_attr
+                         ON dl_attr.id = dl_check.anno_attribute_id
+                         AND dl_attr.name IN ('downloads/destinationFileURI',
+                                              'downloads/metaData')
+                    WHERE p.url LIKE 'http%'
+                    GROUP BY p.id
+                    """
+                ).fetchall()
+            except Exception:
+                continue
+            for row in rows:
+                url = str(row["source_url"] or "").strip()
+                if not is_external_url(url):
+                    continue
+                # Prefer the canonical destinationFileURI; fall back to the
+                # old-format file:// path stored under downloads/metaData.
+                dest_uri = str(row["dest_uri"] or row["dest_uri_fallback"] or "").strip()
+                local_path = ""
+                if dest_uri.startswith("file://"):
+                    local_path = urllib.parse.unquote(dest_uri[7:])
+                # visit_date is microseconds since Unix epoch in Firefox
+                ts_raw = row["visit_date"] or 0
+                ts = float(ts_raw) / 1_000_000.0 if ts_raw else -1.0
+                # File size from the JSON metaData blob
+                file_size = -1
+                meta_raw = row["meta_json"]
+                if meta_raw:
+                    try:
+                        meta = json.loads(meta_raw)
+                        file_size = int(meta.get("fileSize", -1))
+                    except Exception:
+                        pass
+                records.append(BrowserDownloadRecord(
+                    browser="firefox",
+                    source_url=url,
+                    target_path=local_path,
+                    total_bytes=file_size,
+                    download_time=ts,
+                    referrer="",
+                ))
+        finally:
+            _close_sqlite_copy(conn)
+    return records
+
+
+# Module-level cache so we only query the browser DBs once per process run.
+_browser_download_cache: list[BrowserDownloadRecord] | None = None
+
+
+def load_all_browser_downloads(*, force_reload: bool = False) -> list[BrowserDownloadRecord]:
+    """Return a merged list of download records from all available browsers.
+
+    Results are cached for the lifetime of the process.  Pass *force_reload=True*
+    to discard the cache and re-read from disk (useful if browsers are running).
+    """
+    global _browser_download_cache
+    if _browser_download_cache is not None and not force_reload:
+        return _browser_download_cache
+    records: list[BrowserDownloadRecord] = []
+    records.extend(load_safari_downloads())
+    records.extend(load_chromium_downloads())
+    records.extend(load_firefox_downloads())
+    _browser_download_cache = records
+    return records
+
+
+def _browser_match_score(
+    record: BrowserDownloadRecord,
+    *,
+    original_filename: str,
+    archive_size: int | None,
+    source_uri: str | None,
+    archive_ctime: float | None,
+) -> int:
+    """Score how well a download record matches a resource (0 = no match, 100 = perfect).
+
+    Scoring tiers:
+      100 – exact target_path matches source_uri (the original download path)
+       90 – basename match + size match + time within window
+       80 – basename match + size match
+       65 – extension match + exact size match (file was renamed; no name match)
+       60 – basename match + time within window
+       40 – basename match only (weak; accepted as last resort)
+        0 – no filename/extension+size match
+    """
+    rec_path = Path(record.target_path) if record.target_path else None
+    rec_name = rec_path.name if rec_path else ""
+
+    # Exact source_uri path match — strongest possible signal.
+    if source_uri and record.target_path:
+        src_path = str(source_uri).replace("file://", "").strip()
+        if src_path and src_path == record.target_path:
+            return 100
+
+    # Filename must match (case-insensitive) for any positive score.
+    if not rec_name or rec_name.lower() != original_filename.lower():
+        # Fallback: match by file extension + exact byte size.
+        # Handles files that were renamed after downloading (or before archiving).
+        # Exact byte-level size match is a strong signal even without a name match.
+        orig_ext = Path(original_filename).suffix.lower() if original_filename else ""
+        rec_ext = rec_path.suffix.lower() if rec_path else ""
+        if (
+            orig_ext
+            and rec_ext == orig_ext
+            and archive_size is not None
+            and record.total_bytes > 0
+            and archive_size == record.total_bytes
+        ):
+            return 65  # extension + exact size: confident despite name mismatch
+        return 0
+
+    size_match = (
+        archive_size is not None
+        and record.total_bytes > 0
+        and archive_size == record.total_bytes
+    )
+    time_match = (
+        archive_ctime is not None
+        and record.download_time > 0
+        and abs(archive_ctime - record.download_time) <= _BROWSER_TIME_WINDOW
+    )
+
+    if size_match and time_match:
+        return 90
+    if size_match:
+        return 80
+    if time_match:
+        return 60
+    return 40  # filename-only weak match
+
+
+def browser_history_urls_for_file(
+    *,
+    original_filename: str,
+    archive_size: int | None,
+    source_uri: str | None,
+    archive_file: Path,
+    browser_records: list[BrowserDownloadRecord],
+    min_score: int = 40,
+) -> list[str]:
+    """Return source URLs from browser history that match the given resource file.
+
+    Candidates are ranked by match score; only those meeting *min_score* are returned.
+    The list is deduplicated and ordered best-first.
+    """
+    if not original_filename:
+        return []
+
+    archive_ctime: float | None = None
+    try:
+        st = archive_file.stat()
+        # st_birthtime is the creation time on macOS (not available on Linux).
+        archive_ctime = getattr(st, "st_birthtime", None) or st.st_mtime
+    except OSError:
+        pass
+
+    scored: list[tuple[int, str]] = []
+    seen_urls: set[str] = set()
+
+    for record in browser_records:
+        score = _browser_match_score(
+            record,
+            original_filename=original_filename,
+            archive_size=archive_size,
+            source_uri=source_uri,
+            archive_ctime=archive_ctime,
+        )
+        if score < min_score:
+            continue
+        url = record.source_url
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        scored.append((score, url))
+
+    # Sort best score first; stable so equal scores preserve insertion order.
+    scored.sort(key=lambda t: t[0], reverse=True)
+    return [url for _, url in scored]
+
+
+# ---------------------------------------------------------------------------
 # Phase 3: search common download folders
 # ---------------------------------------------------------------------------
 
@@ -670,6 +1115,57 @@ def find_copies_by_filename(
 # Phase 4: reference entry URL / DOI (deterministic — no web search)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Phase 0c: catalog database lookup (SHA-256 → bib_entries url/doi)
+# ---------------------------------------------------------------------------
+
+def catalog_urls_for_sha256(sha256: str | None, catalog_db: Path = CATALOG_DB) -> list[str]:
+    """Return URL candidates from the external catalog database.
+
+    Looks up *sha256* in ``objects``, follows ``bib_object_links`` →
+    ``bib_entries`` and returns every non-empty ``url_normalized`` and
+    ``doi_normalized`` value found.  Returns an empty list when the catalog
+    file does not exist or the digest is not present.
+    """
+    if not sha256 or not catalog_db.exists():
+        return []
+    results: list[str] = []
+    seen: set[str] = set()
+    try:
+        conn = sqlite3.connect(f"file:{catalog_db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT be.url_normalized, be.doi_normalized
+                FROM   objects           AS obj
+                JOIN   bib_object_links  AS bol USING (object_id)
+                JOIN   bib_entries       AS be  USING (bib_key)
+                WHERE  obj.sha256 = ?
+                """,
+                (sha256.lower(),),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+    for row in rows:
+        url = str(row["url_normalized"] or "").strip()
+        doi = str(row["doi_normalized"] or "").strip()
+        if is_external_url(url) and url not in seen:
+            seen.add(url)
+            results.append(url)
+        if doi and doi not in seen:
+            seen.add(doi)
+            # Normalise raw DOI to a resolvable URL.
+            clean = doi.lstrip("https://doi.org/").lstrip("http://doi.org/").lstrip("doi:")
+            doi_url = f"https://doi.org/{clean}"
+            if doi_url not in seen:
+                seen.add(doi_url)
+                results.append(doi_url)
+    return results
+
+
 def url_from_reference(task: ResourceTask) -> list[str]:
     """Return URL(s) directly recorded in a linked reference entry.
 
@@ -734,7 +1230,71 @@ def manifest_urls_for_task(
 
 
 # ---------------------------------------------------------------------------
-# Phase 6a: PDF internal metadata / embedded URLs
+# Phase 6a: HTML canonical/og:url meta tag extraction
+# ---------------------------------------------------------------------------
+
+class _CanonicalURLParser(html.parser.HTMLParser):
+    """Minimal SAX-style HTML parser that extracts self-referential URL tags."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.urls: list[str] = []
+        self._seen: set[str] = set()
+
+    def _add(self, url: str | None) -> None:
+        if not url:
+            return
+        u = url.strip()
+        if is_external_url(u) and u not in self._seen:
+            self._seen.add(u)
+            self.urls.append(u)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        amap = {k.lower(): (v or "") for k, v in attrs}
+        tag = tag.lower()
+        if tag == "link":
+            rel = amap.get("rel", "").lower()
+            if "canonical" in rel:
+                self._add(amap.get("href"))
+        elif tag == "meta":
+            prop = amap.get("property", "").lower()
+            name = amap.get("name", "").lower()
+            content = amap.get("content", "")
+            if prop in ("og:url", "twitter:url") or name in ("twitter:url",):
+                self._add(content)
+            # <meta http-equiv="refresh" content="0; url=https://...">
+            if amap.get("http-equiv", "").lower() == "refresh" and "url=" in content.lower():
+                idx = content.lower().find("url=")
+                self._add(content[idx + 4:].strip().strip("'\""))
+        elif tag == "base":
+            self._add(amap.get("href"))
+
+
+def html_canonical_urls(archive_file: Path, *, max_bytes: int = 256 * 1024) -> list[str]:
+    """Extract canonical/og:url/twitter:url from a saved HTML file.
+
+    Reads up to *max_bytes* of the file (the relevant tags are always in
+    <head>, well within the first 256 KB). Returns [] for non-HTML files.
+    Never performs any network request.
+    """
+    suffix = archive_file.suffix.lower()
+    if suffix not in (".html", ".htm", ".xhtml"):
+        return []
+    try:
+        raw = archive_file.read_bytes()[:max_bytes]
+        text = raw.decode("utf-8", errors="ignore")
+    except OSError:
+        return []
+    parser = _CanonicalURLParser()
+    try:
+        parser.feed(text)
+    except Exception:
+        pass
+    return parser.urls
+
+
+# ---------------------------------------------------------------------------
+# Phase 6a (PDF): PDF internal metadata / embedded URLs
 # ---------------------------------------------------------------------------
 
 def pdf_metadata_urls(archive_file: Path) -> list[str]:
@@ -1013,6 +1573,67 @@ def recover_resource_by_id(
             "blocked_reason": blocked_reason,
         }
 
+    # Phase 0c: catalog database (SHA-256 exact match)
+    phase_start("phase0c", "Searching catalog database by SHA-256.")
+    sha256_val: str | None = None
+    with get_connection(db_path) as _conn:
+        _row = _conn.execute(
+            "SELECT digest_sha256 FROM resources WHERE id = ? LIMIT 1",
+            (task.resource_id,),
+        ).fetchone()
+        if _row:
+            sha256_val = _row["digest_sha256"]
+    catalog_found = catalog_urls_for_sha256(sha256_val)
+    if verbose:
+        print(f"  [phase0c] catalog={CATALOG_DB.exists()} sha256={sha256_val} → {len(catalog_found)} URL(s)")
+    if catalog_found:
+        working_urls = merge_url_lists(working_urls, catalog_found)
+        phase_done("phase0c", "Recovered from catalog database (SHA-256 match).", success=True, urls=catalog_found)
+        persist_urls_if_any()
+        return {
+            "ok": True,
+            "resource_id": task.resource_id,
+            "selected_phase": selected_phase,
+            "resolved_url": pick_primary(working_urls),
+            "urls": working_urls,
+            "phase_logs": phase_logs,
+            "blocked_reason": blocked_reason,
+        }
+    phase_done("phase0c", "No match in catalog database.", success=False)
+
+    # Phase 0: browser download history (Safari / Chromium / Firefox)
+    phase_start("phase0", "Searching browser download histories.")
+    arch_size: int | None = None
+    try:
+        arch_size = archive_file.stat().st_size
+    except OSError:
+        pass
+    browser_records = load_all_browser_downloads()
+    browser_found = browser_history_urls_for_file(
+        original_filename=task.original_filename,
+        archive_size=arch_size,
+        source_uri=task.source_uri,
+        archive_file=archive_file,
+        browser_records=browser_records,
+    )
+    if verbose:
+        print(f"  [phase0] searched {len(browser_records)} browser download record(s); "
+              f"found {len(browser_found)} candidate URL(s)")
+    if browser_found:
+        working_urls = merge_url_lists(working_urls, browser_found)
+        phase_done("phase0", "Recovered from browser download history.", success=True, urls=browser_found)
+        persist_urls_if_any()
+        return {
+            "ok": True,
+            "resource_id": task.resource_id,
+            "selected_phase": selected_phase,
+            "resolved_url": pick_primary(working_urls),
+            "urls": working_urls,
+            "phase_logs": phase_logs,
+            "blocked_reason": blocked_reason,
+        }
+    phase_done("phase0", "No match found in browser download histories.", success=False)
+
     # Phase 1: xattrs on archived file
     phase_start("phase1", "Checking archive file xattrs.")
     if verbose:
@@ -1182,9 +1803,26 @@ def recover_resource_by_id(
     else:
         phase_done("phase5", f"Manifest root unavailable ({manifest_root}).", success=False)
 
-    # Phase 6a: PDF metadata URLs
-    phase_start("phase6a", "Extracting PDF metadata and embedded links.")
-    if HAVE_FITZ:
+    # Phase 6a: HTML canonical / og:url tags (HTML files)
+    phase_start("phase6a", "Extracting canonical/og:url tags from HTML / PDF metadata.")
+    _html_ext = archive_file.suffix.lower() in (".html", ".htm", ".xhtml")
+    if _html_ext:
+        html_urls = html_canonical_urls(archive_file)
+        if html_urls:
+            working_urls = merge_url_lists(working_urls, html_urls)
+            phase_done("phase6a", "Recovered from HTML canonical/og:url tags.", success=True, urls=html_urls)
+            persist_urls_if_any()
+            return {
+                "ok": True,
+                "resource_id": task.resource_id,
+                "selected_phase": selected_phase,
+                "resolved_url": pick_primary(working_urls),
+                "urls": working_urls,
+                "phase_logs": phase_logs,
+                "blocked_reason": blocked_reason,
+            }
+        phase_done("phase6a", "No canonical/og:url tags found in HTML.", success=False)
+    elif HAVE_FITZ:
         pdf_urls = pdf_metadata_urls(archive_file)
         if pdf_urls:
             working_urls = merge_url_lists(working_urls, pdf_urls)
@@ -1302,6 +1940,15 @@ def recover_resource_by_id(
 
 def run(args: argparse.Namespace) -> int:  # noqa: C901
     verbose: bool = args.verbose
+
+    # --local-only: disable all network phases for offline/dev runs.
+    if args.local_only:
+        if args.enable_wayback_lookup:
+            args.enable_wayback_lookup = False
+        if args.enable_web_search:
+            args.enable_web_search = False
+        print("[local-only mode] Phases 6b (Wayback) and 8 (web search) disabled.\n")
+
     paths = load_paths(Path(args.project_root))
 
     # Resolve search dirs from CLI args.
@@ -1336,11 +1983,22 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
         print(f"Skipping Wayback for {len(attempted)} resource(s) already attempted in a previous run.\n")
 
     recovered: dict[str, int] = {
+        "phase0c": 0,
+        "phase0": 0,
         "phase1": 0, "phase2": 0, "phase3": 0,
         "phase4": 0, "phase5": 0, "phase6a": 0, "phase6b": 0,
         "phase7": 0, "phase8": 0,
     }
     failed = 0
+
+    # Load browser download records once for the whole run (cached afterwards).
+    print("Loading browser download histories…")
+    browser_records = load_all_browser_downloads()
+    print(
+        f"  Safari: {sum(1 for r in browser_records if r.browser == 'safari')} records  "
+        f"Chrome/Chromium/Brave/Edge: {sum(1 for r in browser_records if r.browser not in ('safari', 'firefox'))} records  "
+        f"Firefox: {sum(1 for r in browser_records if r.browser == 'firefox')} records\n"
+    )
 
     try:
       for index, task in enumerate(unresolved, start=1):
@@ -1351,6 +2009,51 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
             print("  ✗ archive file missing; skipping.")
             failed += 1
             continue
+
+        # ------------------------------------------------------------------
+        # Phase 0c: catalog database (SHA-256 exact match)
+        # ------------------------------------------------------------------
+        with get_connection(paths.db_path) as _conn:
+            _sha_row = _conn.execute(
+                "SELECT digest_sha256 FROM resources WHERE id = ? LIMIT 1",
+                (task.resource_id,),
+            ).fetchone()
+            _sha256 = _sha_row["digest_sha256"] if _sha_row else None
+        catalog_hits = catalog_urls_for_sha256(_sha256)
+        if catalog_hits:
+            merged = merge_urls(task.download_urls_json, catalog_hits)
+            if is_external_url(pick_primary(merged)):
+                save_resource_urls(paths.db_path, task, merged)
+                print(f"  ✓ phase0c (catalog db SHA-256): {pick_primary(merged)}")
+                recovered["phase0c"] += 1
+                continue
+        elif verbose:
+            print("  [0c] no match in catalog database")
+
+        # ------------------------------------------------------------------
+        # Phase 0: browser download history (Safari / Chromium / Firefox)
+        # ------------------------------------------------------------------
+        archive_size_0: int | None = None
+        try:
+            archive_size_0 = archive_file.stat().st_size
+        except OSError:
+            pass
+        browser_hits = browser_history_urls_for_file(
+            original_filename=task.original_filename,
+            archive_size=archive_size_0,
+            source_uri=task.source_uri,
+            archive_file=archive_file,
+            browser_records=browser_records,
+        )
+        if browser_hits:
+            merged = merge_urls(task.download_urls_json, browser_hits)
+            if is_external_url(pick_primary(merged)):
+                save_resource_urls(paths.db_path, task, merged)
+                print(f"  ✓ phase0 (browser history): {pick_primary(merged)}")
+                recovered["phase0"] += 1
+                continue
+        elif verbose:
+            print("  [0] no match in browser download histories")
 
         # ------------------------------------------------------------------
         # Phase 1: xattrs on the archived copy
@@ -1483,9 +2186,25 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
             print("  [5] manifest root not available; skipping")
 
         # ------------------------------------------------------------------
-        # Phase 6a: PDF metadata / embedded hyperlinks (local, no network)
+        # Phase 6a: HTML canonical/og:url tags (local, no network)
         # ------------------------------------------------------------------
-        if HAVE_FITZ:
+        html_ext = archive_file.suffix.lower() in (".html", ".htm", ".xhtml")
+        if html_ext:
+            if verbose:
+                print(f"  [6a] extracting canonical/og:url tags from {archive_file.name}")
+            html_urls = html_canonical_urls(archive_file)
+            if html_urls:
+                merged = merge_urls(task.download_urls_json, html_urls)
+                if is_external_url(pick_primary(merged)):
+                    save_resource_urls(paths.db_path, task, merged)
+                    print(f"  ✓ phase6a (HTML canonical): {pick_primary(merged)}")
+                    recovered["phase6a"] += 1
+                    continue
+            elif verbose:
+                print("  [6a] no canonical/og:url tags found in HTML")
+
+        # Phase 6a (PDF): PDF metadata / embedded hyperlinks (local, no network)
+        if not html_ext and HAVE_FITZ:
             if verbose:
                 print(f"  [6a] extracting PDF metadata and embedded links from {archive_file.name}")
             meta_urls = pdf_metadata_urls(archive_file)
@@ -1498,7 +2217,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     continue
             elif verbose:
                 print("  [6a] no URLs found in PDF metadata")
-        elif verbose:
+        elif not html_ext and verbose:
             print("  [6a] PyMuPDF not available; skipping")
 
         # ------------------------------------------------------------------
@@ -1586,12 +2305,13 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
 
     total_recovered = sum(recovered.values())
     print("\nRecovery summary:")
+    print(f"  phase0 browser history:   {recovered['phase0']}")
     print(f"  phase1 archive xattr:     {recovered['phase1']}")
     print(f"  phase2 source_uri:        {recovered['phase2']}")
     print(f"  phase3 Downloads xattr:   {recovered['phase3']}")
     print(f"  phase4 reference entry:   {recovered['phase4']}")
     print(f"  phase5 manifest scan:     {recovered['phase5']}")
-    print(f"  phase6a PDF metadata:     {recovered['phase6a']}")
+    print(f"  phase6a HTML canonical/PDF: {recovered['phase6a']}")
     print(f"  phase6b Wayback SHA1:     {recovered['phase6b']}")
     print(f"  phase7 extracted text:    {recovered['phase7']}")
     print(f"  phase8 web query:         {recovered['phase8']}")
@@ -1675,6 +2395,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Delete the already-attempted cache before running, forcing Wayback re-lookup for all resources",
+    )
+    parser.add_argument(
+        "--local-only",
+        action="store_true",
+        default=False,
+        help=(
+            "Disable all network requests (phases 6b Wayback and 8 web search). "
+            "Use this during development or when offline. "
+            "Equivalent to --no-enable-wayback-lookup --no-enable-web-search."
+        ),
     )
     return parser
 

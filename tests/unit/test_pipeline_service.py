@@ -1,11 +1,14 @@
 from pathlib import Path
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.structured_data_repo import StructuredDataRepo
 from stemmacodicum.infrastructure.db.sqlite import initialize_schema
 
 
@@ -43,6 +46,12 @@ def test_mass_import_pipeline_recurses_and_processes_supported_files(tmp_path: P
         ingestion_service=ingestion,
         extraction_service=extraction,
         extraction_repo=extraction_repo,
+        policy_service=IngestionPolicyService(),
+        structured_data_service=StructuredDataService(
+            resource_repo=resource_repo,
+            structured_repo=StructuredDataRepo(db_path),
+            archive_dir=archive_dir,
+        ),
         state_path=tmp_path / "state.json",
         log_path=tmp_path / "run.log.jsonl",
     )
@@ -86,6 +95,12 @@ def test_financial_pipeline_reports_already_processed(tmp_path: Path) -> None:
         ingestion_service=ingestion,
         extraction_service=extraction,
         extraction_repo=extraction_repo,
+        policy_service=IngestionPolicyService(),
+        structured_data_service=StructuredDataService(
+            resource_repo=resource_repo,
+            structured_repo=StructuredDataRepo(db_path),
+            archive_dir=archive_dir,
+        ),
         state_path=tmp_path / "state.json",
         log_path=tmp_path / "run.log.jsonl",
     )

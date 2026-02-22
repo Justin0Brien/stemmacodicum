@@ -175,6 +175,30 @@ class QdrantLocalStore:
             return 0
         return int(getattr(result, "count", 0))
 
+    def delete_points_for_resource_ids(self, resource_ids: list[str]) -> int:
+        ids = [rid.strip() for rid in resource_ids if rid and rid.strip()]
+        if not ids:
+            return 0
+        client, models = self._client_and_models()
+        before = self.count_points()
+        for rid in ids:
+            query_filter = models.Filter(
+                must=[
+                    models.FieldCondition(
+                        key="resource_id",
+                        match=models.MatchValue(value=rid),
+                    )
+                ]
+            )
+            selector = models.FilterSelector(filter=query_filter)
+            client.delete(
+                collection_name=self.collection_name,
+                points_selector=selector,
+                wait=True,
+            )
+        after = self.count_points()
+        return max(0, int(before) - int(after))
+
     def _client_and_models(self):
         if self._client is not None and self._models is not None:
             return self._client, self._models

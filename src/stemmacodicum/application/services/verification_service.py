@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass
 
 from stemmacodicum.application.services.evidence_binding_service import EvidenceBindingService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.core.errors import VerificationError
 from stemmacodicum.core.ids import new_uuid
 from stemmacodicum.core.time import now_utc_iso
@@ -39,12 +40,14 @@ class VerificationService:
         extraction_repo: ExtractionRepo,
         verification_repo: VerificationRepo,
         binding_service: EvidenceBindingService,
+        structured_data_service: StructuredDataService | None = None,
     ) -> None:
         self.claim_repo = claim_repo
         self.evidence_repo = evidence_repo
         self.extraction_repo = extraction_repo
         self.verification_repo = verification_repo
         self.binding_service = binding_service
+        self.structured_data_service = structured_data_service
 
     def verify_claim(self, claim_id: str, policy_profile: str = "strict") -> VerifyClaimOutcome:
         claim = self.claim_repo.get_claim_by_id(claim_id)
@@ -226,6 +229,68 @@ class VerificationService:
                 },
             )
 
+        dataset_matches: list[dict[str, object]] = []
+        dataset_failures: list[str] = []
+        for item, selectors in bundle:
+            for selector in selectors:
+                if selector.selector_type != "DataCellSelector":
+                    continue
+                if self.structured_data_service is None:
+                    dataset_failures.append("structured_data_service_unavailable")
+                    continue
+                try:
+                    payload = json.loads(selector.selector_json)
+                    match = self.structured_data_service.resolve_data_cell(item.resource_id, payload)
+                    resolved_numeric = _parse_numeric(match.value_raw)
+                    if resolved_numeric is None:
+                        dataset_failures.append(
+                            f"dataset_numeric_parse_failed:{item.resource_id}:{match.table_name}:{match.column_name}"
+                        )
+                        continue
+                    dataset_matches.append(
+                        {
+                            "resource_id": item.resource_id,
+                            "table_name": match.table_name,
+                            "row_number": match.row_number,
+                            "column_name": match.column_name,
+                            "column_index": match.column_index,
+                            "value_raw": match.value_raw,
+                            "value_parsed": resolved_numeric,
+                        }
+                    )
+                except Exception as exc:
+                    dataset_failures.append(str(exc))
+
+        if dataset_matches:
+            if all(abs(float(m["value_parsed"]) - actual) > 1e-9 for m in dataset_matches):
+                return (
+                    "fail",
+                    {
+                        "reason": "cross_source_mismatch",
+                        "pdf_table_value": actual,
+                        "dataset_values": [m["value_parsed"] for m in dataset_matches],
+                        "dataset_matches": dataset_matches,
+                    },
+                )
+            if any(abs(float(m["value_parsed"]) - expected) > 1e-9 for m in dataset_matches):
+                return (
+                    "fail",
+                    {
+                        "reason": "dataset_claim_mismatch",
+                        "expected": expected,
+                        "dataset_values": [m["value_parsed"] for m in dataset_matches],
+                        "dataset_matches": dataset_matches,
+                    },
+                )
+        elif dataset_failures:
+            return (
+                "fail",
+                {
+                    "reason": "dataset_selector_failed",
+                    "errors": dataset_failures[:25],
+                },
+            )
+
         # Optional semantic checks where provided by selector and claim.
         units = table_selector_payload.get("units") or {}
         period = table_selector_payload.get("period") or {}
@@ -247,11 +312,12 @@ class VerificationService:
         return (
             "pass",
             {
-                "reason": "quantitative_match",
+                "reason": "quantitative_match_cross_source" if dataset_matches else "quantitative_match",
                 "table_id": table_id,
                 "row_index": row_index,
                 "col_index": col_index,
                 "value": actual,
+                "dataset_matches": dataset_matches,
             },
         )
 

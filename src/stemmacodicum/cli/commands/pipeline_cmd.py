@@ -9,9 +9,11 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
 from stemmacodicum.application.services.project_service import ProjectService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.cli.context import CLIContext
 from stemmacodicum.cli.docling_options import add_docling_runtime_args, get_docling_runtime_options
@@ -19,6 +21,7 @@ from stemmacodicum.core.errors import ProjectNotInitializedError
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.structured_data_repo import StructuredDataRepo
 from stemmacodicum.infrastructure.db.repos.vector_repo import VectorRepo
 from stemmacodicum.infrastructure.vector.chunking import VectorChunker
 from stemmacodicum.infrastructure.vector.embeddings import EmbeddingConfig, SentenceTransformerEmbedder
@@ -72,6 +75,13 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
 
     resource_repo = ResourceRepo(ctx.paths.db_path)
     extraction_repo = ExtractionRepo(ctx.paths.db_path)
+    policy_service = IngestionPolicyService()
+    structured_data_service = StructuredDataService(
+        resource_repo=resource_repo,
+        structured_repo=StructuredDataRepo(ctx.paths.db_path),
+        archive_dir=ctx.paths.archive_dir,
+        policy_service=policy_service,
+    )
 
     ingestion_service = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(ctx.paths.archive_dir))
     vector_service = VectorIndexingService(
@@ -105,6 +115,8 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
         ingestion_service=ingestion_service,
         extraction_service=extraction_service,
         extraction_repo=extraction_repo,
+        policy_service=policy_service,
+        structured_data_service=structured_data_service,
         state_path=state_path,
         log_path=log_path,
     )
@@ -233,6 +245,9 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
         f"  ├─ Ingested: {stats.ingested}",
         f"  ├─ Duplicates: {stats.duplicates}",
         f"  ├─ Extracted: {stats.extracted}",
+        f"  ├─ Structured profiled: {stats.structured_profiled}",
+        f"  ├─ Structured profile failed: {stats.structured_profile_failed}",
+        f"  ├─ Structured profile skipped: {stats.structured_profile_skipped}",
         f"  ├─ Skipped extraction: {stats.skipped_extraction}",
         f"  └─ Failed: {stats.failed}",
         f"Remaining unprocessed candidates: {stats.remaining_unprocessed}",

@@ -33,10 +33,12 @@ from stemmacodicum.application.services.extraction_service import (
 )
 from stemmacodicum.application.services.health_service import HealthService
 from stemmacodicum.application.services.ingestion_service import IngestionService
+from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.pipeline_service import FinancialPipelineService
 from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.application.services.reference_service import ReferenceService
 from stemmacodicum.application.services.reporting_service import ReportingService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.application.services.trace_service import TraceService
 from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.application.services.verification_service import VerificationService
@@ -49,6 +51,7 @@ from stemmacodicum.infrastructure.db.repos.evidence_repo import EvidenceRepo
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.reference_repo import ReferenceRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.structured_data_repo import StructuredDataRepo
 from stemmacodicum.infrastructure.db.repos.vector_repo import VectorRepo
 from stemmacodicum.infrastructure.db.repos.verification_repo import VerificationRepo
 from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
@@ -151,6 +154,18 @@ class VectorBackfillRequest(BaseModel):
     max_process: int | None = None
 
 
+class StructuredProfileRequest(BaseModel):
+    resource_id: str | None = None
+    resource_digest: str | None = None
+    force: bool = False
+
+
+class StructuredCellLookupRequest(BaseModel):
+    resource_id: str | None = None
+    resource_digest: str | None = None
+    selector: dict[str, Any]
+
+
 class ResourceTitleUpdateRequest(BaseModel):
     title: str | None = None
     title_candidates: list[str] | None = None
@@ -213,7 +228,9 @@ def create_app(paths: AppPaths) -> FastAPI:
     project_service = ProjectService(paths)
     project_service.init_project()
     vector_service_cache: VectorIndexingService | None = None
+    structured_service_cache: StructuredDataService | None = None
     source_recovery_module_cache: Any | None = None
+    policy_service = IngestionPolicyService()
 
     def get_resource_repo() -> ResourceRepo:
         return ResourceRepo(paths.db_path)
@@ -240,6 +257,17 @@ def create_app(paths: AppPaths) -> FastAPI:
             archive_dir=paths.archive_dir,
             vector_indexing_service=get_vector_service(),
         )
+
+    def get_structured_service() -> StructuredDataService:
+        nonlocal structured_service_cache
+        if structured_service_cache is None:
+            structured_service_cache = StructuredDataService(
+                resource_repo=get_resource_repo(),
+                structured_repo=StructuredDataRepo(paths.db_path),
+                archive_dir=paths.archive_dir,
+                policy_service=policy_service,
+            )
+        return structured_service_cache
 
     def get_vector_service() -> VectorIndexingService:
         nonlocal vector_service_cache
@@ -300,6 +328,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             extraction_repo=get_extraction_repo(),
             verification_repo=get_verification_repo(),
             binding_service=get_binding_service(),
+            structured_data_service=get_structured_service(),
         )
 
     def get_reporting_service() -> ReportingService:
@@ -442,7 +471,47 @@ def create_app(paths: AppPaths) -> FastAPI:
                 raise ExtractionCancelledError(f"{context} cancelled by control request.")
 
         ensure_not_cancelled("extraction scheduling")
-        if not DoclingAdapter.supports(media_type, original_filename):
+        decision = policy_service.decide(media_type=media_type, original_filename=original_filename)
+        if decision.resource_kind == "structured_data":
+            structured_summary: dict[str, Any] | None = None
+            try:
+                structured_summary = _jsonable(get_structured_service().profile_resource(resource_id, force=False))
+            except Exception as exc:
+                structured_summary = {"status": "failed", "error": str(exc)}
+            emit_stage(
+                progress_callback,
+                stage="extract",
+                state="skipped",
+                progress=100,
+                detail="Structured data policy skips narrative extraction.",
+            )
+            emit_stage(
+                progress_callback,
+                stage="tables",
+                state="done" if structured_summary and structured_summary.get("status") == "success" else "skipped",
+                progress=100,
+                detail=(
+                    "Structured data profile persisted."
+                    if structured_summary and structured_summary.get("status") == "success"
+                    else "Structured data profile unavailable."
+                ),
+            )
+            emit_stage(
+                progress_callback,
+                stage="vector",
+                state="skipped",
+                progress=100,
+                detail="Structured data policy skips vector indexing.",
+            )
+            return {
+                "attempted": False,
+                "status": "skipped",
+                "reason": "structured_data_policy",
+                "policy": _jsonable(decision),
+                "structured": structured_summary,
+            }
+
+        if not decision.should_extract_auto:
             emit_stage(
                 progress_callback,
                 stage="extract",
@@ -464,7 +533,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                 progress=100,
                 detail="No extraction means no vector indexing.",
             )
-            return {"attempted": False, "status": "skipped", "reason": "media_type_not_extractable"}
+            return {"attempted": False, "status": "skipped", "reason": "media_type_not_extractable", "policy": _jsonable(decision)}
 
         existing = get_extraction_repo().list_recent_runs(resource_id, limit=1)
         if existing:
@@ -544,26 +613,36 @@ def create_app(paths: AppPaths) -> FastAPI:
                 ),
             )
             vector_summary: dict[str, Any] | None = None
-            try:
-                ensure_not_cancelled("vector scheduling")
-                vector_summary = _jsonable(
-                    get_vector_service().index_extraction(
-                        resource_id=resource_id,
-                        extraction_run_id=run_id,
-                        force=False,
-                        progress_callback=progress_callback,
+            if decision.should_vector_auto:
+                try:
+                    ensure_not_cancelled("vector scheduling")
+                    vector_summary = _jsonable(
+                        get_vector_service().index_extraction(
+                            resource_id=resource_id,
+                            extraction_run_id=run_id,
+                            force=False,
+                            progress_callback=progress_callback,
+                        )
                     )
+                    ensure_not_cancelled("vector indexing")
+                except ExtractionCancelledError:
+                    raise
+                except Exception as exc:
+                    vector_summary = {
+                        "status": "failed",
+                        "error": str(exc),
+                        "chunks_total": 0,
+                        "chunks_indexed": 0,
+                    }
+            else:
+                emit_stage(
+                    progress_callback,
+                    stage="vector",
+                    state="skipped",
+                    progress=100,
+                    detail="Vector indexing disabled by ingestion policy.",
                 )
-                ensure_not_cancelled("vector indexing")
-            except ExtractionCancelledError:
-                raise
-            except Exception as exc:
-                vector_summary = {
-                    "status": "failed",
-                    "error": str(exc),
-                    "chunks_total": 0,
-                    "chunks_indexed": 0,
-                }
+                vector_summary = {"status": "skipped", "reason": "policy_disabled"}
             return {
                 "attempted": False,
                 "status": "skipped",
@@ -571,6 +650,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "extraction_run_id": run_id,
                 "summary": existing_summary,
                 "vector": vector_summary,
+                "policy": _jsonable(decision),
             }
 
         try:
@@ -608,6 +688,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             "attempted": True,
             "status": "extracted",
             "summary": _jsonable(summary),
+            "policy": _jsonable(decision),
         }
 
     def _sse_event(event: str, payload: dict[str, Any]) -> str:
@@ -2847,6 +2928,56 @@ def create_app(paths: AppPaths) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "summary": _jsonable(summary)}
 
+    @app.post("/api/structured/profile")
+    def api_structured_profile(req: StructuredProfileRequest) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(req.resource_id, req.resource_digest)
+            summary = get_structured_service().profile_resource(target_id, force=req.force)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "summary": _jsonable(summary)}
+
+    @app.get("/api/structured/catalog")
+    def api_structured_catalog(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            catalog = get_structured_service().get_catalog(target_id)
+            tables = get_structured_service().list_tables(target_id, limit=200)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "ok": True,
+            "resource_id": target_id,
+            "catalog": catalog,
+            "table_count": len(tables),
+            "tables": tables,
+        }
+
+    @app.get("/api/structured/tables")
+    def api_structured_tables(
+        resource_id: str | None = None,
+        resource_digest: str | None = None,
+        limit: int = Query(default=200, ge=1, le=5000),
+    ) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(resource_id, resource_digest)
+            tables = get_structured_service().list_tables(target_id, limit=limit)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "resource_id": target_id, "count": len(tables), "tables": tables}
+
+    @app.post("/api/structured/cell-lookup")
+    def api_structured_cell_lookup(req: StructuredCellLookupRequest) -> dict[str, Any]:
+        try:
+            target_id = _resolve_extract_resource_id(req.resource_id, req.resource_digest)
+            match = get_structured_service().resolve_data_cell(target_id, req.selector)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"ok": True, "match": _jsonable(match)}
+
     def _resolve_extract_resource_id(resource_id: str | None, resource_digest: str | None) -> str:
         if resource_id:
             return resource_id
@@ -3142,10 +3273,18 @@ def create_app(paths: AppPaths) -> FastAPI:
         }
 
     def run_mass_import(req: PipelineRequest) -> dict[str, Any]:
+        resource_repo = get_resource_repo()
         pipeline = FinancialPipelineService(
             ingestion_service=get_ingestion_service(),
             extraction_service=get_extraction_service(),
             extraction_repo=get_extraction_repo(),
+            policy_service=policy_service,
+            structured_data_service=StructuredDataService(
+                resource_repo=resource_repo,
+                structured_repo=StructuredDataRepo(paths.db_path),
+                archive_dir=paths.archive_dir,
+                policy_service=policy_service,
+            ),
             state_path=paths.stemma_dir / "mass_import_state.json",
             log_path=paths.stemma_dir / "mass_import.log.jsonl",
         )

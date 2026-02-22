@@ -6,6 +6,12 @@ Strategy (in order):
               Match by SHA-256 digest; follow bib_object_links to bib_entries
               to retrieve url_normalized / doi_normalized.  Skipped when the
               catalog file is absent.  Fully deterministic — no heuristics.
+  Phase 0b – University-finance-page discovery data (discovery.sqlite +
+              /Volumes/X10/data/uni-finance-pages-download/*.json)
+              Match document probes by exact filename (URL basename or
+              Content-Disposition) and file size within ±5 %.  These records
+              are direct observations of the documents on their original
+              hosting pages, so the URL is the genuine source URL.
   Phase 0 – Browser download histories (Safari, Arc/Chrome, Brave, Edge,
              Firefox) — matched by target path, filename + size, or filename +
              time proximity.  Highest-confidence source because these are
@@ -93,6 +99,13 @@ DEEP_SEARCH_DIRS: list[Path] = [
 # If this path does not exist the phase is silently skipped.
 CATALOG_DB: Path = Path("/Volumes/X10/data/sources/catalog.sqlite")
 
+# University-finance-page discovery data — used as Phase 0b.
+# Match is by filename (from URL or Content-Disposition) + size (±5 %).
+# Both sources contain the same underlying probe records; they are merged and
+# deduplicated.  Phases are silently skipped if neither source is available.
+DISCOVERY_DB: Path = Path("/Users/justin/code/util/web-tools/discovery.sqlite")
+UNIPAGE_JSON_DIR: Path = Path("/Volumes/X10/data/uni-finance-pages-download")
+
 
 @dataclass(slots=True)
 class ResourceTask:
@@ -103,6 +116,7 @@ class ResourceTask:
     download_url: str | None
     download_urls_json: str | None
     archived_relpath: str
+    size_bytes: int | None
     ref_title: str | None
     ref_author: str | None
     ref_url: str | None
@@ -118,6 +132,16 @@ class BrowserDownloadRecord:
     total_bytes: int    # Reported file size in bytes; -1 if unknown
     download_time: float  # Unix timestamp of download start; -1.0 if unknown
     referrer: str       # HTTP Referer URL (may be empty)
+
+
+@dataclass(slots=True)
+class DiscoveryRecord:
+    """A single probed document from the university-finance-page discovery data."""
+    final_url: str          # Fully resolved URL of the document
+    size_hint: int | None   # Content-Length in bytes as reported by the server
+    url_filename: str       # Basename of final_url (URL-decoded, lowercased)
+    cd_filename: str        # Filename from Content-Disposition (lowercased; '' if absent)
+    doc_kind: str           # e.g. "pdf", "xlsx"
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +174,7 @@ def load_resource_tasks(db_path: Path) -> list[ResourceTask]:
               r.download_url,
               r.download_urls_json,
               r.archived_relpath,
+              r.size_bytes,
               MIN(re.title)     AS ref_title,
               MIN(re.author)    AS ref_author,
               MIN(re.url)       AS ref_url,
@@ -172,6 +197,7 @@ def load_resource_tasks(db_path: Path) -> list[ResourceTask]:
                 download_url=row["download_url"],
                 download_urls_json=row["download_urls_json"],
                 archived_relpath=str(row["archived_relpath"] or ""),
+                size_bytes=row["size_bytes"],
                 ref_title=row["ref_title"],
                 ref_author=row["ref_author"],
                 ref_url=row["ref_url"],
@@ -193,6 +219,7 @@ def load_resource_task_by_id(db_path: Path, resource_id: str) -> ResourceTask | 
               r.download_url,
               r.download_urls_json,
               r.archived_relpath,
+              r.size_bytes,
               MIN(re.title)     AS ref_title,
               MIN(re.author)    AS ref_author,
               MIN(re.url)       AS ref_url,
@@ -216,6 +243,7 @@ def load_resource_task_by_id(db_path: Path, resource_id: str) -> ResourceTask | 
         download_url=row["download_url"],
         download_urls_json=row["download_urls_json"],
         archived_relpath=str(row["archived_relpath"] or ""),
+        size_bytes=row["size_bytes"],
         ref_title=row["ref_title"],
         ref_author=row["ref_author"],
         ref_url=row["ref_url"],
@@ -1166,6 +1194,190 @@ def catalog_urls_for_sha256(sha256: str | None, catalog_db: Path = CATALOG_DB) -
     return results
 
 
+# ---------------------------------------------------------------------------
+# Phase 0b: university-finance-page discovery data
+# ---------------------------------------------------------------------------
+
+_CD_FILENAME_RE = re.compile(
+    r"filename\*\s*=\s*UTF-8''([^;\s]+)"
+    r'|filename\s*=\s*"([^"]+)"'
+    r"|filename\s*=\s*([^;\s]+)",
+    flags=re.IGNORECASE,
+)
+_DISCOVERY_SIZE_TOLERANCE = 0.05   # ±5 %
+
+
+def _url_basename(url: str) -> str:
+    """Return the lowercase, URL-decoded filename component of *url*."""
+    try:
+        path = urllib.parse.urlparse(url).path
+        name = path.rstrip("/").rsplit("/", 1)[-1]
+        return urllib.parse.unquote(name).lower()
+    except Exception:
+        return ""
+
+
+def _cd_filename(cd: str) -> str:
+    """Extract the lowercase filename from a Content-Disposition header value."""
+    if not cd:
+        return ""
+    m = _CD_FILENAME_RE.search(cd)
+    if not m:
+        return ""
+    raw = m.group(1) or m.group(2) or m.group(3) or ""
+    try:
+        raw = urllib.parse.unquote(raw.strip())
+    except Exception:
+        pass
+    return raw.lower()
+
+
+_discovery_records_cache: list[DiscoveryRecord] | None = None
+
+
+def load_discovery_records(
+    discovery_db: Path = DISCOVERY_DB,
+    json_dir: Path = UNIPAGE_JSON_DIR,
+    *,
+    force_reload: bool = False,
+) -> list[DiscoveryRecord]:
+    """Build an in-memory list of document records from discovery.sqlite and JSON snapshots.
+
+    Both sources are read and merged; entries are deduplicated by ``final_url``.
+    Results are cached for the lifetime of the process.  Either or both sources
+    may be absent; the function returns an empty list when neither is available.
+    """
+    global _discovery_records_cache
+    if _discovery_records_cache is not None and not force_reload:
+        return _discovery_records_cache
+
+    records: list[DiscoveryRecord] = []
+    seen_urls: set[str] = set()
+
+    def _add(final_url: str, size_hint: object, cd: str, doc_kind: str) -> None:
+        url = (final_url or "").strip()
+        if not url or url in seen_urls:
+            return
+        seen_urls.add(url)
+        sh: int | None = None
+        try:
+            v = int(size_hint)  # type: ignore[arg-type]
+            if v > 0:
+                sh = v
+        except (TypeError, ValueError):
+            pass
+        records.append(DiscoveryRecord(
+            final_url=url,
+            size_hint=sh,
+            url_filename=_url_basename(url),
+            cd_filename=_cd_filename(cd or ""),
+            doc_kind=str(doc_kind or ""),
+        ))
+
+    # 1. discovery.sqlite (primary — more structured, includes uni metadata)
+    if discovery_db.exists():
+        try:
+            conn = sqlite3.connect(f"file:{discovery_db}?mode=ro", uri=True)
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT pr.final_url,
+                           pr.size_hint,
+                           pr.content_disposition,
+                           pr.doc_kind
+                    FROM   probes pr
+                    WHERE  pr.is_document = 1
+                      AND  pr.final_url IS NOT NULL
+                      AND  pr.final_url != ''
+                    """
+                ).fetchall()
+            finally:
+                conn.close()
+            for row in rows:
+                _add(
+                    row["final_url"],
+                    row["size_hint"],
+                    row["content_disposition"] or "",
+                    row["doc_kind"] or "",
+                )
+        except Exception:
+            pass
+
+    # 2. JSON snapshots (supplement / fallback for any extra records)
+    if json_dir.is_dir():
+        try:
+            for jf in sorted(json_dir.iterdir()):
+                if jf.suffix.lower() != ".json":
+                    continue
+                try:
+                    data = json.loads(jf.read_text(encoding="utf-8", errors="replace"))
+                except Exception:
+                    continue
+                for doc in data.get("documents_found_by_probe", []):
+                    _add(
+                        doc.get("final_url") or doc.get("url", ""),
+                        doc.get("size_hint"),
+                        doc.get("content_disposition", ""),
+                        doc.get("doc_kind", ""),
+                    )
+        except Exception:
+            pass
+
+    _discovery_records_cache = records
+    return records
+
+
+def discovery_urls_for_resource(
+    original_filename: str,
+    size_bytes: int | None,
+    records: list[DiscoveryRecord],
+) -> list[str]:
+    """Return source URLs from discovery probe records matching *original_filename*.
+
+    Matching logic (most-confident first):
+
+    1. Filename (URL basename or Content-Disposition) matches exactly
+       **and** file size agrees within ±5 % — high confidence.
+    2. Filename matches but size is unavailable on either side — lower confidence;
+       returned only when no high-confidence match exists.
+
+    Multiple URLs may be returned when several records match a filename+size.
+    The set is deduplicated; the caller should pass the result to
+    ``merge_url_lists`` / ``pick_primary`` as usual.
+    """
+    if not original_filename or not records:
+        return []
+    needle = original_filename.strip().lower()
+    high: list[str] = []
+    low: list[str] = []
+    seen: set[str] = set()
+    for rec in records:
+        name_match = (
+            rec.url_filename == needle
+            or (rec.cd_filename and rec.cd_filename == needle)
+        )
+        if not name_match:
+            continue
+        url = rec.final_url
+        if url in seen:
+            continue
+        if (
+            size_bytes and size_bytes > 0
+            and rec.size_hint and rec.size_hint > 0
+        ):
+            ratio = abs(size_bytes - rec.size_hint) / size_bytes
+            if ratio <= _DISCOVERY_SIZE_TOLERANCE:
+                seen.add(url)
+                high.append(url)
+            # If size mismatch is too large, skip entirely (different file).
+        else:
+            # One side has no size — still a useful candidate.
+            seen.add(url)
+            low.append(url)
+    return high if high else low
+
+
 def url_from_reference(task: ResourceTask) -> list[str]:
     """Return URL(s) directly recorded in a linked reference entry.
 
@@ -1601,6 +1813,32 @@ def recover_resource_by_id(
         }
     phase_done("phase0c", "No match in catalog database.", success=False)
 
+    # Phase 0b: university-finance-page discovery data
+    phase_start("phase0b", "Searching university-finance-page discovery data.")
+    discovery_records = load_discovery_records()
+    disc_found = discovery_urls_for_resource(
+        task.original_filename, task.size_bytes, discovery_records
+    )
+    if verbose:
+        print(
+            f"  [phase0b] {len(discovery_records)} discovery record(s); "
+            f"found {len(disc_found)} candidate URL(s)"
+        )
+    if disc_found:
+        working_urls = merge_url_lists(working_urls, disc_found)
+        phase_done("phase0b", "Recovered from discovery probe records.", success=True, urls=disc_found)
+        persist_urls_if_any()
+        return {
+            "ok": True,
+            "resource_id": task.resource_id,
+            "selected_phase": selected_phase,
+            "resolved_url": pick_primary(working_urls),
+            "urls": working_urls,
+            "phase_logs": phase_logs,
+            "blocked_reason": blocked_reason,
+        }
+    phase_done("phase0b", "No match in discovery probe records.", success=False)
+
     # Phase 0: browser download history (Safari / Chromium / Firefox)
     phase_start("phase0", "Searching browser download histories.")
     arch_size: int | None = None
@@ -1984,6 +2222,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
 
     recovered: dict[str, int] = {
         "phase0c": 0,
+        "phase0b": 0,
         "phase0": 0,
         "phase1": 0, "phase2": 0, "phase3": 0,
         "phase4": 0, "phase5": 0, "phase6a": 0, "phase6b": 0,
@@ -1999,6 +2238,13 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
         f"Chrome/Chromium/Brave/Edge: {sum(1 for r in browser_records if r.browser not in ('safari', 'firefox'))} records  "
         f"Firefox: {sum(1 for r in browser_records if r.browser == 'firefox')} records\n"
     )
+
+    # Load discovery probe records once (discovery.sqlite + JSON snapshots).
+    print("Loading university-finance-page discovery records…")
+    discovery_records_all = load_discovery_records()
+    _disc_db = "present" if DISCOVERY_DB.exists() else "absent"
+    _disc_json = f"{sum(1 for f in UNIPAGE_JSON_DIR.iterdir() if f.suffix.lower() == '.json')} JSON files" if UNIPAGE_JSON_DIR.is_dir() else "absent"
+    print(f"  discovery.sqlite: {_disc_db};  JSON dir: {_disc_json};  {len(discovery_records_all)} document record(s) loaded\n")
 
     try:
       for index, task in enumerate(unresolved, start=1):
@@ -2029,6 +2275,22 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                 continue
         elif verbose:
             print("  [0c] no match in catalog database")
+
+        # ------------------------------------------------------------------
+        # Phase 0b: university-finance-page discovery probe records
+        # ------------------------------------------------------------------
+        disc_hits = discovery_urls_for_resource(
+            task.original_filename, task.size_bytes, discovery_records_all
+        )
+        if disc_hits:
+            merged = merge_urls(task.download_urls_json, disc_hits)
+            if is_external_url(pick_primary(merged)):
+                save_resource_urls(paths.db_path, task, merged)
+                print(f"  ✓ phase0b (discovery data): {pick_primary(merged)}")
+                recovered["phase0b"] += 1
+                continue
+        elif verbose:
+            print("  [0b] no match in discovery probe records")
 
         # ------------------------------------------------------------------
         # Phase 0: browser download history (Safari / Chromium / Firefox)
@@ -2305,16 +2567,18 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
 
     total_recovered = sum(recovered.values())
     print("\nRecovery summary:")
-    print(f"  phase0 browser history:   {recovered['phase0']}")
-    print(f"  phase1 archive xattr:     {recovered['phase1']}")
-    print(f"  phase2 source_uri:        {recovered['phase2']}")
-    print(f"  phase3 Downloads xattr:   {recovered['phase3']}")
-    print(f"  phase4 reference entry:   {recovered['phase4']}")
-    print(f"  phase5 manifest scan:     {recovered['phase5']}")
+    print(f"  phase0c catalog SHA-256:  {recovered['phase0c']}")
+    print(f"  phase0b discovery data:   {recovered['phase0b']}")
+    print(f"  phase0  browser history:  {recovered['phase0']}")
+    print(f"  phase1  archive xattr:    {recovered['phase1']}")
+    print(f"  phase2  source_uri:       {recovered['phase2']}")
+    print(f"  phase3  Downloads xattr:  {recovered['phase3']}")
+    print(f"  phase4  reference entry:  {recovered['phase4']}")
+    print(f"  phase5  manifest scan:    {recovered['phase5']}")
     print(f"  phase6a HTML canonical/PDF: {recovered['phase6a']}")
     print(f"  phase6b Wayback SHA1:     {recovered['phase6b']}")
-    print(f"  phase7 extracted text:    {recovered['phase7']}")
-    print(f"  phase8 web query:         {recovered['phase8']}")
+    print(f"  phase7  extracted text:   {recovered['phase7']}")
+    print(f"  phase8  web query:        {recovered['phase8']}")
     print(f"  ─────────────────────────")
     print(f"  total recovered:          {total_recovered}")
     print(f"  still unresolved:         {failed}")

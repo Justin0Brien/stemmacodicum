@@ -51,6 +51,20 @@ def register(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) ->
     backfill.add_argument("--max-process", type=int, default=None)
     backfill.set_defaults(handler=run_backfill)
 
+    prune = vector_subparsers.add_parser(
+        "prune-structured",
+        help="Remove structured-data (CSV/XLSX/XLS/ODS) vectors from Qdrant store",
+    )
+    prune.add_argument("--min-size-mb", type=float, default=0.0, help="Only prune resources >= this size (MB)")
+    prune.add_argument("--limit-resources", type=int, default=100000)
+    prune.add_argument(
+        "--dry-run",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Preview candidates without deleting points (default: enabled).",
+    )
+    prune.set_defaults(handler=run_prune_structured)
+
     migrate = vector_subparsers.add_parser(
         "migrate-server",
         help="Copy vectors from local Qdrant storage to a Qdrant server and activate server mode",
@@ -264,6 +278,44 @@ def run_backfill(args: argparse.Namespace, ctx: CLIContext) -> int:
         )
     )
     return 0 if summary.failed == 0 else 1
+
+
+def run_prune_structured(args: argparse.Namespace, ctx: CLIContext) -> int:
+    _require_initialized_project(ctx)
+    min_size_bytes = max(0, int(float(args.min_size_mb) * 1024 * 1024))
+    summary = _service(ctx).prune_structured_vectors(
+        min_size_bytes=min_size_bytes,
+        limit_resources=int(args.limit_resources),
+        dry_run=bool(args.dry_run),
+    )
+
+    overview_lines = [
+        f"Dry run: {summary.dry_run}",
+        f"Candidates: {summary.candidates}",
+        f"Points before: {summary.points_before}",
+        f"Points removed: {summary.points_removed}",
+        f"Points after: {summary.points_after}",
+        f"Runs marked pruned: {summary.runs_marked_pruned}",
+    ]
+    ctx.console.print(Panel.fit("\n".join(overview_lines), title="Structured Vector Prune"))
+
+    if summary.resources:
+        table = Table(title=f"Structured Vector Candidates ({len(summary.resources)})")
+        table.add_column("Resource ID")
+        table.add_column("Media")
+        table.add_column("Filename", overflow="fold")
+        table.add_column("Size bytes")
+        table.add_column("Chunk rows")
+        for item in summary.resources[:200]:
+            table.add_row(
+                str(item.get("resource_id") or ""),
+                str(item.get("media_type") or ""),
+                str(item.get("original_filename") or ""),
+                str(item.get("size_bytes") or 0),
+                str(item.get("chunk_rows") or 0),
+            )
+        ctx.console.print(table)
+    return 0
 
 
 def run_migrate_server(args: argparse.Namespace, ctx: CLIContext) -> int:

@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Callable
 
 from stemmacodicum.application.services.extraction_service import ExtractionService
+from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.ingestion_service import IngestionService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
 
@@ -22,6 +24,9 @@ class PipelineStats:
     ingested: int
     duplicates: int
     extracted: int
+    structured_profiled: int
+    structured_profile_failed: int
+    structured_profile_skipped: int
     skipped_extraction: int
     failed: int
     remaining_unprocessed: int
@@ -68,12 +73,16 @@ class BatchImportService:
         ingestion_service: IngestionService,
         extraction_service: ExtractionService,
         extraction_repo: ExtractionRepo,
+        policy_service: IngestionPolicyService | None,
+        structured_data_service: StructuredDataService | None,
         state_path: Path,
         log_path: Path,
     ) -> None:
         self.ingestion_service = ingestion_service
         self.extraction_service = extraction_service
         self.extraction_repo = extraction_repo
+        self.policy_service = policy_service or IngestionPolicyService()
+        self.structured_data_service = structured_data_service
         self.state_path = state_path
         self.log_path = log_path
 
@@ -153,6 +162,9 @@ class BatchImportService:
         ingested = 0
         duplicates = 0
         extracted = 0
+        structured_profiled = 0
+        structured_profile_failed = 0
+        structured_profile_skipped = 0
         skipped_extraction = 0
         failed = 0
         processed = 0
@@ -183,7 +195,32 @@ class BatchImportService:
                 parse_elapsed_seconds: float | None = None
                 page_count: int | None = None
                 pages_per_second: float | None = None
-                if run_extraction and DoclingAdapter.supports(
+                policy = self.policy_service.decide(
+                    media_type=ingest.resource.media_type,
+                    original_filename=ingest.resource.original_filename,
+                )
+
+                if policy.resource_kind == "structured_data":
+                    if not run_extraction:
+                        structured_profile_skipped += 1
+                        skipped_extraction += 1
+                        extract_status = "structured-skip:processing-disabled"
+                    elif self.structured_data_service is None:
+                        structured_profile_skipped += 1
+                        skipped_extraction += 1
+                        extract_status = "structured-skip:no-profiler"
+                    else:
+                        profile = self.structured_data_service.profile_resource(ingest.resource.id, force=False)
+                        if profile.status == "success":
+                            structured_profiled += 1
+                            extract_status = f"structured-profiled:{profile.table_count}"
+                        elif profile.status == "skipped":
+                            structured_profile_skipped += 1
+                            extract_status = "structured-profile-skip"
+                        else:
+                            structured_profile_failed += 1
+                            extract_status = f"structured-profile-failed:{profile.error or 'unknown'}"
+                elif run_extraction and policy.should_extract_auto and DoclingAdapter.supports(
                     ingest.resource.media_type,
                     ingest.resource.original_filename,
                 ):
@@ -270,6 +307,9 @@ class BatchImportService:
             ingested=ingested,
             duplicates=duplicates,
             extracted=extracted,
+            structured_profiled=structured_profiled,
+            structured_profile_failed=structured_profile_failed,
+            structured_profile_skipped=structured_profile_skipped,
             skipped_extraction=skipped_extraction,
             failed=failed,
             remaining_unprocessed=remaining_unprocessed,

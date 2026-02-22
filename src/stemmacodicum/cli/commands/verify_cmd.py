@@ -6,7 +6,9 @@ from pathlib import Path
 from rich.panel import Panel
 
 from stemmacodicum.application.services.evidence_binding_service import EvidenceBindingService
+from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.project_service import ProjectService
+from stemmacodicum.application.services.structured_data_service import StructuredDataService
 from stemmacodicum.application.services.verification_service import VerificationService
 from stemmacodicum.cli.context import CLIContext
 from stemmacodicum.core.errors import ProjectNotInitializedError
@@ -14,6 +16,7 @@ from stemmacodicum.infrastructure.db.repos.claim_repo import ClaimRepo
 from stemmacodicum.infrastructure.db.repos.evidence_repo import EvidenceRepo
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
+from stemmacodicum.infrastructure.db.repos.structured_data_repo import StructuredDataRepo
 from stemmacodicum.infrastructure.db.repos.verification_repo import VerificationRepo
 
 
@@ -53,6 +56,12 @@ def _service(ctx: CLIContext) -> VerificationService:
         resource_repo=resource_repo,
         evidence_repo=evidence_repo,
     )
+    structured_data_service = StructuredDataService(
+        resource_repo=resource_repo,
+        structured_repo=StructuredDataRepo(ctx.paths.db_path),
+        archive_dir=ctx.paths.archive_dir,
+        policy_service=IngestionPolicyService(),
+    )
 
     return VerificationService(
         claim_repo=claim_repo,
@@ -60,6 +69,7 @@ def _service(ctx: CLIContext) -> VerificationService:
         extraction_repo=extraction_repo,
         verification_repo=verification_repo,
         binding_service=binding_service,
+        structured_data_service=structured_data_service,
     )
 
 

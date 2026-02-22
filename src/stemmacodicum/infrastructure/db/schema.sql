@@ -368,6 +368,49 @@ CREATE TABLE IF NOT EXISTS resource_images (
     UNIQUE(resource_id, page_index, image_index)
 );
 
+CREATE TABLE IF NOT EXISTS structured_data_runs (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    data_format TEXT NOT NULL,
+    status TEXT NOT NULL,
+    scan_truncated INTEGER NOT NULL DEFAULT 0,
+    table_count INTEGER NOT NULL DEFAULT 0,
+    row_count_observed INTEGER NOT NULL DEFAULT 0,
+    config_json TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS structured_data_tables (
+    id TEXT PRIMARY KEY,
+    structured_run_id TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    sheet_name TEXT,
+    header_row_index INTEGER,
+    row_count_observed INTEGER NOT NULL DEFAULT 0,
+    scan_truncated INTEGER NOT NULL DEFAULT 0,
+    columns_json TEXT NOT NULL,
+    sample_rows_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (structured_run_id) REFERENCES structured_data_runs(id) ON DELETE RESTRICT,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
+CREATE TABLE IF NOT EXISTS structured_data_catalog (
+    resource_id TEXT PRIMARY KEY,
+    latest_run_id TEXT NOT NULL,
+    data_format TEXT NOT NULL,
+    table_count INTEGER NOT NULL DEFAULT 0,
+    row_count_observed INTEGER NOT NULL DEFAULT 0,
+    scan_truncated INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT,
+    FOREIGN KEY (latest_run_id) REFERENCES structured_data_runs(id) ON DELETE RESTRICT
+);
+
 CREATE INDEX IF NOT EXISTS idx_extraction_runs_resource_created
 ON extraction_runs(resource_id, created_at DESC);
 
@@ -412,6 +455,15 @@ ON import_jobs(queue_name, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_resource_images_resource_created
 ON resource_images(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_structured_data_runs_resource_created
+ON structured_data_runs(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_structured_data_tables_resource_created
+ON structured_data_tables(resource_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_structured_data_tables_run_table
+ON structured_data_tables(structured_run_id, table_name);
 
 CREATE TRIGGER IF NOT EXISTS block_delete_resources
 BEFORE DELETE ON resources
@@ -555,4 +607,22 @@ CREATE TRIGGER IF NOT EXISTS block_delete_resource_images
 BEFORE DELETE ON resource_images
 BEGIN
     SELECT RAISE(ABORT, 'DELETE disabled for resource_images');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_structured_data_runs
+BEFORE DELETE ON structured_data_runs
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for structured_data_runs');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_structured_data_tables
+BEFORE DELETE ON structured_data_tables
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for structured_data_tables');
+END;
+
+CREATE TRIGGER IF NOT EXISTS block_delete_structured_data_catalog
+BEFORE DELETE ON structured_data_catalog
+BEGIN
+    SELECT RAISE(ABORT, 'DELETE disabled for structured_data_catalog');
 END;

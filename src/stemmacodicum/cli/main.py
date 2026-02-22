@@ -10,6 +10,7 @@ from stemmacodicum.cli.commands import (
     bind_cmd,
     ceapf_cmd,
     claims_cmd,
+    data_cmd,
     doctor_cmd,
     extract_cmd,
     ingest_cmd,
@@ -51,6 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
     refs_cmd.register(subparsers)
     extract_cmd.register(subparsers)
     claims_cmd.register(subparsers)
+    data_cmd.register(subparsers)
     bind_cmd.register(subparsers)
     verify_cmd.register(subparsers)
     report_cmd.register(subparsers)

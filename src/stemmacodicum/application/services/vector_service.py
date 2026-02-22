@@ -36,7 +36,25 @@ class VectorBackfillSummary:
     failed: int
 
 
+@dataclass(slots=True)
+class VectorPruneSummary:
+    candidates: int
+    points_removed: int
+    points_before: int
+    points_after: int
+    runs_marked_pruned: int
+    dry_run: bool
+    resources: list[dict[str, object]]
+
+
 class VectorIndexingService:
+    STRUCTURED_VECTOR_MEDIA_TYPES = [
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/vnd.oasis.opendocument.spreadsheet",
+    ]
+
     def __init__(
         self,
         *,
@@ -490,6 +508,53 @@ class VectorIndexingService:
             "distinct_chunk_ids": self.vector_repo.count_distinct_chunk_ids(),
             "qdrant_points": qdrant_points,
         }
+
+    def prune_structured_vectors(
+        self,
+        *,
+        min_size_bytes: int = 0,
+        limit_resources: int = 100000,
+        dry_run: bool = True,
+    ) -> VectorPruneSummary:
+        resources = self.vector_repo.list_resources_with_vector_chunks(
+            media_types=self.STRUCTURED_VECTOR_MEDIA_TYPES,
+            min_size_bytes=min_size_bytes,
+            limit=limit_resources,
+        )
+        try:
+            points_before = self.vector_store.count_points()
+        except Exception:
+            points_before = 0
+        if dry_run or not resources:
+            return VectorPruneSummary(
+                candidates=len(resources),
+                points_removed=0,
+                points_before=points_before,
+                points_after=points_before,
+                runs_marked_pruned=0,
+                dry_run=dry_run,
+                resources=resources,
+            )
+
+        resource_ids = [str(item["resource_id"]) for item in resources]
+        removed = self.vector_store.delete_points_for_resource_ids(resource_ids)
+        try:
+            points_after = self.vector_store.count_points()
+        except Exception:
+            points_after = max(0, points_before - removed)
+        runs_marked = self.vector_repo.mark_runs_pruned(
+            resource_ids=resource_ids,
+            reason=f"pruned structured media vectors ({len(resource_ids)} resources)",
+        )
+        return VectorPruneSummary(
+            candidates=len(resources),
+            points_removed=removed,
+            points_before=points_before,
+            points_after=points_after,
+            runs_marked_pruned=runs_marked,
+            dry_run=False,
+            resources=resources,
+        )
 
     @staticmethod
     def _to_vector_chunk(

@@ -260,6 +260,63 @@ class VectorRepo:
             row = conn.execute("SELECT COUNT(DISTINCT chunk_id) AS c FROM vector_chunks").fetchone()
         return int(row["c"]) if row else 0
 
+    def list_resources_with_vector_chunks(
+        self,
+        *,
+        media_types: list[str],
+        min_size_bytes: int = 0,
+        limit: int = 100000,
+    ) -> list[dict[str, object]]:
+        if not media_types:
+            return []
+        placeholders = ",".join("?" for _ in media_types)
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    r.id AS resource_id,
+                    r.media_type AS media_type,
+                    r.original_filename AS original_filename,
+                    r.size_bytes AS size_bytes,
+                    COUNT(vc.id) AS chunk_rows
+                FROM resources r
+                JOIN vector_chunks vc ON vc.resource_id = r.id
+                WHERE r.media_type IN ({placeholders})
+                  AND r.size_bytes >= ?
+                GROUP BY r.id, r.media_type, r.original_filename, r.size_bytes
+                ORDER BY r.size_bytes DESC
+                LIMIT ?
+                """,
+                (*media_types, max(0, int(min_size_bytes)), max(1, int(limit))),
+            ).fetchall()
+        return [
+            {
+                "resource_id": str(row["resource_id"]),
+                "media_type": str(row["media_type"]),
+                "original_filename": str(row["original_filename"]),
+                "size_bytes": int(row["size_bytes"] or 0),
+                "chunk_rows": int(row["chunk_rows"] or 0),
+            }
+            for row in rows
+        ]
+
+    def mark_runs_pruned(self, *, resource_ids: list[str], reason: str) -> int:
+        if not resource_ids:
+            return 0
+        placeholders = ",".join("?" for _ in resource_ids)
+        with get_connection(self.db_path) as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE vector_index_runs
+                SET status = 'pruned',
+                    error_message = ?
+                WHERE resource_id IN ({placeholders})
+                """,
+                (reason, *resource_ids),
+            )
+            conn.commit()
+        return int(cursor.rowcount or 0)
+
     @staticmethod
     def _to_run(row) -> VectorIndexRun:
         return VectorIndexRun(

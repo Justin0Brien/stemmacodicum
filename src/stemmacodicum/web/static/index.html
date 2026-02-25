@@ -495,6 +495,29 @@
       position: relative;
       z-index: 1;
     }
+    .mass-import-fields {
+      align-items: flex-end;
+    }
+    .mass-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1 1 180px;
+      min-width: 160px;
+    }
+    .mass-input-group label {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+      font-weight: 600;
+      margin: 0;
+    }
+    .mass-input-group input,
+    .mass-input-group select {
+      width: 100%;
+      flex: 0 0 auto;
+    }
     input, textarea, button, select {
       font: inherit;
       border: 1px solid var(--border);
@@ -3383,14 +3406,26 @@
         <p class="small">No imports yet.</p>
       </div>
       <h3 class="dashboard-section-title">Mass Import (Recursive)</h3>
-      <div class="row">
-        <input id="pipe-root" value="/Volumes/X10/data/Institution" placeholder="Root directory" />
-        <input id="pipe-max" placeholder="Max files (optional)" value="25" />
-        <input id="pipe-timeout" placeholder="Extract timeout sec" value="300" />
-        <select id="pipe-skip">
-          <option value="false">extract enabled</option>
-          <option value="true">skip extraction</option>
-        </select>
+      <div class="row mass-import-fields">
+        <div class="mass-input-group">
+          <label for="pipe-root">Root directory</label>
+          <input id="pipe-root" value="/Volumes/X10/data/Institution" placeholder="Root directory" />
+        </div>
+        <div class="mass-input-group">
+          <label for="pipe-max">Max files this run</label>
+          <input id="pipe-max" placeholder="Max files (optional)" value="25" />
+        </div>
+        <div class="mass-input-group">
+          <label for="pipe-timeout">Extract timeout (seconds per file)</label>
+          <input id="pipe-timeout" placeholder="Extract timeout sec" value="300" />
+        </div>
+        <div class="mass-input-group">
+          <label for="pipe-skip">Extraction mode</label>
+          <select id="pipe-skip">
+            <option value="false">extract enabled</option>
+            <option value="true">skip extraction</option>
+          </select>
+        </div>
         <button class="secondary" onclick="runMassImport()">Run Mass Import</button>
       </div>
       <p class="small">Mass import recursively scans the root path and processes all supported document types.</p>
@@ -10450,6 +10485,12 @@ function importSetProgress(value, active = false) {
   bar.classList.toggle('active', active);
 }
 
+function importIsBackgroundQueueLiveView() {
+  const metaEl = document.querySelector('#import-live .import-meta');
+  const text = String(metaEl?.textContent || '').toLowerCase();
+  return text.includes('background queue');
+}
+
 function importRenderLive(meta, opts = {}) {
   const live = document.getElementById('import-live');
   if (!live) return;
@@ -10548,6 +10589,8 @@ function importStartAnimatedJob(meta) {
   });
 
   importProgressTimer = setInterval(() => {
+    // Do not overwrite real background queue telemetry with synthetic counters.
+    if (importIsBackgroundQueueLiveView()) return;
     stepProgress.archive = Math.min(98, stepProgress.archive + (Math.random() * 5.8 + 2.4));
     stepProgress.extract = Math.min(96, stepProgress.extract + (Math.random() * 4.9 + 1.6));
     stepProgress.tables = Math.min(95, stepProgress.tables + (Math.random() * 3.8 + 1.2));
@@ -10606,6 +10649,7 @@ function importStartAnimatedJob(meta) {
   }, 220);
 
   importCounterTimer = setInterval(() => {
+    if (importIsBackgroundQueueLiveView()) return;
     est.pages += Math.max(1, Math.floor(Math.random() * 2));
     est.words += Math.max(90, Math.floor(Math.random() * 240));
     est.sentences += Math.max(4, Math.floor(Math.random() * 11));

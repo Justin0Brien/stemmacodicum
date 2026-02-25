@@ -6,6 +6,10 @@ Strategy (in order):
               Match by SHA-256 digest; follow bib_object_links to bib_entries
               to retrieve url_normalized / doi_normalized.  Skipped when the
               catalog file is absent.  Fully deterministic — no heuristics.
+  Phase 0a – SHA-256 content match against re-downloaded university-finance
+              files (/Volumes/X10/data/uni-finance-pages-dl-files).  Builds a
+              sha256 → source_url index from the same JSON probe metadata used
+              in Phase 0b.  Most reliable post-0c method for renamed files.
   Phase 0b – University-finance-page discovery data (discovery.sqlite +
               /Volumes/X10/data/uni-finance-pages-download/*.json)
               Match document probes by exact filename (URL basename or
@@ -41,7 +45,9 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime
+import difflib
 import hashlib
 import html
 import html.parser
@@ -66,6 +72,23 @@ try:
     HAVE_FITZ = True
 except ImportError:
     HAVE_FITZ = False
+
+try:
+    from rich.console import Console as _RichConsole
+    from rich.progress import (
+        BarColumn as _RichBarColumn,
+        MofNCompleteColumn as _RichMofNColumn,
+        Progress as _RichProgress,
+        SpinnerColumn as _RichSpinnerColumn,
+        TextColumn as _RichTextColumn,
+        TimeElapsedColumn as _RichElapsedColumn,
+        TimeRemainingColumn as _RichRemainingColumn,
+    )
+    from rich.rule import Rule as _RichRule
+    from rich.table import Table as _RichTable
+    HAVE_RICH = True
+except ImportError:
+    HAVE_RICH = False
 
 from stemmacodicum.core.config import load_paths
 from stemmacodicum.infrastructure.db.sqlite import get_connection
@@ -105,6 +128,7 @@ CATALOG_DB: Path = Path("/Volumes/X10/data/sources/catalog.sqlite")
 # deduplicated.  Phases are silently skipped if neither source is available.
 DISCOVERY_DB: Path = Path("/Users/justin/code/util/web-tools/discovery.sqlite")
 UNIPAGE_JSON_DIR: Path = Path("/Volumes/X10/data/uni-finance-pages-download")
+UNIPAGE_DL_DIR: Path = Path("/Volumes/X10/data/uni-finance-pages-dl-files")
 
 
 @dataclass(slots=True)
@@ -117,6 +141,7 @@ class ResourceTask:
     download_urls_json: str | None
     archived_relpath: str
     size_bytes: int | None
+    digest_sha256: str | None
     ref_title: str | None
     ref_author: str | None
     ref_url: str | None
@@ -175,6 +200,7 @@ def load_resource_tasks(db_path: Path) -> list[ResourceTask]:
               r.download_urls_json,
               r.archived_relpath,
               r.size_bytes,
+              r.digest_sha256,
               MIN(re.title)     AS ref_title,
               MIN(re.author)    AS ref_author,
               MIN(re.url)       AS ref_url,
@@ -198,6 +224,7 @@ def load_resource_tasks(db_path: Path) -> list[ResourceTask]:
                 download_urls_json=row["download_urls_json"],
                 archived_relpath=str(row["archived_relpath"] or ""),
                 size_bytes=row["size_bytes"],
+                digest_sha256=row["digest_sha256"],
                 ref_title=row["ref_title"],
                 ref_author=row["ref_author"],
                 ref_url=row["ref_url"],
@@ -220,6 +247,7 @@ def load_resource_task_by_id(db_path: Path, resource_id: str) -> ResourceTask | 
               r.download_urls_json,
               r.archived_relpath,
               r.size_bytes,
+              r.digest_sha256,
               MIN(re.title)     AS ref_title,
               MIN(re.author)    AS ref_author,
               MIN(re.url)       AS ref_url,
@@ -244,6 +272,7 @@ def load_resource_task_by_id(db_path: Path, resource_id: str) -> ResourceTask | 
         download_urls_json=row["download_urls_json"],
         archived_relpath=str(row["archived_relpath"] or ""),
         size_bytes=row["size_bytes"],
+        digest_sha256=row["digest_sha256"],
         ref_title=row["ref_title"],
         ref_author=row["ref_author"],
         ref_url=row["ref_url"],
@@ -1378,6 +1407,273 @@ def discovery_urls_for_resource(
     return high if high else low
 
 
+# ---------------------------------------------------------------------------
+# Phase 0a: SHA-256 index of re-downloaded university-finance files
+# ---------------------------------------------------------------------------
+
+# Filenames too generic to use for URL attribution.
+_DL_JUNK_FILENAMES: frozenset[str] = frozenset({
+    "", "download", "index.php", "file.php", "display.aspx",
+    "view", "get", "dl", "f.txt", "document", "file", "attachment",
+    "index.html", "index.htm", "default.aspx", "default.php",
+})
+_dl_sha256_index_cache: dict[str, list[str]] | None = None
+_dl_size_index_cache: dict[int, list[tuple[Path, list[str]]]] | None = None
+
+
+def _sha256_file(path: Path) -> str:
+    """Return the lowercase hex SHA-256 digest of *path*'s full content."""
+    h = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_dl_sha256_index(
+    json_dir: Path = UNIPAGE_JSON_DIR,
+    dl_dir: Path = UNIPAGE_DL_DIR,
+    *,
+    force_rebuild: bool = False,
+) -> dict[str, list[str]]:
+    """Return a sha256 → [source_url] index built from the re-downloaded files.
+
+    Algorithm
+    ---------
+    1. Scan *dl_dir* recursively (one level of uni subdirectories) and build a
+       ``lowercase_filename → [Path]`` lookup.
+    2. Read every JSON probe file in *json_dir* to map ``final_url → local_path``
+       (same URL→filename logic as :func:`load_discovery_records`).
+    3. Hash each matched local file with SHA-256 and store
+       ``sha256_hex → [source_url]``.
+
+    The result is cached for the process lifetime.  An empty dict is returned
+    when either directory is absent.  Building the index reads all downloaded
+    files and can take up to a minute over a slow external drive.
+    """
+    global _dl_sha256_index_cache
+    if _dl_sha256_index_cache is not None and not force_rebuild:
+        return _dl_sha256_index_cache
+
+    if not dl_dir.is_dir() or not json_dir.is_dir():
+        _dl_sha256_index_cache = {}
+        return {}
+
+    # Step 1: lowercase filename → [Path]
+    dl_by_name: dict[str, list[Path]] = {}
+    for uni_dir in dl_dir.iterdir():
+        if not uni_dir.is_dir():
+            continue
+        for f in uni_dir.iterdir():
+            if f.is_file():
+                dl_by_name.setdefault(f.name.lower(), []).append(f)
+
+    # Step 2: file_path → set[source_url] from JSON probe metadata.
+    path_to_urls: dict[Path, set[str]] = {}
+    for jf in sorted(json_dir.iterdir()):
+        if jf.suffix.lower() != ".json":
+            continue
+        try:
+            data = json.loads(jf.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+        for doc in data.get("documents_found_by_probe", []):
+            url = doc.get("final_url") or doc.get("url", "")
+            if not url:
+                continue
+            bn = _url_basename(url)
+            if bn and bn not in _DL_JUNK_FILENAMES and bn in dl_by_name:
+                for p in dl_by_name[bn]:
+                    path_to_urls.setdefault(p, set()).add(url)
+            else:
+                cd_fn = _cd_filename(doc.get("content_disposition", "") or "")
+                if cd_fn and cd_fn not in _DL_JUNK_FILENAMES and cd_fn in dl_by_name:
+                    for p in dl_by_name[cd_fn]:
+                        path_to_urls.setdefault(p, set()).add(url)
+
+    # Step 3: hash each file and build sha256 → [url].
+    index: dict[str, list[str]] = {}
+    for file_path, urls in path_to_urls.items():
+        try:
+            sha = _sha256_file(file_path)
+        except OSError:
+            continue
+        existing = set(index.get(sha, []))
+        index[sha] = list(existing | urls)
+
+    _dl_sha256_index_cache = index
+    return index
+
+
+def build_dl_size_index(
+    json_dir: Path = UNIPAGE_JSON_DIR,
+    dl_dir: Path = UNIPAGE_DL_DIR,
+    *,
+    force_rebuild: bool = False,
+) -> dict[int, list[tuple[Path, list[str]]]]:
+    """Return a size_bytes → [(path, [source_url])] index built from the re-downloaded files.
+
+    Uses the same URL→filename mapping as :func:`build_dl_sha256_index` but
+    reads only file sizes (``stat().st_size``) instead of computing SHA-256 digests,
+    making it much faster to build.  Storing the file path alongside the URL
+    list allows callers to do text-content verification later.
+
+    The result is cached for the process lifetime.  An empty dict is returned
+    when either directory is absent.
+    """
+    global _dl_size_index_cache
+    if _dl_size_index_cache is not None and not force_rebuild:
+        return _dl_size_index_cache
+
+    if not dl_dir.is_dir() or not json_dir.is_dir():
+        _dl_size_index_cache = {}
+        return {}
+
+    # Step 1: lowercase filename → [Path]
+    dl_by_name: dict[str, list[Path]] = {}
+    for uni_dir in dl_dir.iterdir():
+        if not uni_dir.is_dir():
+            continue
+        for f in uni_dir.iterdir():
+            if f.is_file():
+                dl_by_name.setdefault(f.name.lower(), []).append(f)
+
+    # Step 2: file_path → set[source_url] from JSON probe metadata.
+    path_to_urls: dict[Path, set[str]] = {}
+    for jf in sorted(json_dir.iterdir()):
+        if jf.suffix.lower() != ".json":
+            continue
+        try:
+            data = json.loads(jf.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+        for doc in data.get("documents_found_by_probe", []):
+            url = doc.get("final_url") or doc.get("url", "")
+            if not url:
+                continue
+            bn = _url_basename(url)
+            if bn and bn not in _DL_JUNK_FILENAMES and bn in dl_by_name:
+                for p in dl_by_name[bn]:
+                    path_to_urls.setdefault(p, set()).add(url)
+            else:
+                cd_fn = _cd_filename(doc.get("content_disposition", "") or "")
+                if cd_fn and cd_fn not in _DL_JUNK_FILENAMES and cd_fn in dl_by_name:
+                    for p in dl_by_name[cd_fn]:
+                        path_to_urls.setdefault(p, set()).add(url)
+
+    # Step 3: stat each file and build size → [(path, [url])].
+    index: dict[int, list[tuple[Path, list[str]]]] = {}
+    for file_path, urls in path_to_urls.items():
+        try:
+            sz = file_path.stat().st_size
+        except OSError:
+            continue
+        index.setdefault(sz, []).append((file_path, list(urls)))
+
+    _dl_size_index_cache = index
+    return index
+
+
+def dl_urls_by_size(
+    size_bytes: int | None,
+    index: dict[int, list[tuple[Path, list[str]]]],
+    *,
+    tolerance: float = 0.02,
+) -> list[str]:
+    """Return source URLs from *index* whose file size is within *tolerance* of *size_bytes*.
+
+    A ±2% default tolerance accommodates minor PDF re-generation differences.
+    Returns an empty list when *size_bytes* is ``None`` or zero.
+    """
+    if not size_bytes:
+        return []
+    lo = size_bytes * (1.0 - tolerance)
+    hi = size_bytes * (1.0 + tolerance)
+    results: list[str] = []
+    seen: set[str] = set()
+    for sz, entries in index.items():
+        if lo <= sz <= hi:
+            for _path, urls in entries:
+                for u in urls:
+                    if u not in seen:
+                        seen.add(u)
+                        results.append(u)
+    return results
+
+
+def _pdf_text_fingerprint(path: Path, chars: int = 600) -> str:
+    """Extract, normalize and return the first *chars* characters of text from *path*.
+
+    Reads up to the first 5 pages using PyMuPDF.  Returns an empty string if
+    the file cannot be opened or yields no extractable text.  Requires
+    ``HAVE_FITZ``; callers should check that before calling.
+    """
+    try:
+        doc = fitz.open(str(path))
+    except Exception:
+        return ""
+    parts: list[str] = []
+    try:
+        for page_num in range(min(5, len(doc))):
+            parts.append(doc[page_num].get_text())
+    except Exception:
+        pass
+    finally:
+        doc.close()
+    raw = " ".join(parts)
+    normalized = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", raw.lower())).strip()
+    return normalized[:chars]
+
+
+def dl_urls_by_size_and_text(
+    size_bytes: int | None,
+    archive_path: Path,
+    index: dict[int, list[tuple[Path, list[str]]]],
+    *,
+    size_tolerance: float = 0.02,
+    min_similarity: float = 0.70,
+    fingerprint_chars: int = 600,
+) -> list[str]:
+    """Return URLs from *index* matched by size *and* PDF text content.
+
+    For each size-matched candidate file the first ``fingerprint_chars``
+    characters of normalized text are compared against the same extract from
+    *archive_path* using :func:`difflib.SequenceMatcher`.  Only candidates
+    whose similarity ratio meets *min_similarity* (default 0.70) are returned.
+
+    Falls back to :func:`dl_urls_by_size` when PyMuPDF is unavailable or
+    *archive_path* yields no extractable text.
+    """
+    if not size_bytes:
+        return []
+    if not HAVE_FITZ:
+        return dl_urls_by_size(size_bytes, index, tolerance=size_tolerance)
+
+    archive_fp = _pdf_text_fingerprint(archive_path, chars=fingerprint_chars)
+    if not archive_fp:
+        # Unreadable archive (HTML, password-protected, etc.) — fall back to size.
+        return dl_urls_by_size(size_bytes, index, tolerance=size_tolerance)
+
+    lo = size_bytes * (1.0 - size_tolerance)
+    hi = size_bytes * (1.0 + size_tolerance)
+    results: list[str] = []
+    seen: set[str] = set()
+    for sz, entries in index.items():
+        if not (lo <= sz <= hi):
+            continue
+        for cand_path, urls in entries:
+            cand_fp = _pdf_text_fingerprint(cand_path, chars=fingerprint_chars)
+            if not cand_fp:
+                continue
+            sim = difflib.SequenceMatcher(None, archive_fp, cand_fp, autojunk=False).ratio()
+            if sim >= min_similarity:
+                for u in urls:
+                    if u not in seen:
+                        seen.add(u)
+                        results.append(u)
+    return results
+
+
 def url_from_reference(task: ResourceTask) -> list[str]:
     """Return URL(s) directly recorded in a linked reference entry.
 
@@ -1787,17 +2083,9 @@ def recover_resource_by_id(
 
     # Phase 0c: catalog database (SHA-256 exact match)
     phase_start("phase0c", "Searching catalog database by SHA-256.")
-    sha256_val: str | None = None
-    with get_connection(db_path) as _conn:
-        _row = _conn.execute(
-            "SELECT digest_sha256 FROM resources WHERE id = ? LIMIT 1",
-            (task.resource_id,),
-        ).fetchone()
-        if _row:
-            sha256_val = _row["digest_sha256"]
-    catalog_found = catalog_urls_for_sha256(sha256_val)
+    catalog_found = catalog_urls_for_sha256(task.digest_sha256)
     if verbose:
-        print(f"  [phase0c] catalog={CATALOG_DB.exists()} sha256={sha256_val} → {len(catalog_found)} URL(s)")
+        print(f"  [phase0c] catalog={CATALOG_DB.exists()} sha256={task.digest_sha256} → {len(catalog_found)} URL(s)")
     if catalog_found:
         working_urls = merge_url_lists(working_urls, catalog_found)
         phase_done("phase0c", "Recovered from catalog database (SHA-256 match).", success=True, urls=catalog_found)
@@ -1812,6 +2100,52 @@ def recover_resource_by_id(
             "blocked_reason": blocked_reason,
         }
     phase_done("phase0c", "No match in catalog database.", success=False)
+
+    # Phase 0a: SHA-256 match against re-downloaded university-finance files
+    phase_start("phase0a", "Matching SHA-256 against downloaded university-finance files.")
+    dl_index = build_dl_sha256_index()
+    sha256_lower = str(task.digest_sha256 or "").lower()
+    dl_found = dl_index.get(sha256_lower, [])
+    if verbose:
+        print(
+            f"  [phase0a] index={len(dl_index)} entries; sha256={sha256_lower[:12]}… → {len(dl_found)} URL(s)"
+        )
+    if dl_found:
+        working_urls = merge_url_lists(working_urls, dl_found)
+        phase_done("phase0a", "Recovered from dl-files SHA-256 match.", success=True, urls=dl_found)
+        persist_urls_if_any()
+        return {
+            "ok": True,
+            "resource_id": task.resource_id,
+            "selected_phase": selected_phase,
+            "resolved_url": pick_primary(working_urls),
+            "urls": working_urls,
+            "phase_logs": phase_logs,
+            "blocked_reason": blocked_reason,
+        }
+    # Size + text fallback for server-regenerated PDFs where SHA-256 differs.
+    dl_size_index = build_dl_size_index()
+    size_found = dl_urls_by_size_and_text(task.size_bytes, archive_file, dl_size_index)
+    if verbose:
+        _method = "size+text" if HAVE_FITZ else "size-only"
+        print(
+            f"  [phase0a] {_method} fallback: size={task.size_bytes}B → {len(size_found)} URL(s)"
+        )
+    if size_found:
+        working_urls = merge_url_lists(working_urls, size_found)
+        _method_label = "size+text (SHA-256 fallback)" if HAVE_FITZ else "size-only (SHA-256 fallback)"
+        phase_done("phase0a", f"Recovered from dl-files {_method_label}.", success=True, urls=size_found)
+        persist_urls_if_any()
+        return {
+            "ok": True,
+            "resource_id": task.resource_id,
+            "selected_phase": selected_phase,
+            "resolved_url": pick_primary(working_urls),
+            "urls": working_urls,
+            "phase_logs": phase_logs,
+            "blocked_reason": blocked_reason,
+        }
+    phase_done("phase0a", "No SHA-256 or size match in downloaded university-finance files.", success=False)
 
     # Phase 0b: university-finance-page discovery data
     phase_start("phase0b", "Searching university-finance-page discovery data.")
@@ -2179,13 +2513,24 @@ def recover_resource_by_id(
 def run(args: argparse.Namespace) -> int:  # noqa: C901
     verbose: bool = args.verbose
 
+    # ── rich console setup ────────────────────────────────────────────────
+    _con = _RichConsole(highlight=False) if HAVE_RICH else None
+    _strip_re = re.compile(r"\[[^\]]*\]")
+
+    def rp(msg: str) -> None:
+        """Emit *msg* with rich markup when available, else as plain text."""
+        if _con is not None:
+            _con.print(msg, markup=True, highlight=False)
+        else:
+            print(_strip_re.sub("", msg))
+
     # --local-only: disable all network phases for offline/dev runs.
     if args.local_only:
         if args.enable_wayback_lookup:
             args.enable_wayback_lookup = False
         if args.enable_web_search:
             args.enable_web_search = False
-        print("[local-only mode] Phases 6b (Wayback) and 8 (web search) disabled.\n")
+        rp("[bold yellow]⚠ local-only mode[/bold yellow]  Phases 6b (Wayback) and 8 (web search) disabled.\n")
 
     paths = load_paths(Path(args.project_root))
 
@@ -2200,28 +2545,29 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
     if args.resource_id:
         unresolved = [t for t in unresolved if t.resource_id == args.resource_id]
 
-    print(f"Loaded {len(tasks)} resources from database.")
-    print(f"{len(unresolved)} resources need URL recovery.\n")
+    rp(f"Loaded [bold]{len(tasks)}[/bold] resources from database.")
+    rp(f"[bold cyan]{len(unresolved)}[/bold cyan] resources need URL recovery.\n")
 
     if not HAVE_FITZ and verbose:
-        print("Note: PyMuPDF (fitz) not installed — phase 6a (PDF metadata) disabled.\n")
+        rp("[dim]Note: PyMuPDF (fitz) not installed — phase 6a (PDF metadata) disabled.[/dim]\n")
 
     use_manifests = Path(args.manifest_root).is_dir()
     if not use_manifests and verbose:
-        print(f"Note: manifest root '{args.manifest_root}' not found; skipping phase 5.\n")
+        rp(f"[dim]Note: manifest root '{args.manifest_root}' not found; skipping phase 5.[/dim]\n")
 
     # Load already-attempted Wayback lookups so reruns skip them.
     state_path = paths.db_path.parent / "url_recovery_attempted.json"
     if args.reset_wayback_cache and state_path.exists():
         state_path.unlink()
         if verbose:
-            print("Wayback attempted-cache cleared.\n")
+            rp("[dim]Wayback attempted-cache cleared.[/dim]\n")
     attempted: set[str] = load_attempted(state_path)
     if attempted and verbose:
-        print(f"Skipping Wayback for {len(attempted)} resource(s) already attempted in a previous run.\n")
+        rp(f"[dim]Skipping Wayback for {len(attempted)} resource(s) already attempted in a previous run.[/dim]\n")
 
     recovered: dict[str, int] = {
         "phase0c": 0,
+        "phase0a": 0,
         "phase0b": 0,
         "phase0": 0,
         "phase1": 0, "phase2": 0, "phase3": 0,
@@ -2230,359 +2576,484 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
     }
     failed = 0
 
-    # Load browser download records once for the whole run (cached afterwards).
-    print("Loading browser download histories…")
-    browser_records = load_all_browser_downloads()
-    print(
-        f"  Safari: {sum(1 for r in browser_records if r.browser == 'safari')} records  "
-        f"Chrome/Chromium/Brave/Edge: {sum(1 for r in browser_records if r.browser not in ('safari', 'firefox'))} records  "
-        f"Firefox: {sum(1 for r in browser_records if r.browser == 'firefox')} records\n"
+    # ── preamble: load supporting data with status spinners ───────────────
+    _status_cm = _con.status if _con is not None else contextlib.nullcontext
+
+    with _status_cm("[bold]Loading browser download histories…[/bold]"):
+        browser_records = load_all_browser_downloads()
+    rp(
+        f"  [dim]Browser records:"
+        f"  Safari [cyan]{sum(1 for r in browser_records if r.browser == 'safari')}[/cyan]"
+        f"  Chrome/Edge/Brave [cyan]{sum(1 for r in browser_records if r.browser not in ('safari', 'firefox'))}[/cyan]"
+        f"  Firefox [cyan]{sum(1 for r in browser_records if r.browser == 'firefox')}[/cyan][/dim]"
     )
 
-    # Load discovery probe records once (discovery.sqlite + JSON snapshots).
-    print("Loading university-finance-page discovery records…")
-    discovery_records_all = load_discovery_records()
+    with _status_cm("[bold]Loading university-finance-page discovery records…[/bold]"):
+        discovery_records_all = load_discovery_records()
     _disc_db = "present" if DISCOVERY_DB.exists() else "absent"
-    _disc_json = f"{sum(1 for f in UNIPAGE_JSON_DIR.iterdir() if f.suffix.lower() == '.json')} JSON files" if UNIPAGE_JSON_DIR.is_dir() else "absent"
-    print(f"  discovery.sqlite: {_disc_db};  JSON dir: {_disc_json};  {len(discovery_records_all)} document record(s) loaded\n")
+    _disc_json = (
+        f"{sum(1 for f in UNIPAGE_JSON_DIR.iterdir() if f.suffix.lower() == '.json')} JSON"
+        if UNIPAGE_JSON_DIR.is_dir() else "absent"
+    )
+    rp(f"  [dim]discovery.sqlite: {_disc_db};  JSON dir: {_disc_json};  [cyan]{len(discovery_records_all)}[/cyan] record(s)[/dim]")
 
-    try:
-      for index, task in enumerate(unresolved, start=1):
-        archive_file = (paths.archive_dir / task.archived_relpath).resolve()
-        print(f"[{index}/{len(unresolved)}] {task.original_filename}  (id={task.resource_id[:8]}…)")
+    with _status_cm("[bold]Building SHA-256 index from re-downloaded files… [dim](may take ~1 min)[/dim][/bold]"):
+        dl_sha256_index = build_dl_sha256_index()
+    rp(
+        f"  [dim]SHA-256 index: [cyan]{len(dl_sha256_index)}[/cyan] mapping(s)[/dim]"
+        if dl_sha256_index else
+        "  [dim][yellow]SHA-256 index unavailable[/yellow] (UNIPAGE_DL_DIR or UNIPAGE_JSON_DIR absent)[/dim]"
+    )
 
-        if not archive_file.exists():
-            print("  ✗ archive file missing; skipping.")
-            failed += 1
-            continue
+    with _status_cm("[bold]Building file-size index…[/bold]"):
+        dl_size_index = build_dl_size_index()
+    rp(
+        f"  [dim]Size index: [cyan]{len(dl_size_index)}[/cyan] mapping(s)[/dim]\n"
+        if dl_size_index else
+        "  [dim][yellow]Size index unavailable[/yellow] (UNIPAGE_DL_DIR or UNIPAGE_JSON_DIR absent)[/dim]\n"
+    )
 
-        # ------------------------------------------------------------------
-        # Phase 0c: catalog database (SHA-256 exact match)
-        # ------------------------------------------------------------------
-        with get_connection(paths.db_path) as _conn:
-            _sha_row = _conn.execute(
-                "SELECT digest_sha256 FROM resources WHERE id = ? LIMIT 1",
-                (task.resource_id,),
-            ).fetchone()
-            _sha256 = _sha_row["digest_sha256"] if _sha_row else None
-        catalog_hits = catalog_urls_for_sha256(_sha256)
-        if catalog_hits:
-            merged = merge_urls(task.download_urls_json, catalog_hits)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase0c (catalog db SHA-256): {pick_primary(merged)}")
-                recovered["phase0c"] += 1
-                continue
-        elif verbose:
-            print("  [0c] no match in catalog database")
-
-        # ------------------------------------------------------------------
-        # Phase 0b: university-finance-page discovery probe records
-        # ------------------------------------------------------------------
-        disc_hits = discovery_urls_for_resource(
-            task.original_filename, task.size_bytes, discovery_records_all
+    # ── main recovery loop ─────────────────────────────────────────────────
+    _n = len(unresolved)
+    if HAVE_RICH:
+        _prog_ctx = _RichProgress(
+            _RichSpinnerColumn(style="cyan"),
+            _RichTextColumn("{task.description}", ratio=3),
+            _RichBarColumn(bar_width=None),
+            _RichMofNColumn(),
+            _RichTextColumn("[dim]•[/dim]"),
+            _RichElapsedColumn(),
+            _RichTextColumn("[dim]•[/dim]"),
+            _RichRemainingColumn(),
+            console=_con,
+            transient=False,
         )
-        if disc_hits:
-            merged = merge_urls(task.download_urls_json, disc_hits)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase0b (discovery data): {pick_primary(merged)}")
-                recovered["phase0b"] += 1
-                continue
-        elif verbose:
-            print("  [0b] no match in discovery probe records")
+    else:
+        _prog_ctx = contextlib.nullcontext()
 
-        # ------------------------------------------------------------------
-        # Phase 0: browser download history (Safari / Chromium / Firefox)
-        # ------------------------------------------------------------------
-        archive_size_0: int | None = None
+    with _prog_ctx as prog:
+        _ptask = prog.add_task("Starting…", total=_n) if prog is not None else None
+
+        def tp(msg: str) -> None:
+            """Print inside the progress context so the bar redraws correctly."""
+            if prog is not None:
+                prog.console.print(msg, markup=True, highlight=False)
+            else:
+                print(_strip_re.sub("", msg))
+
+        def _pdesc(idx: int, phase_label: str) -> None:
+            if prog is not None:
+                fname = task.original_filename
+                short = fname[:52] + "…" if len(fname) > 55 else fname
+                prog.update(
+                    _ptask,
+                    description=(
+                        f"[white dim]{idx}/{_n}[/white dim]  "
+                        f"[bold]{short}[/bold]  "
+                        f"[cyan dim]({phase_label})[/cyan dim]"
+                    ),
+                )
+
         try:
-            archive_size_0 = archive_file.stat().st_size
-        except OSError:
-            pass
-        browser_hits = browser_history_urls_for_file(
-            original_filename=task.original_filename,
-            archive_size=archive_size_0,
-            source_uri=task.source_uri,
-            archive_file=archive_file,
-            browser_records=browser_records,
-        )
-        if browser_hits:
-            merged = merge_urls(task.download_urls_json, browser_hits)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase0 (browser history): {pick_primary(merged)}")
-                recovered["phase0"] += 1
-                continue
-        elif verbose:
-            print("  [0] no match in browser download histories")
+            for index, task in enumerate(unresolved, start=1):
+                archive_file = (paths.archive_dir / task.archived_relpath).resolve()
+                if prog is None:
+                    tp(f"[bold]\\[{index}/{_n}][/bold] {task.original_filename}  [dim](id={task.resource_id[:8]}…)[/dim]")
+                try:
+                    if not archive_file.exists():
+                        tp(f"  [bold red]✗[/bold red] archive file missing: [dim]{task.original_filename}[/dim]")
+                        failed += 1
+                        continue
 
-        # ------------------------------------------------------------------
-        # Phase 1: xattrs on the archived copy
-        # ------------------------------------------------------------------
-        if verbose:
-            print(f"  [1] checking xattrs on archived file: {archive_file.name}")
-        found = xattrs_for_path(archive_file)
-        if found:
-            merged = merge_urls(task.download_urls_json, found)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase1 (archive xattr): {pick_primary(merged)}")
-                recovered["phase1"] += 1
-                continue
-        elif verbose:
-            print("  [1] no xattr URLs on archive copy")
+                    # ------------------------------------------------------------------
+                    # Phase 0c: catalog database (SHA-256 exact match)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "0c catalog")
+                    catalog_hits = catalog_urls_for_sha256(task.digest_sha256)
+                    if catalog_hits:
+                        merged = merge_urls(task.download_urls_json, catalog_hits)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]0c[/cyan] catalog SHA-256: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase0c"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][0c] no match in catalog database[/dim]")
 
-        # ------------------------------------------------------------------
-        # Phase 2: xattrs on the original source file, or source_uri as URL
-        # ------------------------------------------------------------------
-        if looks_like_local_path(task.source_uri):
-            src = Path(str(task.source_uri).replace("file://", "")).expanduser()
-            if verbose:
-                print(f"  [2] checking xattrs on source path: {src}")
-            if src.exists():
-                src_found = xattrs_for_path(src)
-                if src_found:
-                    merged = merge_urls(task.download_urls_json, src_found)
-                    if is_external_url(pick_primary(merged)):
+                    # ------------------------------------------------------------------
+                    # Phase 0a: dl-files SHA-256 / size+text fallback
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "0a dl-files")
+                    dl_hits = dl_sha256_index.get(str(task.digest_sha256 or "").lower(), [])
+                    if not dl_hits:
+                        dl_hits = dl_urls_by_size_and_text(task.size_bytes, archive_file, dl_size_index)
+                        if dl_hits and verbose:
+                            _fb = "size+text" if HAVE_FITZ else "size-only"
+                            tp(f"  [dim][0a] SHA-256 miss; {_fb} fallback: {task.size_bytes}B ±2% → {len(dl_hits)} URL(s)[/dim]")
+                    if dl_hits:
+                        merged = merge_urls(task.download_urls_json, dl_hits)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]0a[/cyan] dl-files SHA-256/size: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase0a"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][0a] no SHA-256 or size match in downloaded university-finance files[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 0b: university-finance-page discovery probe records
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "0b discovery")
+                    disc_hits = discovery_urls_for_resource(
+                        task.original_filename, task.size_bytes, discovery_records_all
+                    )
+                    if disc_hits:
+                        merged = merge_urls(task.download_urls_json, disc_hits)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]0b[/cyan] discovery data: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase0b"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][0b] no match in discovery probe records[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 0: browser download history (Safari / Chromium / Firefox)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "0 browser")
+                    archive_size_0: int | None = None
+                    try:
+                        archive_size_0 = archive_file.stat().st_size
+                    except OSError:
+                        pass
+                    browser_hits = browser_history_urls_for_file(
+                        original_filename=task.original_filename,
+                        archive_size=archive_size_0,
+                        source_uri=task.source_uri,
+                        archive_file=archive_file,
+                        browser_records=browser_records,
+                    )
+                    if browser_hits:
+                        merged = merge_urls(task.download_urls_json, browser_hits)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]0[/cyan] browser history: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase0"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][0] no match in browser download histories[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 1: xattrs on the archived copy
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "1 xattr")
+                    if verbose:
+                        tp(f"  [dim][1] checking xattrs on archived file: {archive_file.name}[/dim]")
+                    found = xattrs_for_path(archive_file)
+                    if found:
+                        merged = merge_urls(task.download_urls_json, found)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]1[/cyan] archive xattr: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase1"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][1] no xattr URLs on archive copy[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 2: xattrs on the original source file, or source_uri as URL
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "2 source_uri")
+                    if looks_like_local_path(task.source_uri):
+                        src = Path(str(task.source_uri).replace("file://", "")).expanduser()
+                        if verbose:
+                            tp(f"  [dim][2] checking xattrs on source path: {src}[/dim]")
+                        if src.exists():
+                            src_found = xattrs_for_path(src)
+                            if src_found:
+                                merged = merge_urls(task.download_urls_json, src_found)
+                                if is_external_url(pick_primary(merged)):
+                                    save_resource_urls(paths.db_path, task, merged)
+                                    tp(f"  [bold green]✓[/bold green] [cyan]2[/cyan] source_uri xattr: [dim]{pick_primary(merged)}[/dim]")
+                                    recovered["phase2"] += 1
+                                    continue
+                            elif verbose:
+                                tp("  [dim][2] no xattr URLs on source path[/dim]")
+                        elif verbose:
+                            tp(f"  [dim][2] source path does not exist: {src}[/dim]")
+                    elif is_external_url(task.source_uri):
+                        if verbose:
+                            tp(f"  [dim][2] source_uri is already a URL: {task.source_uri}[/dim]")
+                        merged = merge_urls(task.download_urls_json, [str(task.source_uri)])
                         save_resource_urls(paths.db_path, task, merged)
-                        print(f"  ✓ phase2 (source_uri xattr): {pick_primary(merged)}")
+                        tp(f"  [bold green]✓[/bold green] [cyan]2[/cyan] source_uri is URL: [dim]{task.source_uri}[/dim]")
                         recovered["phase2"] += 1
                         continue
-                elif verbose:
-                    print("  [2] no xattr URLs on source path")
-            elif verbose:
-                print(f"  [2] source path does not exist: {src}")
-        elif is_external_url(task.source_uri):
-            if verbose:
-                print(f"  [2] source_uri is already a URL: {task.source_uri}")
-            merged = merge_urls(task.download_urls_json, [str(task.source_uri)])
-            save_resource_urls(paths.db_path, task, merged)
-            print(f"  ✓ phase2 (source_uri is URL): {task.source_uri}")
-            recovered["phase2"] += 1
-            continue
-        elif verbose:
-            print(f"  [2] source_uri not useful: {task.source_uri!r}")
+                    elif verbose:
+                        tp(f"  [dim][2] source_uri not useful: {task.source_uri!r}[/dim]")
 
-        # ------------------------------------------------------------------
-        # Phase 3: search shallow + deep folders for original filename
-        # ------------------------------------------------------------------
-        archive_size: int | None = None
-        try:
-            archive_size = archive_file.stat().st_size
-        except OSError:
-            pass
-
-        if verbose:
-            size_str = f", expected size {archive_size:,} bytes" if archive_size else ""
-            shallow = ', '.join(str(d) for d in args_shallow_dirs)
-            deep = ', '.join(str(d) for d in args_deep_dirs) if args_deep_dirs else "(none)"
-            print(f"  [3] searching for '{task.original_filename}'{size_str}")
-            print(f"      shallow: {shallow}")
-            print(f"      deep (recursive): {deep}")
-
-        phase3_done = False
-        copies = find_copies_by_filename(
-            task.original_filename,
-            expected_size=archive_size,
-            shallow_dirs=args_shallow_dirs,
-            deep_dirs=args_deep_dirs,
-        )
-        if verbose and not copies:
-            print("  [3] no matching files found")
-        for copy_path in copies:
-            if verbose:
-                print(f"  [3] found copy at {copy_path}; reading xattrs")
-            copy_found = xattrs_for_path(copy_path)
-            if copy_found:
-                merged = merge_urls(task.download_urls_json, copy_found)
-                if is_external_url(pick_primary(merged)):
-                    save_resource_urls(paths.db_path, task, merged)
-                    print(f"  ✓ phase3 (xattr @ {copy_path}): {pick_primary(merged)}")
-                    recovered["phase3"] += 1
-                    phase3_done = True
-                    break
-            elif verbose:
-                print(f"  [3] no xattr URLs on {copy_path}")
-        if phase3_done:
-            continue
-
-        # ------------------------------------------------------------------
-        # Phase 4: linked reference entry url / doi (deterministic, no search)
-        # ------------------------------------------------------------------
-        if verbose:
-            print(f"  [4] checking linked reference entry (title={task.ref_title!r}, doi={task.ref_doi!r})")
-        ref_candidates = url_from_reference(task)
-        if ref_candidates:
-            merged = merge_urls(task.download_urls_json, ref_candidates)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase4 (reference entry): {pick_primary(merged)}")
-                recovered["phase4"] += 1
-                continue
-        elif verbose:
-            print("  [4] no URL/DOI in linked reference entry")
-
-        # ------------------------------------------------------------------
-        # Phase 5: manifest JSON scan (filename-exact match only)
-        # ------------------------------------------------------------------
-        if use_manifests:
-            if verbose:
-                print(f"  [5] scanning manifest JSONs under {args.manifest_root} for '{task.original_filename}'")
-            manifest_found = manifest_urls_for_task(
-                Path(args.manifest_root),
-                original_filename=task.original_filename,
-                resource_id=task.resource_id,
-                max_files=args.manifest_max_files,
-            )
-            if manifest_found:
-                merged = merge_urls(task.download_urls_json, manifest_found)
-                if is_external_url(pick_primary(merged)):
-                    save_resource_urls(paths.db_path, task, merged)
-                    print(f"  ✓ phase5 (manifest scan): {pick_primary(merged)}")
-                    recovered["phase5"] += 1
-                    continue
-            elif verbose:
-                print("  [5] no URL found in manifest scan")
-        elif verbose:
-            print("  [5] manifest root not available; skipping")
-
-        # ------------------------------------------------------------------
-        # Phase 6a: HTML canonical/og:url tags (local, no network)
-        # ------------------------------------------------------------------
-        html_ext = archive_file.suffix.lower() in (".html", ".htm", ".xhtml")
-        if html_ext:
-            if verbose:
-                print(f"  [6a] extracting canonical/og:url tags from {archive_file.name}")
-            html_urls = html_canonical_urls(archive_file)
-            if html_urls:
-                merged = merge_urls(task.download_urls_json, html_urls)
-                if is_external_url(pick_primary(merged)):
-                    save_resource_urls(paths.db_path, task, merged)
-                    print(f"  ✓ phase6a (HTML canonical): {pick_primary(merged)}")
-                    recovered["phase6a"] += 1
-                    continue
-            elif verbose:
-                print("  [6a] no canonical/og:url tags found in HTML")
-
-        # Phase 6a (PDF): PDF metadata / embedded hyperlinks (local, no network)
-        if not html_ext and HAVE_FITZ:
-            if verbose:
-                print(f"  [6a] extracting PDF metadata and embedded links from {archive_file.name}")
-            meta_urls = pdf_metadata_urls(archive_file)
-            if meta_urls:
-                merged = merge_urls(task.download_urls_json, meta_urls)
-                if is_external_url(pick_primary(merged)):
-                    save_resource_urls(paths.db_path, task, merged)
-                    print(f"  ✓ phase6a (PDF metadata): {pick_primary(merged)}")
-                    recovered["phase6a"] += 1
-                    continue
-            elif verbose:
-                print("  [6a] no URLs found in PDF metadata")
-        elif not html_ext and verbose:
-            print("  [6a] PyMuPDF not available; skipping")
-
-        # ------------------------------------------------------------------
-        # Phase 7: extracted text DOI/URL scan (local DB content)
-        # ------------------------------------------------------------------
-        if verbose:
-            print("  [7] scanning latest extracted text for DOI/URL clues")
-        text_excerpt = load_latest_document_text(paths.db_path, task.resource_id, max_chars=120000)
-        text_candidates = merge_url_lists(
-            [],
-            [*doi_urls_from_text(text_excerpt, max_dois=8), *urls_from_text(text_excerpt, max_urls=12)],
-        )
-        if text_candidates:
-            merged = merge_urls(task.download_urls_json, text_candidates)
-            if is_external_url(pick_primary(merged)):
-                save_resource_urls(paths.db_path, task, merged)
-                print(f"  ✓ phase7 (extracted text): {pick_primary(merged)}")
-                recovered["phase7"] += 1
-                continue
-        elif verbose:
-            print("  [7] no DOI/URL candidates found in extracted text")
-
-        # ------------------------------------------------------------------
-        # Phase 6b: Wayback Machine CDX — SHA1 hash of file content
-        # ------------------------------------------------------------------
-        if args.enable_wayback_lookup:
-            if task.resource_id in attempted:
-                if verbose:
-                    print("  [6b] Wayback already attempted for this resource; skipping")
-            else:
-                cdx_found = wayback_cdx_sha1_lookup(
-                    archive_file,
-                    delay=args.wayback_delay,
-                    verbose=verbose,
-                )
-                attempted.add(task.resource_id)
-                save_attempted(state_path, attempted)
-                if cdx_found:
-                    merged = merge_urls(task.download_urls_json, cdx_found)
-                    if is_external_url(pick_primary(merged)):
-                        save_resource_urls(paths.db_path, task, merged)
-                        print(f"  ✓ phase6b (Wayback SHA1): {pick_primary(merged)}")
-                        recovered["phase6b"] += 1
+                    # ------------------------------------------------------------------
+                    # Phase 3: search shallow + deep folders for original filename
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "3 search")
+                    archive_size: int | None = None
+                    try:
+                        archive_size = archive_file.stat().st_size
+                    except OSError:
+                        pass
+                    if verbose:
+                        size_str = f", expected size {archive_size:,} bytes" if archive_size else ""
+                        shallow = ', '.join(str(d) for d in args_shallow_dirs)
+                        deep = ', '.join(str(d) for d in args_deep_dirs) if args_deep_dirs else "(none)"
+                        tp(f"  [dim][3] searching for '{task.original_filename}'{size_str}[/dim]")
+                        tp(f"  [dim]      shallow: {shallow}[/dim]")
+                        tp(f"  [dim]      deep (recursive): {deep}[/dim]")
+                    phase3_done = False
+                    copies = find_copies_by_filename(
+                        task.original_filename,
+                        expected_size=archive_size,
+                        shallow_dirs=args_shallow_dirs,
+                        deep_dirs=args_deep_dirs,
+                    )
+                    if verbose and not copies:
+                        tp("  [dim][3] no matching files found[/dim]")
+                    for copy_path in copies:
+                        if verbose:
+                            tp(f"  [dim][3] found copy at {copy_path}; reading xattrs[/dim]")
+                        copy_found = xattrs_for_path(copy_path)
+                        if copy_found:
+                            merged = merge_urls(task.download_urls_json, copy_found)
+                            if is_external_url(pick_primary(merged)):
+                                save_resource_urls(paths.db_path, task, merged)
+                                tp(f"  [bold green]✓[/bold green] [cyan]3[/cyan] xattr @ {copy_path}: [dim]{pick_primary(merged)}[/dim]")
+                                recovered["phase3"] += 1
+                                phase3_done = True
+                                break
+                        elif verbose:
+                            tp(f"  [dim][3] no xattr URLs on {copy_path}[/dim]")
+                    if phase3_done:
                         continue
 
-        # ------------------------------------------------------------------
-        # Phase 8: lightweight web query (metadata + extracted text hints)
-        # ------------------------------------------------------------------
-        if args.enable_web_search:
-            queries = build_web_search_queries(task, text_excerpt)
-            if verbose:
-                print(f"  [8] web query with {len(queries)} query candidate(s)")
-            web_urls: list[str] = []
-            blocked_reason: str | None = None
-            for query in queries:
-                if verbose:
-                    print(f"  [8] query: {query}")
-                hits, blocked = web_search_urls(query)
-                if blocked and blocked_reason is None:
-                    blocked_reason = blocked
-                if hits:
-                    web_urls = merge_url_lists(web_urls, hits)
-                if len(web_urls) >= 10:
-                    break
-            if web_urls:
-                merged = merge_urls(task.download_urls_json, web_urls)
-                if is_external_url(pick_primary(merged)):
-                    save_resource_urls(paths.db_path, task, merged)
-                    print(f"  ✓ phase8 (web query): {pick_primary(merged)}")
-                    recovered["phase8"] += 1
-                    continue
-            if verbose:
-                if blocked_reason:
-                    print(f"  [8] web query blocked ({blocked_reason}); manual browser fallback recommended")
-                else:
-                    print("  [8] no URL candidates returned from web query")
+                    # ------------------------------------------------------------------
+                    # Phase 4: linked reference entry url / doi (deterministic, no search)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "4 reference")
+                    if verbose:
+                        tp(f"  [dim][4] checking linked reference entry (title={task.ref_title!r}, doi={task.ref_doi!r})[/dim]")
+                    ref_candidates = url_from_reference(task)
+                    if ref_candidates:
+                        merged = merge_urls(task.download_urls_json, ref_candidates)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]4[/cyan] reference entry: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase4"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][4] no URL/DOI in linked reference entry[/dim]")
 
-        failed += 1
-        print("  ✗ unresolved — no URL found in any metadata source.")
+                    # ------------------------------------------------------------------
+                    # Phase 5: manifest JSON scan (filename-exact match only)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "5 manifest")
+                    if use_manifests:
+                        if verbose:
+                            tp(f"  [dim][5] scanning manifests under {args.manifest_root} for '{task.original_filename}'[/dim]")
+                        manifest_found = manifest_urls_for_task(
+                            Path(args.manifest_root),
+                            original_filename=task.original_filename,
+                            resource_id=task.resource_id,
+                            max_files=args.manifest_max_files,
+                        )
+                        if manifest_found:
+                            merged = merge_urls(task.download_urls_json, manifest_found)
+                            if is_external_url(pick_primary(merged)):
+                                save_resource_urls(paths.db_path, task, merged)
+                                tp(f"  [bold green]✓[/bold green] [cyan]5[/cyan] manifest scan: [dim]{pick_primary(merged)}[/dim]")
+                                recovered["phase5"] += 1
+                                continue
+                        elif verbose:
+                            tp("  [dim][5] no URL found in manifest scan[/dim]")
+                    elif verbose:
+                        tp("  [dim][5] manifest root not available; skipping[/dim]")
 
-    finally:
-        save_attempted(state_path, attempted)
+                    # ------------------------------------------------------------------
+                    # Phase 6a: HTML canonical/og:url tags (local, no network)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "6a metadata")
+                    html_ext = archive_file.suffix.lower() in (".html", ".htm", ".xhtml")
+                    if html_ext:
+                        if verbose:
+                            tp(f"  [dim][6a] extracting canonical/og:url tags from {archive_file.name}[/dim]")
+                        html_urls = html_canonical_urls(archive_file)
+                        if html_urls:
+                            merged = merge_urls(task.download_urls_json, html_urls)
+                            if is_external_url(pick_primary(merged)):
+                                save_resource_urls(paths.db_path, task, merged)
+                                tp(f"  [bold green]✓[/bold green] [cyan]6a[/cyan] HTML canonical: [dim]{pick_primary(merged)}[/dim]")
+                                recovered["phase6a"] += 1
+                                continue
+                        elif verbose:
+                            tp("  [dim][6a] no canonical/og:url tags found in HTML[/dim]")
+                    if not html_ext and HAVE_FITZ:
+                        if verbose:
+                            tp(f"  [dim][6a] extracting PDF metadata and embedded links from {archive_file.name}[/dim]")
+                        meta_urls = pdf_metadata_urls(archive_file)
+                        if meta_urls:
+                            merged = merge_urls(task.download_urls_json, meta_urls)
+                            if is_external_url(pick_primary(merged)):
+                                save_resource_urls(paths.db_path, task, merged)
+                                tp(f"  [bold green]✓[/bold green] [cyan]6a[/cyan] PDF metadata: [dim]{pick_primary(merged)}[/dim]")
+                                recovered["phase6a"] += 1
+                                continue
+                        elif verbose:
+                            tp("  [dim][6a] no URLs found in PDF metadata[/dim]")
+                    elif not html_ext and verbose:
+                        tp("  [dim][6a] PyMuPDF not available; skipping[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 7: extracted text DOI/URL scan (local DB content)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "7 text scan")
+                    if verbose:
+                        tp("  [dim][7] scanning latest extracted text for DOI/URL clues[/dim]")
+                    text_excerpt = load_latest_document_text(paths.db_path, task.resource_id, max_chars=120000)
+                    text_candidates = merge_url_lists(
+                        [],
+                        [*doi_urls_from_text(text_excerpt, max_dois=8), *urls_from_text(text_excerpt, max_urls=12)],
+                    )
+                    if text_candidates:
+                        merged = merge_urls(task.download_urls_json, text_candidates)
+                        if is_external_url(pick_primary(merged)):
+                            save_resource_urls(paths.db_path, task, merged)
+                            tp(f"  [bold green]✓[/bold green] [cyan]7[/cyan] extracted text: [dim]{pick_primary(merged)}[/dim]")
+                            recovered["phase7"] += 1
+                            continue
+                    elif verbose:
+                        tp("  [dim][7] no DOI/URL candidates found in extracted text[/dim]")
+
+                    # ------------------------------------------------------------------
+                    # Phase 6b: Wayback Machine CDX — SHA1 hash of file content
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "6b Wayback")
+                    if args.enable_wayback_lookup:
+                        if task.resource_id in attempted:
+                            if verbose:
+                                tp("  [dim][6b] Wayback already attempted for this resource; skipping[/dim]")
+                        else:
+                            cdx_found = wayback_cdx_sha1_lookup(
+                                archive_file,
+                                delay=args.wayback_delay,
+                                verbose=verbose,
+                            )
+                            attempted.add(task.resource_id)
+                            save_attempted(state_path, attempted)
+                            if cdx_found:
+                                merged = merge_urls(task.download_urls_json, cdx_found)
+                                if is_external_url(pick_primary(merged)):
+                                    save_resource_urls(paths.db_path, task, merged)
+                                    tp(f"  [bold green]✓[/bold green] [cyan]6b[/cyan] Wayback SHA1: [dim]{pick_primary(merged)}[/dim]")
+                                    recovered["phase6b"] += 1
+                                    continue
+
+                    # ------------------------------------------------------------------
+                    # Phase 8: lightweight web query (metadata + extracted text hints)
+                    # ------------------------------------------------------------------
+                    _pdesc(index, "8 web query")
+                    if args.enable_web_search:
+                        queries = build_web_search_queries(task, text_excerpt)
+                        if verbose:
+                            tp(f"  [dim][8] web query with {len(queries)} query candidate(s)[/dim]")
+                        web_urls: list[str] = []
+                        blocked_reason: str | None = None
+                        for query in queries:
+                            if verbose:
+                                tp(f"  [dim][8] query: {query}[/dim]")
+                            hits, blocked = web_search_urls(query)
+                            if blocked and blocked_reason is None:
+                                blocked_reason = blocked
+                            if hits:
+                                web_urls = merge_url_lists(web_urls, hits)
+                            if len(web_urls) >= 10:
+                                break
+                        if web_urls:
+                            merged = merge_urls(task.download_urls_json, web_urls)
+                            if is_external_url(pick_primary(merged)):
+                                save_resource_urls(paths.db_path, task, merged)
+                                tp(f"  [bold green]✓[/bold green] [cyan]8[/cyan] web query: [dim]{pick_primary(merged)}[/dim]")
+                                recovered["phase8"] += 1
+                                continue
+                        if verbose:
+                            if blocked_reason:
+                                tp(f"  [dim][8] web query blocked ({blocked_reason}); manual browser fallback recommended[/dim]")
+                            else:
+                                tp("  [dim][8] no URL candidates returned from web query[/dim]")
+
+                    failed += 1
+                    tp(f"  [bold red]✗[/bold red] [dim]unresolved — no URL found in any metadata source.[/dim]")
+
+                finally:
+                    if prog is not None:
+                        prog.advance(_ptask)
+
+        finally:
+            save_attempted(state_path, attempted)
 
     reference_updates = update_reference_urls_from_resources(paths.db_path)
 
     total_recovered = sum(recovered.values())
-    print("\nRecovery summary:")
-    print(f"  phase0c catalog SHA-256:  {recovered['phase0c']}")
-    print(f"  phase0b discovery data:   {recovered['phase0b']}")
-    print(f"  phase0  browser history:  {recovered['phase0']}")
-    print(f"  phase1  archive xattr:    {recovered['phase1']}")
-    print(f"  phase2  source_uri:       {recovered['phase2']}")
-    print(f"  phase3  Downloads xattr:  {recovered['phase3']}")
-    print(f"  phase4  reference entry:  {recovered['phase4']}")
-    print(f"  phase5  manifest scan:    {recovered['phase5']}")
-    print(f"  phase6a HTML canonical/PDF: {recovered['phase6a']}")
-    print(f"  phase6b Wayback SHA1:     {recovered['phase6b']}")
-    print(f"  phase7  extracted text:   {recovered['phase7']}")
-    print(f"  phase8  web query:        {recovered['phase8']}")
-    print(f"  ─────────────────────────")
-    print(f"  total recovered:          {total_recovered}")
-    print(f"  still unresolved:         {failed}")
-    print(f"  reference URL backfills:  {reference_updates}")
+    if HAVE_RICH and _con is not None:
+        _con.print()
+        _con.print(_RichRule("[bold]Recovery Summary[/bold]"))
+        tbl = _RichTable(show_header=True, header_style="bold cyan", box=None, padding=(0, 2))
+        tbl.add_column("Phase", style="cyan", no_wrap=True)
+        tbl.add_column("Method", style="white")
+        tbl.add_column("Recovered", justify="right")
+        _rows = [
+            ("0c",  "catalog SHA-256",             recovered["phase0c"]),
+            ("0a",  "dl-files SHA-256 / size+text", recovered["phase0a"]),
+            ("0b",  "discovery probe data",         recovered["phase0b"]),
+            ("0",   "browser history",              recovered["phase0"]),
+            ("1",   "archive xattr",                recovered["phase1"]),
+            ("2",   "source_uri",                   recovered["phase2"]),
+            ("3",   "Downloads xattr",              recovered["phase3"]),
+            ("4",   "reference entry",              recovered["phase4"]),
+            ("5",   "manifest scan",                recovered["phase5"]),
+            ("6a",  "HTML canonical / PDF meta",    recovered["phase6a"]),
+            ("6b",  "Wayback SHA1",                 recovered["phase6b"]),
+            ("7",   "extracted text",               recovered["phase7"]),
+            ("8",   "web query",                    recovered["phase8"]),
+        ]
+        for phase, method, count in _rows:
+            style = "bold green" if count else "dim"
+            tbl.add_row(phase, method, f"[{style}]{count}[/{style}]")
+        _con.print(tbl)
+        _con.print(_RichRule())
+        _con.print(
+            f"  Total recovered:          [{'bold green' if total_recovered else 'yellow'}]{total_recovered}[/]"
+        )
+        _con.print(
+            f"  Still unresolved:         [{'bold red' if failed else 'dim'}]{failed}[/]"
+        )
+        _con.print(f"  Reference URL backfills:  [cyan]{reference_updates}[/cyan]")
+    else:
+        print("\nRecovery summary:")
+        print(f"  phase0c catalog SHA-256:       {recovered['phase0c']}")
+        print(f"  phase0a dl-files SHA-256/size: {recovered['phase0a']}")
+        print(f"  phase0b discovery data:        {recovered['phase0b']}")
+        print(f"  phase0  browser history:       {recovered['phase0']}")
+        print(f"  phase1  archive xattr:         {recovered['phase1']}")
+        print(f"  phase2  source_uri:            {recovered['phase2']}")
+        print(f"  phase3  Downloads xattr:       {recovered['phase3']}")
+        print(f"  phase4  reference entry:       {recovered['phase4']}")
+        print(f"  phase5  manifest scan:         {recovered['phase5']}")
+        print(f"  phase6a HTML canonical/PDF:    {recovered['phase6a']}")
+        print(f"  phase6b Wayback SHA1:          {recovered['phase6b']}")
+        print(f"  phase7  extracted text:        {recovered['phase7']}")
+        print(f"  phase8  web query:             {recovered['phase8']}")
+        print(f"  ─────────────────────────────")
+        print(f"  total recovered:          {total_recovered}")
+        print(f"  still unresolved:         {failed}")
+        print(f"  reference URL backfills:  {reference_updates}")
     return 0 if failed == 0 else 2
 
 

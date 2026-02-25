@@ -94,7 +94,7 @@ Table 7: Liquidity
     )
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/verify/quant-pass").resource
 
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
     extraction.extract_resource(resource.id)
@@ -158,7 +158,7 @@ def test_verify_quantitative_claim_fails_on_value_mismatch(tmp_path: Path) -> No
     )
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/verify/quant-fail").resource
 
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
     extraction.extract_resource(resource.id)
@@ -207,7 +207,7 @@ def test_verify_narrative_claim_uses_extracted_source_text(tmp_path: Path) -> No
     )
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/verify/narrative").resource
 
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
     extraction.extract_resource(resource.id)
@@ -257,7 +257,7 @@ def test_verify_quantitative_claim_cross_source_with_data_cell_selector(tmp_path
         encoding="utf-8",
     )
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    report_resource = ingest.ingest_file(pdf_like).resource
+    report_resource = ingest.ingest_file(pdf_like, source_uri="https://example.org/verify/cross-report").resource
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
     extraction.extract_resource(report_resource.id)
     report_table = extraction_repo.list_tables_for_resource(report_resource.id, limit=1)[0]
@@ -267,7 +267,7 @@ def test_verify_quantitative_claim_cross_source_with_data_cell_selector(tmp_path
         "UKPRN,Academic year,Metric,Number\n10008071,2022/23,Deficit,5631\n",
         encoding="utf-8",
     )
-    hesa_resource = ingest.ingest_file(hesa_csv).resource
+    hesa_resource = ingest.ingest_file(hesa_csv, source_uri="https://example.org/verify/cross-hesa").resource
 
     value_selector = {
         "type": "TableAddressSelector",

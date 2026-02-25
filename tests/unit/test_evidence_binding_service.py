@@ -57,7 +57,7 @@ def test_binding_validation_requires_roles_for_quantitative_claim(tmp_path: Path
     source = tmp_path / "source.md"
     source.write_text("|A|B|\n|---|---|\n|x|y|\n", encoding="utf-8")
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/evidence/source-a").resource
 
     bind = EvidenceBindingService(
         claim_repo=claim_repo,
@@ -107,7 +107,7 @@ def test_binding_validation_passes_with_required_roles_and_selector_diversity(tm
     source = tmp_path / "source.md"
     source.write_text("|A|B|\n|---|---|\n|x|y|\n", encoding="utf-8")
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/evidence/source-b").resource
 
     bind = EvidenceBindingService(
         claim_repo=claim_repo,

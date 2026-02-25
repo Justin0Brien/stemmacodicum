@@ -12,7 +12,10 @@ from stemmacodicum.infrastructure.db.repos.structured_data_repo import Structure
 from stemmacodicum.infrastructure.db.sqlite import initialize_schema
 
 
-def test_mass_import_pipeline_recurses_and_processes_supported_files(tmp_path: Path) -> None:
+def test_mass_import_pipeline_recurses_and_processes_supported_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     root = tmp_path / "root"
     root.mkdir()
 
@@ -39,7 +42,16 @@ def test_mass_import_pipeline_recurses_and_processes_supported_files(tmp_path: P
     extraction_repo = ExtractionRepo(db_path)
     archive_dir = tmp_path / "archive"
 
-    ingestion = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    ingestion = IngestionService(
+        resource_repo=resource_repo,
+        archive_store=ArchiveStore(archive_dir),
+        wayback_enabled=False,
+    )
+    monkeypatch.setattr(
+        IngestionService,
+        "_discover_download_urls",
+        lambda self, path, source_uri: [f"https://example.org/{path.name}"],
+    )
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
 
     service = FinancialPipelineService(
@@ -66,7 +78,7 @@ def test_mass_import_pipeline_recurses_and_processes_supported_files(tmp_path: P
     assert stats.remaining_unprocessed == 0
 
 
-def test_financial_pipeline_reports_already_processed(tmp_path: Path) -> None:
+def test_financial_pipeline_reports_already_processed(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "root"
     root.mkdir()
 
@@ -88,7 +100,16 @@ def test_financial_pipeline_reports_already_processed(tmp_path: Path) -> None:
     extraction_repo = ExtractionRepo(db_path)
     archive_dir = tmp_path / "archive"
 
-    ingestion = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
+    ingestion = IngestionService(
+        resource_repo=resource_repo,
+        archive_store=ArchiveStore(archive_dir),
+        wayback_enabled=False,
+    )
+    monkeypatch.setattr(
+        IngestionService,
+        "_discover_download_urls",
+        lambda self, path, source_uri: [f"https://example.org/{path.name}"],
+    )
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
 
     service = FinancialPipelineService(

@@ -218,6 +218,23 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
                     "[pipeline] "
                     f"index={index}/{total} path={escape(path)} elapsed={elapsed:.2f}s error={escape(err)}"
                 )
+                return
+
+            if kind == "file_skipped_missing_source":
+                index = int(event.get("index", 0))
+                total = int(event.get("total", 0))
+                path = str(event.get("path", ""))
+                elapsed = float(event.get("elapsed_seconds", 0.0))
+                reason = str(event.get("reason", "missing source URL"))
+                progress.update(
+                    current_task,
+                    description=f"Deferred {index}/{total}: {escape(Path(path).name)}",
+                )
+                ctx.console.print(
+                    "[pipeline] "
+                    f"index={index}/{total} path={escape(path)} elapsed={elapsed:.2f}s deferred={escape(reason)}"
+                )
+                return
 
         stats = service.run(
             root=Path(args.root),
@@ -249,6 +266,7 @@ def run_financial_pass(args: argparse.Namespace, ctx: CLIContext) -> int:
         f"  ├─ Structured profile failed: {stats.structured_profile_failed}",
         f"  ├─ Structured profile skipped: {stats.structured_profile_skipped}",
         f"  ├─ Skipped extraction: {stats.skipped_extraction}",
+        f"  ├─ Skipped (missing source URL): {stats.skipped_missing_source}",
         f"  └─ Failed: {stats.failed}",
         f"Remaining unprocessed candidates: {stats.remaining_unprocessed}",
         (

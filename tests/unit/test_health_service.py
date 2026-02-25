@@ -24,7 +24,7 @@ def test_doctor_passes_for_basic_clean_state(tmp_path: Path) -> None:
     source.write_text("ok", encoding="utf-8")
 
     ingest = IngestionService(ResourceRepo(db_path), ArchiveStore(archive_dir))
-    ingest.ingest_file(source)
+    ingest.ingest_file(source, source_uri="https://example.org/health/source")
 
     report = HealthService(db_path=db_path, archive_dir=archive_dir).run_doctor()
     assert report.ok is True

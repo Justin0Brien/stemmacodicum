@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from stemmacodicum.application.services.extraction_service import ExtractionCancelledError
+from stemmacodicum.core.errors import MissingSourceUrlError
 from stemmacodicum.core.ids import new_uuid
 from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.db.sqlite import get_connection
@@ -357,6 +358,7 @@ class BackgroundImportQueueService:
         cancel_state: dict[str, str | None] = {"action": self._load_cancel_action(job_id)}
         last_cancel_poll = 0.0
         auto_kill_requested = False
+        delete_staged_file = True
 
         def progress_callback(update: dict[str, object]) -> None:
             self._update_job_progress(job_id, update)
@@ -405,11 +407,14 @@ class BackgroundImportQueueService:
                 self._mark_job_skipped(job_id, str(exc))
             else:
                 self._mark_job_cancelled(job_id, str(exc))
+        except MissingSourceUrlError as exc:
+            self._mark_job_skipped(job_id, str(exc))
+            delete_staged_file = False
         except Exception as exc:
             logger.exception("Background import job failed: %s", job_id)
             self._mark_job_failed(job_id, str(exc))
         finally:
-            if staged_path.exists():
+            if delete_staged_file and staged_path.exists():
                 staged_path.unlink(missing_ok=True)
 
     def _update_job_progress(self, job_id: str, update: dict[str, object]) -> None:

@@ -23,7 +23,11 @@ def _bootstrap(tmp_path: Path) -> tuple[IngestionService, ResourceRepo]:
     )
     initialize_schema(db_path, schema_path)
     repo = ResourceRepo(db_path)
-    service = IngestionService(resource_repo=repo, archive_store=ArchiveStore(tmp_path / "archive"))
+    service = IngestionService(
+        resource_repo=repo,
+        archive_store=ArchiveStore(tmp_path / "archive"),
+        wayback_enabled=False,
+    )
     return service, repo
 
 
@@ -62,18 +66,18 @@ def test_duplicate_ingest_backfills_missing_download_url_metadata(tmp_path: Path
     source = tmp_path / "duplicate.pdf"
     source.write_bytes(b"%PDF-1.4 duplicate")
 
-    first = service.ingest_file(source, source_uri=f"upload:{source.name}")
+    first = service.ingest_file(source, source_uri="https://publisher.example/first.pdf")
     assert first.status == "ingested"
-    assert first.resource.download_url is None
-    assert first.resource.download_urls_json is None
+    assert first.resource.download_url == "https://publisher.example/first.pdf"
 
     second = service.ingest_file(source, source_uri="https://publisher.example/report.pdf")
     assert second.status == "duplicate"
-    assert second.resource.download_url == "https://publisher.example/report.pdf"
+    assert second.resource.download_url == "https://publisher.example/first.pdf"
     assert json.loads(second.resource.download_urls_json or "[]") == [
+        "https://publisher.example/first.pdf",
         "https://publisher.example/report.pdf"
     ]
 
     persisted = repo.get_by_id(first.resource.id)
     assert persisted is not None
-    assert persisted.download_url == "https://publisher.example/report.pdf"
+    assert persisted.download_url == "https://publisher.example/first.pdf"

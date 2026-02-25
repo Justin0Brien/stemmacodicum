@@ -5,6 +5,7 @@ import importlib.util
 import mimetypes
 import os
 import queue
+import sqlite3
 import re
 import shutil
 import sys
@@ -15,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from fastapi import Body, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -43,6 +44,7 @@ from stemmacodicum.application.services.trace_service import TraceService
 from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.application.services.verification_service import VerificationService
 from stemmacodicum.core.config import AppPaths
+from stemmacodicum.core.errors import MissingSourceUrlError
 from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.citation_repo import CitationRepo
@@ -723,6 +725,27 @@ def create_app(paths: AppPaths) -> FastAPI:
                 payload = runner(lambda update: emit("stage", dict(update)))
                 emit("payload", payload)
                 emit("done", {"ok": True})
+            except MissingSourceUrlError as exc:
+                detail = str(exc)
+                emit(
+                    "stage",
+                    {
+                        "stage": "archive",
+                        "state": "skipped",
+                        "progress": 100,
+                        "detail": detail,
+                    },
+                )
+                emit(
+                    "payload",
+                    {
+                        "ok": False,
+                        "status": "skipped",
+                        "reason": "missing_source_url",
+                        "error": detail,
+                    },
+                )
+                emit("done", {"ok": True, "status": "skipped"})
             except Exception as exc:
                 emit("error", {"error": str(exc)})
             finally:
@@ -1385,6 +1408,13 @@ def create_app(paths: AppPaths) -> FastAPI:
                 media_type=result.resource.media_type,
                 original_filename=result.resource.original_filename,
             )
+        except MissingSourceUrlError as exc:
+            return {
+                "ok": False,
+                "status": "skipped",
+                "reason": "missing_source_url",
+                "detail": str(exc),
+            }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -1407,7 +1437,10 @@ def create_app(paths: AppPaths) -> FastAPI:
         )
 
     @app.post("/api/ingest/upload")
-    async def api_ingest_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+    async def api_ingest_upload(
+        file: UploadFile = File(...),
+        source_uri: str | None = Form(default=None),
+    ) -> dict[str, Any]:
         suffix = Path(file.filename or "upload.bin").suffix
         temp_path = None
         try:
@@ -1418,7 +1451,7 @@ def create_app(paths: AppPaths) -> FastAPI:
 
             result = get_ingestion_service().ingest_file(
                 temp_path,
-                source_uri=f"upload:{file.filename or temp_path.name}",
+                source_uri=source_uri,
             )
             extraction = maybe_extract_after_import(
                 resource_id=result.resource.id,
@@ -1432,6 +1465,14 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "uploaded_filename": file.filename,
                 "extraction": extraction,
             }
+        except MissingSourceUrlError as exc:
+            return {
+                "ok": False,
+                "status": "skipped",
+                "reason": "missing_source_url",
+                "detail": str(exc),
+                "uploaded_filename": file.filename,
+            }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         finally:
@@ -1439,7 +1480,10 @@ def create_app(paths: AppPaths) -> FastAPI:
                 temp_path.unlink(missing_ok=True)
 
     @app.post("/api/ingest/upload/stream")
-    async def api_ingest_upload_stream(file: UploadFile = File(...)) -> StreamingResponse:
+    async def api_ingest_upload_stream(
+        file: UploadFile = File(...),
+        source_uri: str | None = Form(default=None),
+    ) -> StreamingResponse:
         suffix = Path(file.filename or "upload.bin").suffix
         temp_path = None
         try:
@@ -1457,7 +1501,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             try:
                 return _run_import_file(
                     file_path=temp_path,
-                    source_uri=f"upload:{file.filename or temp_path.name}",
+                    source_uri=source_uri,
                     uploaded_filename=file.filename,
                     progress_callback=progress_callback,
                 )
@@ -1468,7 +1512,10 @@ def create_app(paths: AppPaths) -> FastAPI:
         return _stream_import_job(runner)
 
     @app.post("/api/import/queue/enqueue-upload")
-    async def api_import_queue_enqueue_upload(file: UploadFile = File(...)) -> dict[str, Any]:
+    async def api_import_queue_enqueue_upload(
+        file: UploadFile = File(...),
+        source_uri: str | None = Form(default=None),
+    ) -> dict[str, Any]:
         if import_queue_service is None:
             raise HTTPException(
                 status_code=503,
@@ -1483,7 +1530,7 @@ def create_app(paths: AppPaths) -> FastAPI:
             job = import_queue_service.enqueue_upload(
                 uploaded_filename=filename,
                 content_bytes=content,
-                source_uri=f"upload:{filename}",
+                source_uri=source_uri,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -2793,12 +2840,28 @@ def create_app(paths: AppPaths) -> FastAPI:
                 [resource.download_url or "", normalized],
             )
             primary = normalized
-            get_resource_repo().update_download_metadata(
-                resource_id=resource_id,
-                download_url=primary,
-                download_urls_json=json.dumps(merged_urls, ensure_ascii=True),
-            )
-            reference_updates = int(recovery_mod.update_reference_urls_from_resources(paths.db_path))
+            with sqlite3.connect(paths.db_path, timeout=30.0) as conn:
+                conn.execute("PRAGMA busy_timeout = 30000;")
+                conn.execute(
+                    """
+                    UPDATE resources
+                    SET download_url = ?, download_urls_json = ?
+                    WHERE id = ?
+                    """,
+                    (primary, json.dumps(merged_urls, ensure_ascii=True), resource_id),
+                )
+                conn.commit()
+            reference_updates = 0
+            for attempt in range(4):
+                try:
+                    reference_updates = int(recovery_mod.update_reference_urls_from_resources(paths.db_path))
+                    break
+                except Exception as update_exc:
+                    if "database is locked" in str(update_exc).lower():
+                        break
+                    if attempt >= 3:
+                        raise
+                    threading.Event().wait(0.05 * (attempt + 1))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:

@@ -90,7 +90,7 @@ def test_link_reference_to_resource(tmp_path: Path) -> None:
         resource_repo=resource_repo,
         archive_store=ArchiveStore(archive_dir),
     )
-    result = ingest.ingest_file(source_file)
+    result = ingest.ingest_file(source_file, source_uri="https://example.org/reference/source")
 
     citation = CitationRepo(db_path).get_by_normalized_key("gammakey")
     assert citation is not None

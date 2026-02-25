@@ -103,7 +103,7 @@ Liquidity improved in FY2025.
     )
 
     ingest_service = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    resource = ingest_service.ingest_file(source).resource
+    resource = ingest_service.ingest_file(source, source_uri="https://example.org/vector/source").resource
     extract_service = ExtractionService(
         resource_repo=resource_repo,
         extraction_repo=extraction_repo,

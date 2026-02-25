@@ -18,6 +18,10 @@ class ResourceIngestError(StemmaError):
     """Raised when a resource cannot be ingested."""
 
 
+class MissingSourceUrlError(ResourceIngestError):
+    """Raised when ingestion cannot resolve a real-world source URL."""
+
+
 class ReferenceError(StemmaError):
     """Raised when citation/reference operations fail."""
 

@@ -12,6 +12,7 @@ from stemmacodicum.application.services.extraction_service import ExtractionServ
 from stemmacodicum.application.services.ingestion_policy_service import IngestionPolicyService
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.structured_data_service import StructuredDataService
+from stemmacodicum.core.errors import MissingSourceUrlError
 from stemmacodicum.infrastructure.db.repos.extraction_repo import ExtractionRepo
 from stemmacodicum.infrastructure.parsers.docling_adapter import DoclingAdapter
 
@@ -28,6 +29,7 @@ class PipelineStats:
     structured_profile_failed: int
     structured_profile_skipped: int
     skipped_extraction: int
+    skipped_missing_source: int
     failed: int
     remaining_unprocessed: int
     state_entries_before: int
@@ -166,12 +168,14 @@ class BatchImportService:
         structured_profile_failed = 0
         structured_profile_skipped = 0
         skipped_extraction = 0
+        skipped_missing_source = 0
         failed = 0
         processed = 0
 
         for index, candidate in enumerate(worklist, start=1):
             candidate_key = str(candidate)
             started = time.perf_counter()
+            mark_processed_in_state = True
 
             self._emit_progress(
                 progress_callback,
@@ -272,6 +276,29 @@ class BatchImportService:
                         "pages_per_second": pages_per_second,
                     },
                 )
+            except MissingSourceUrlError as exc:
+                mark_processed_in_state = False
+                skipped_missing_source += 1
+                elapsed_seconds = time.perf_counter() - started
+                self.append_log(
+                    {
+                        "path": candidate_key,
+                        "skip_status": "missing-source-url",
+                        "reason": str(exc),
+                        "elapsed_seconds": round(elapsed_seconds, 4),
+                    }
+                )
+                self._emit_progress(
+                    progress_callback,
+                    {
+                        "event": "file_skipped_missing_source",
+                        "index": index,
+                        "total": planned_total,
+                        "path": candidate_key,
+                        "reason": str(exc),
+                        "elapsed_seconds": elapsed_seconds,
+                    },
+                )
             except Exception as exc:
                 failed += 1
                 elapsed_seconds = time.perf_counter() - started
@@ -294,9 +321,10 @@ class BatchImportService:
                     },
                 )
 
-            processed += 1
-            processed_set.add(candidate_key)
-            self.save_state(processed_set)
+            if mark_processed_in_state:
+                processed += 1
+                processed_set.add(candidate_key)
+                self.save_state(processed_set)
 
         self.save_state(processed_set)
         remaining_unprocessed = max(0, len(candidates) - already_processed - processed)
@@ -311,6 +339,7 @@ class BatchImportService:
             structured_profile_failed=structured_profile_failed,
             structured_profile_skipped=structured_profile_skipped,
             skipped_extraction=skipped_extraction,
+            skipped_missing_source=skipped_missing_source,
             failed=failed,
             remaining_unprocessed=remaining_unprocessed,
             state_entries_before=state_entries_before,

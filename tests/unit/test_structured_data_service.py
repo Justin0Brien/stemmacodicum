@@ -54,7 +54,7 @@ def test_profile_csv_with_metadata_preamble_and_lookup(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/structured/csv").resource
     profile = service.profile_resource(resource.id)
     assert profile.status == "success"
     assert profile.table_count == 1
@@ -89,7 +89,7 @@ def test_profile_non_structured_resource_is_skipped(tmp_path: Path) -> None:
     _resource_repo, service, ingest = _bootstrap(tmp_path)
     source = tmp_path / "note.md"
     source.write_text("# narrative", encoding="utf-8")
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/structured/narrative").resource
     profile = service.profile_resource(resource.id)
     assert profile.status == "skipped"
     assert "not classified as structured data" in str(profile.error)

@@ -467,20 +467,67 @@ def pick_primary(urls: list[str], fallback: str | None = None) -> str | None:
     return fallback if is_external_url(fallback) else None
 
 
+# ---------------------------------------------------------------------------
+# Persistent write-connection cache — reused across save_resource_urls calls
+# within a single batch run to avoid opening a new connection per resource.
+# ---------------------------------------------------------------------------
+_write_conn: "sqlite3.Connection | None" = None
+_write_conn_db: Path | None = None
+_write_conn_count: int = 0
+
+
+def _get_write_conn(db_path: Path) -> "sqlite3.Connection":
+    """Return (or create) a persistent SQLite connection for batch writes."""
+    global _write_conn, _write_conn_db
+    if _write_conn is None or _write_conn_db != db_path:
+        if _write_conn is not None:
+            try:
+                _write_conn.commit()
+                _write_conn.close()
+            except Exception:
+                pass
+        _write_conn = get_connection(db_path)
+        _write_conn_db = db_path
+    return _write_conn
+
+
+def _flush_write_conn() -> None:
+    """Commit and close the persistent write connection (call at end of batch)."""
+    global _write_conn, _write_conn_db, _write_conn_count
+    if _write_conn is not None:
+        try:
+            _write_conn.commit()
+            _write_conn.close()
+        except Exception:
+            pass
+    _write_conn = None
+    _write_conn_db = None
+    _write_conn_count = 0
+
+
 def save_resource_urls(db_path: Path, task: ResourceTask, urls: list[str]) -> None:
+    """Persist *urls* to the resources table, reusing a batch connection.
+
+    Commits every 50 writes for durability without the overhead of a commit
+    per resource.  The caller should call :func:`_flush_write_conn` at the
+    end of any batch loop to flush the final partial batch.
+    """
+    global _write_conn_count
     if not urls:
         return
     primary = pick_primary(urls)
     urls_json = json.dumps(urls, ensure_ascii=True) if urls else None
-    with get_connection(db_path) as conn:
-        conn.execute(
-            """
-            UPDATE resources
-            SET download_url = ?, download_urls_json = ?
-            WHERE id = ?
-            """,
-            (primary, urls_json, task.resource_id),
-        )
+    conn = _get_write_conn(db_path)
+    conn.execute(
+        """
+        UPDATE resources
+        SET download_url = ?, download_urls_json = ?
+        WHERE id = ?
+        """,
+        (primary, urls_json, task.resource_id),
+    )
+    _write_conn_count += 1
+    if _write_conn_count % 50 == 0:
         conn.commit()
 
 
@@ -503,6 +550,39 @@ def load_latest_document_text(db_path: Path, resource_id: str, *, max_chars: int
     if max_chars > 0 and len(text) > max_chars:
         return text[:max_chars]
     return text
+
+
+def load_all_document_texts(db_path: Path, *, max_chars: int = 120000) -> dict[str, str]:
+    """Bulk-load the latest extracted text for every resource in one query.
+
+    Returns a ``resource_id → text`` mapping.  Much faster than calling
+    :func:`load_latest_document_text` once per resource inside a batch loop
+    (one round-trip vs *N* round-trips).
+    """
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT dt.resource_id, dt.text_content
+            FROM document_texts dt
+            INNER JOIN (
+                SELECT dt2.resource_id, MAX(er2.created_at) AS latest
+                FROM document_texts dt2
+                INNER JOIN extraction_runs er2 ON er2.id = dt2.extraction_run_id
+                GROUP BY dt2.resource_id
+            ) lf ON lf.resource_id = dt.resource_id
+            INNER JOIN extraction_runs er
+                ON er.id = dt.extraction_run_id
+                AND er.created_at = lf.latest
+            """
+        ).fetchall()
+    result: dict[str, str] = {}
+    for row in rows:
+        rid = str(row["resource_id"])
+        text = str(row["text_content"] or "")
+        if max_chars > 0 and len(text) > max_chars:
+            text = text[:max_chars]
+        result[rid] = text
+    return result
 
 
 def normalize_doi(value: str | None) -> str | None:
@@ -559,19 +639,30 @@ def doi_urls_from_text(text: str, *, max_dois: int = 8) -> list[str]:
 
 
 def query_terms_from_text(text: str, *, max_terms: int = 14) -> str:
+    """Extract search-quality terms from *body* text, not headings.
+
+    Skips lines that are too short, ALL-CAPS (section headers), page markers,
+    or bare numbers (footers/page numbers) because they do not distinguish the
+    document from unrelated files on the web.  Takes the first 1–3 qualifying
+    lines of at least 30 characters as the signal text.
+    """
     if not text:
         return ""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    signal = ""
-    for line in lines[:20]:
-        if len(line) < 8:
+    body_lines: list[str] = []
+    for line in lines[:60]:
+        if len(line) < 30:
+            continue
+        if line.isupper():
             continue
         if line.lower().startswith("page "):
             continue
-        signal = line
-        break
-    if not signal:
-        signal = " ".join(lines[:2])
+        if re.match(r"^[\d\s.]+$", line):
+            continue
+        body_lines.append(line)
+        if len(body_lines) >= 3:
+            break
+    signal = " ".join(body_lines) if body_lines else " ".join(lines[:3])
     signal = re.sub(r"[^a-zA-Z0-9\s\-_/]", " ", signal)
     tokens = [tok for tok in signal.split() if len(tok) > 2]
     return " ".join(tokens[:max_terms])
@@ -1223,6 +1314,63 @@ def catalog_urls_for_sha256(sha256: str | None, catalog_db: Path = CATALOG_DB) -
     return results
 
 
+_catalog_sha256_cache: dict[str, list[str]] | None = None
+
+
+def preload_catalog_sha256_map(catalog_db: Path = CATALOG_DB) -> dict[str, list[str]]:
+    """Load the full sha256 → [url] mapping from the catalog DB in one query.
+
+    A single bulk query is far faster than calling :func:`catalog_urls_for_sha256`
+    once per resource within a batch loop (one round-trip vs up to 4507).
+    Returns an empty dict when the catalog file does not exist.
+    """
+    global _catalog_sha256_cache
+    if _catalog_sha256_cache is not None:
+        return _catalog_sha256_cache
+    if not catalog_db.exists():
+        _catalog_sha256_cache = {}
+        return {}
+    result: dict[str, list[str]] = {}
+    try:
+        conn = sqlite3.connect(f"file:{catalog_db}?mode=ro", uri=True)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                """
+                SELECT obj.sha256, be.url_normalized, be.doi_normalized
+                FROM   objects           AS obj
+                JOIN   bib_object_links  AS bol USING (object_id)
+                JOIN   bib_entries       AS be  USING (bib_key)
+                WHERE  (be.url_normalized IS NOT NULL AND be.url_normalized != '')
+                    OR (be.doi_normalized  IS NOT NULL AND be.doi_normalized  != '')
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        _catalog_sha256_cache = {}
+        return {}
+    for row in rows:
+        sha = str(row["sha256"] or "").strip().lower()
+        if not sha:
+            continue
+        url = str(row["url_normalized"] or "").strip()
+        doi = str(row["doi_normalized"] or "").strip()
+        bucket = result.setdefault(sha, [])
+        seen = set(bucket)
+        if is_external_url(url) and url not in seen:
+            seen.add(url)
+            bucket.append(url)
+        if doi and doi not in seen:
+            clean = doi.lstrip("https://doi.org/").lstrip("http://doi.org/").lstrip("doi:")
+            doi_url = f"https://doi.org/{clean}"
+            if doi_url not in seen:
+                seen.add(doi_url)
+                bucket.append(doi_url)
+    _catalog_sha256_cache = result
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Phase 0b: university-finance-page discovery data
 # ---------------------------------------------------------------------------
@@ -1625,6 +1773,40 @@ def _pdf_text_fingerprint(path: Path, chars: int = 600) -> str:
     return normalized[:chars]
 
 
+# Module-level cache: Path → pre-computed fingerprint string.
+_dl_fingerprint_cache_store: dict[Path, str] | None = None
+
+
+def build_dl_fingerprint_cache(
+    size_index: "dict[int, list[tuple[Path, list[str]]]] | None" = None,
+    *,
+    force_rebuild: bool = False,
+    chars: int = 600,
+) -> dict[Path, str]:
+    """Pre-compute text fingerprints for every file in the dl size-index.
+
+    Building this once at startup means :func:`dl_urls_by_size_and_text` can
+    look up candidate fingerprints from memory instead of re-opening each PDF
+    for every resource it is called for.  With ~2,971 dl-files this is a
+    one-off cost of a few seconds versus repeated disk I/O per resource.
+    """
+    global _dl_fingerprint_cache_store
+    if _dl_fingerprint_cache_store is not None and not force_rebuild:
+        return _dl_fingerprint_cache_store
+    if not HAVE_FITZ:
+        _dl_fingerprint_cache_store = {}
+        return {}
+    if size_index is None:
+        size_index = build_dl_size_index()
+    cache: dict[Path, str] = {}
+    for entries in size_index.values():
+        for path, _urls in entries:
+            if path not in cache:
+                cache[path] = _pdf_text_fingerprint(path, chars=chars)
+    _dl_fingerprint_cache_store = cache
+    return cache
+
+
 def dl_urls_by_size_and_text(
     size_bytes: int | None,
     archive_path: Path,
@@ -1633,6 +1815,7 @@ def dl_urls_by_size_and_text(
     size_tolerance: float = 0.02,
     min_similarity: float = 0.70,
     fingerprint_chars: int = 600,
+    fingerprint_cache: "dict[Path, str] | None" = None,
 ) -> list[str]:
     """Return URLs from *index* matched by size *and* PDF text content.
 
@@ -1640,6 +1823,10 @@ def dl_urls_by_size_and_text(
     characters of normalized text are compared against the same extract from
     *archive_path* using :func:`difflib.SequenceMatcher`.  Only candidates
     whose similarity ratio meets *min_similarity* (default 0.70) are returned.
+
+    Pass *fingerprint_cache* (built by :func:`build_dl_fingerprint_cache`) to
+    avoid re-opening dl-files from disk on every call — making the per-resource
+    cost essentially O(1) for the cached candidates.
 
     Falls back to :func:`dl_urls_by_size` when PyMuPDF is unavailable or
     *archive_path* yields no extractable text.
@@ -1662,7 +1849,10 @@ def dl_urls_by_size_and_text(
         if not (lo <= sz <= hi):
             continue
         for cand_path, urls in entries:
-            cand_fp = _pdf_text_fingerprint(cand_path, chars=fingerprint_chars)
+            if fingerprint_cache is not None:
+                cand_fp = fingerprint_cache.get(cand_path, "")
+            else:
+                cand_fp = _pdf_text_fingerprint(cand_path, chars=fingerprint_chars)
             if not cand_fp:
                 continue
             sim = difflib.SequenceMatcher(None, archive_fp, cand_fp, autojunk=False).ratio()
@@ -1735,6 +1925,53 @@ def manifest_urls_for_task(
             if len(results) >= 8:
                 return results
     return results
+
+
+def build_manifest_filename_index(
+    manifest_root: Path,
+    *,
+    max_files: int = 25000,
+) -> dict[str, list[str]]:
+    """Build a lowercase-filename → [url] lookup by scanning JSON manifests once.
+
+    Pre-scans all JSON files at startup so Phase 5 in the batch loop becomes an
+    O(1) dict look-up instead of re-scanning up to *max_files* × N resources.
+    Only files whose name ends in a document extension (.pdf, .html, .doc, etc.)
+    are indexed to avoid spurious matches on generic names.
+    """
+    if not manifest_root.is_dir():
+        return {}
+    _doc_ext_re = re.compile(
+        r"\b([\w\-]+\.(?:pdf|html?|docx?|xlsx?|pptx?|odt|ods|odp|txt|csv))\b",
+        re.IGNORECASE,
+    )
+    index: dict[str, list[str]] = {}
+    seen_per_file: dict[str, set[str]] = {}
+    scanned = 0
+    for json_path in manifest_root.rglob("*.json"):
+        scanned += 1
+        if scanned > max_files:
+            break
+        try:
+            text = json_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        urls_in_file = [
+            u.strip().rstrip(".,);")
+            for u in URL_RE.findall(text)
+            if is_external_url(u.strip().rstrip(".,);"))
+        ]
+        if not urls_in_file:
+            continue
+        for m in _doc_ext_re.finditer(text):
+            fname = m.group(1).lower()
+            existing = index.setdefault(fname, [])
+            seen = seen_per_file.setdefault(fname, set())
+            for u in urls_in_file:
+                if u not in seen and len(existing) < 8:
+                    seen.add(u)
+                    existing.append(u)
+    return index
 
 
 # ---------------------------------------------------------------------------
@@ -2597,6 +2834,14 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
     )
     rp(f"  [dim]discovery.sqlite: {_disc_db};  JSON dir: {_disc_json};  [cyan]{len(discovery_records_all)}[/cyan] record(s)[/dim]")
 
+    with _status_cm("[bold]Pre-loading catalog SHA-256 map…[/bold]"):
+        catalog_sha256_map = preload_catalog_sha256_map()
+    rp(
+        f"  [dim]Catalog map: [cyan]{len(catalog_sha256_map)}[/cyan] sha256 → URL mapping(s)[/dim]\n"
+        if catalog_sha256_map else
+        f"  [dim][yellow]Catalog unavailable[/yellow] ({CATALOG_DB} not found)[/dim]\n"
+    )
+
     with _status_cm("[bold]Building SHA-256 index from re-downloaded files… [dim](may take ~1 min)[/dim][/bold]"):
         dl_sha256_index = build_dl_sha256_index()
     rp(
@@ -2605,7 +2850,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
         "  [dim][yellow]SHA-256 index unavailable[/yellow] (UNIPAGE_DL_DIR or UNIPAGE_JSON_DIR absent)[/dim]"
     )
 
-    with _status_cm("[bold]Building file-size index…[/bold]"):
+    with _status_cm("[bold]Building file-size index\u2026[/bold]"):
         dl_size_index = build_dl_size_index()
     rp(
         f"  [dim]Size index: [cyan]{len(dl_size_index)}[/cyan] mapping(s)[/dim]\n"
@@ -2613,12 +2858,38 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
         "  [dim][yellow]Size index unavailable[/yellow] (UNIPAGE_DL_DIR or UNIPAGE_JSON_DIR absent)[/dim]\n"
     )
 
-    # ── main recovery loop ─────────────────────────────────────────────────
+    with _status_cm(
+        "[bold]Pre-computing dl-file text fingerprints\u2026 "
+        "[dim](one-off startup cost; avoids per-resource PDF re-opens)[/dim][/bold]"
+    ):
+        dl_fingerprint_cache = build_dl_fingerprint_cache(dl_size_index)
+    rp(
+        f"  [dim]Fingerprint cache: [cyan]{len(dl_fingerprint_cache)}[/cyan] entry/entries[/dim]\n"
+        if dl_fingerprint_cache else
+        "  [dim][yellow]Fingerprint cache empty[/yellow] (PyMuPDF unavailable or no dl-files)[/dim]\n"
+    )
+
+    with _status_cm("[bold]Bulk-loading extracted document texts\u2026[/bold]"):
+        document_texts = load_all_document_texts(paths.db_path)
+    rp(f"  [dim]Document texts preloaded: [cyan]{len(document_texts)}[/cyan] resource(s)[/dim]\n")
+
+    if use_manifests:
+        with _status_cm(
+            "[bold]Building manifest filename index\u2026 [dim](scans JSON files once)[/dim][/bold]"
+        ):
+            manifest_index = build_manifest_filename_index(
+                Path(args.manifest_root), max_files=args.manifest_max_files
+            )
+        rp(f"  [dim]Manifest index: [cyan]{len(manifest_index)}[/cyan] filename(s) indexed[/dim]\n")
+    else:
+        manifest_index: dict[str, list[str]] = {}
+
+    # \u2500\u2500 main recovery loop \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     _n = len(unresolved)
     if HAVE_RICH:
         _prog_ctx = _RichProgress(
             _RichSpinnerColumn(style="cyan"),
-            _RichTextColumn("{task.description}", ratio=3),
+            _RichTextColumn("{task.description}"),
             _RichBarColumn(bar_width=None),
             _RichMofNColumn(),
             _RichTextColumn("[dim]•[/dim]"),
@@ -2655,6 +2926,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                 )
 
         try:
+            _wayback_count = 0
             for index, task in enumerate(unresolved, start=1):
                 archive_file = (paths.archive_dir / task.archived_relpath).resolve()
                 if prog is None:
@@ -2664,12 +2936,18 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                         tp(f"  [bold red]✗[/bold red] archive file missing: [dim]{task.original_filename}[/dim]")
                         failed += 1
                         continue
+                    # Stat once; reused by Phases 0, 0a, 3 etc.
+                    archive_size: int | None = None
+                    try:
+                        archive_size = archive_file.stat().st_size
+                    except OSError:
+                        pass
 
                     # ------------------------------------------------------------------
                     # Phase 0c: catalog database (SHA-256 exact match)
                     # ------------------------------------------------------------------
                     _pdesc(index, "0c catalog")
-                    catalog_hits = catalog_urls_for_sha256(task.digest_sha256)
+                    catalog_hits = catalog_sha256_map.get(str(task.digest_sha256 or "").lower(), [])
                     if catalog_hits:
                         merged = merge_urls(task.download_urls_json, catalog_hits)
                         if is_external_url(pick_primary(merged)):
@@ -2686,7 +2964,10 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     _pdesc(index, "0a dl-files")
                     dl_hits = dl_sha256_index.get(str(task.digest_sha256 or "").lower(), [])
                     if not dl_hits:
-                        dl_hits = dl_urls_by_size_and_text(task.size_bytes, archive_file, dl_size_index)
+                        dl_hits = dl_urls_by_size_and_text(
+                            task.size_bytes, archive_file, dl_size_index,
+                            fingerprint_cache=dl_fingerprint_cache,
+                        )
                         if dl_hits and verbose:
                             _fb = "size+text" if HAVE_FITZ else "size-only"
                             tp(f"  [dim][0a] SHA-256 miss; {_fb} fallback: {task.size_bytes}B ±2% → {len(dl_hits)} URL(s)[/dim]")
@@ -2721,14 +3002,9 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     # Phase 0: browser download history (Safari / Chromium / Firefox)
                     # ------------------------------------------------------------------
                     _pdesc(index, "0 browser")
-                    archive_size_0: int | None = None
-                    try:
-                        archive_size_0 = archive_file.stat().st_size
-                    except OSError:
-                        pass
                     browser_hits = browser_history_urls_for_file(
                         original_filename=task.original_filename,
-                        archive_size=archive_size_0,
+                        archive_size=archive_size,
                         source_uri=task.source_uri,
                         archive_file=archive_file,
                         browser_records=browser_records,
@@ -2796,11 +3072,6 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     # Phase 3: search shallow + deep folders for original filename
                     # ------------------------------------------------------------------
                     _pdesc(index, "3 search")
-                    archive_size: int | None = None
-                    try:
-                        archive_size = archive_file.stat().st_size
-                    except OSError:
-                        pass
                     if verbose:
                         size_str = f", expected size {archive_size:,} bytes" if archive_size else ""
                         shallow = ', '.join(str(d) for d in args_shallow_dirs)
@@ -2858,12 +3129,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     if use_manifests:
                         if verbose:
                             tp(f"  [dim][5] scanning manifests under {args.manifest_root} for '{task.original_filename}'[/dim]")
-                        manifest_found = manifest_urls_for_task(
-                            Path(args.manifest_root),
-                            original_filename=task.original_filename,
-                            resource_id=task.resource_id,
-                            max_files=args.manifest_max_files,
-                        )
+                        manifest_found = manifest_index.get(task.original_filename.lower(), [])
                         if manifest_found:
                             merged = merge_urls(task.download_urls_json, manifest_found)
                             if is_external_url(pick_primary(merged)):
@@ -2916,7 +3182,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                     _pdesc(index, "7 text scan")
                     if verbose:
                         tp("  [dim][7] scanning latest extracted text for DOI/URL clues[/dim]")
-                    text_excerpt = load_latest_document_text(paths.db_path, task.resource_id, max_chars=120000)
+                    text_excerpt = document_texts.get(task.resource_id, "")
                     text_candidates = merge_url_lists(
                         [],
                         [*doi_urls_from_text(text_excerpt, max_dois=8), *urls_from_text(text_excerpt, max_urls=12)],
@@ -2946,7 +3212,9 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
                                 verbose=verbose,
                             )
                             attempted.add(task.resource_id)
-                            save_attempted(state_path, attempted)
+                            _wayback_count += 1
+                            if _wayback_count % 20 == 0:
+                                save_attempted(state_path, attempted)
                             if cdx_found:
                                 merged = merge_urls(task.download_urls_json, cdx_found)
                                 if is_external_url(pick_primary(merged)):
@@ -2997,6 +3265,7 @@ def run(args: argparse.Namespace) -> int:  # noqa: C901
 
         finally:
             save_attempted(state_path, attempted)
+            _flush_write_conn()
 
     reference_updates = update_reference_urls_from_resources(paths.db_path)
 

@@ -55,7 +55,7 @@ def test_trace_claim_and_resource_and_citation(tmp_path: Path) -> None:
     source = tmp_path / "source.md"
     source.write_text("Evidence text", encoding="utf-8")
     ingest = IngestionService(ctx["resource_repo"], ArchiveStore(ctx["archive_dir"]))
-    resource = ingest.ingest_file(source).resource
+    resource = ingest.ingest_file(source, source_uri="https://example.org/trace/source").resource
 
     bind = EvidenceBindingService(ctx["claim_repo"], ctx["resource_repo"], ctx["evidence_repo"])
     bind.bind_evidence(

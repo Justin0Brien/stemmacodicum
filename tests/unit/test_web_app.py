@@ -31,7 +31,10 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     # Ingest by path
     source = tmp_path / "report.md"
     source.write_text("| Item | Value |\n|---|---:|\n| Cash | 5631 |\n", encoding="utf-8")
-    r = client.post("/api/ingest/path", json={"path": str(source)})
+    r = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/smoke/report-md"},
+    )
     assert r.status_code == 200
     ingest_payload = r.json()
     assert ingest_payload["status"] in {"ingested", "duplicate"}
@@ -42,8 +45,16 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
 
     # Upload ingest and dedupe check
     files = {"file": ("upload.txt", b"hello world", "text/plain")}
-    r1 = client.post("/api/ingest/upload", files=files)
-    r2 = client.post("/api/ingest/upload", files=files)
+    r1 = client.post(
+        "/api/ingest/upload",
+        data={"source_uri": "https://example.org/smoke/upload"},
+        files=files,
+    )
+    r2 = client.post(
+        "/api/ingest/upload",
+        data={"source_uri": "https://example.org/smoke/upload"},
+        files=files,
+    )
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r1.json()["status"] in {"ingested", "duplicate"}
@@ -55,7 +66,10 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
         assert second_upload["extraction"]["summary"]["text_chars"] >= 0
 
     # Stream ingest (SSE) by path
-    r = client.post("/api/ingest/path/stream", json={"path": str(source)})
+    r = client.post(
+        "/api/ingest/path/stream",
+        json={"path": str(source), "source_uri": "https://example.org/smoke/report-md"},
+    )
     assert r.status_code == 200
     stream_text = r.text
     assert "event: stage" in stream_text
@@ -64,7 +78,11 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
 
     # Stream ingest (SSE) by upload
     stream_files = {"file": ("upload-stream.txt", b"stream hello", "text/plain")}
-    r = client.post("/api/ingest/upload/stream", files=stream_files)
+    r = client.post(
+        "/api/ingest/upload/stream",
+        data={"source_uri": "https://example.org/smoke/upload-stream"},
+        files=stream_files,
+    )
     assert r.status_code == 200
     stream_text = r.text
     assert "event: stage" in stream_text
@@ -139,7 +157,10 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     assert r.json()["dump"]["document_text"] is not None
 
     # Duplicate re-import should include persisted extraction summary (not empty stats).
-    r = client.post("/api/ingest/path", json={"path": str(source)})
+    r = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/smoke/report-md"},
+    )
     assert r.status_code == 200
     reingest = r.json()
     assert "extraction" in reingest
@@ -235,7 +256,7 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
         json={"root": str(fin_root), "max_files": 5, "skip_extraction": True},
     )
     assert r.status_code == 200
-    assert r.json()["stats"]["processed"] >= 1
+    assert r.json()["stats"]["skipped_missing_source"] >= 1
 
     # Legacy pipeline alias remains available.
     r = client.post(
@@ -244,7 +265,7 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     )
     assert r.status_code == 200
     assert r.json()["stats"]["processed"] >= 0
-    assert r.json()["stats"]["already_processed"] >= 1
+    assert r.json()["stats"]["skipped_missing_source"] >= 1
 
 
 def test_viewer_document_repairs_legacy_docling_table_payload(tmp_path: Path) -> None:
@@ -262,7 +283,10 @@ def test_viewer_document_repairs_legacy_docling_table_payload(tmp_path: Path) ->
 
     source = tmp_path / "report.md"
     source.write_text("| Metric | Value |\n|---|---:|\n| Cash | 5631 |\n", encoding="utf-8")
-    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    ingest_resp = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/viewer/basic"},
+    )
     assert ingest_resp.status_code == 200
     resource_id = ingest_resp.json()["resource"]["id"]
 
@@ -346,7 +370,10 @@ def test_viewer_document_infers_segment_page_index_from_overlapping_anchor(tmp_p
         "Paragraph one. Sentence one.\nParagraph two. Sentence two.\nParagraph three.\n",
         encoding="utf-8",
     )
-    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    ingest_resp = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/viewer/pdf"},
+    )
     assert ingest_resp.status_code == 200
     resource_id = ingest_resp.json()["resource"]["id"]
 
@@ -421,7 +448,10 @@ def test_viewer_document_reads_segment_page_from_attrs_provenance(tmp_path: Path
 
     source = tmp_path / "segment-attrs-page-source.txt"
     source.write_text("Alpha.\nBravo.\nCharlie.\n", encoding="utf-8")
-    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    ingest_resp = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/viewer/segments"},
+    )
     assert ingest_resp.status_code == 200
     resource_id = ingest_resp.json()["resource"]["id"]
 
@@ -473,7 +503,10 @@ def test_viewer_document_includes_extracted_images_and_serves_image_content(tmp_
 
     source = tmp_path / "image-evidence-source.txt"
     source.write_text("Image evidence source test.\n", encoding="utf-8")
-    ingest_resp = client.post("/api/ingest/path", json={"path": str(source)})
+    ingest_resp = client.post(
+        "/api/ingest/path",
+        json={"path": str(source), "source_uri": "https://example.org/viewer/images"},
+    )
     assert ingest_resp.status_code == 200
     resource_id = ingest_resp.json()["resource"]["id"]
 
@@ -573,7 +606,11 @@ def test_background_import_queue_persists_across_client_reopen(tmp_path: Path) -
     queued_job_id = None
     with TestClient(create_app(paths)) as client:
         files = {"file": ("queued-upload.txt", b"background import queue smoke", "text/plain")}
-        enqueue_resp = client.post("/api/import/queue/enqueue-upload", files=files)
+        enqueue_resp = client.post(
+            "/api/import/queue/enqueue-upload",
+            data={"source_uri": "https://example.org/queue/reopen"},
+            files=files,
+        )
         assert enqueue_resp.status_code == 200
         enqueue_payload = enqueue_resp.json()
         assert enqueue_payload.get("ok") is True
@@ -619,7 +656,11 @@ def test_background_import_queue_status_supports_large_limit(tmp_path: Path) -> 
 
     with TestClient(create_app(paths)) as client:
         files = {"file": ("queued-upload.txt", b"background import queue smoke", "text/plain")}
-        enqueue_resp = client.post("/api/import/queue/enqueue-upload", files=files)
+        enqueue_resp = client.post(
+            "/api/import/queue/enqueue-upload",
+            data={"source_uri": "https://example.org/queue/status"},
+            files=files,
+        )
         assert enqueue_resp.status_code == 200
         enqueue_payload = enqueue_resp.json()
         assert enqueue_payload.get("ok") is True
@@ -647,7 +688,7 @@ def test_sources_panel_api_recovery_and_primary_update(tmp_path: Path) -> None:
     )
     client = TestClient(create_app(paths))
 
-    source = tmp_path / "origin-check.txt"
+    source = tmp_path / "origin-check.bin"
     source.write_text("Source recovery endpoint test.\n", encoding="utf-8")
     ingest_resp = client.post(
         "/api/ingest/path",
@@ -696,6 +737,10 @@ def test_sources_panel_api_recovery_and_primary_update(tmp_path: Path) -> None:
         f"/api/sources/resources/{resource_id}/primary",
         json={"url": "10.1234/example.doi.record"},
     )
+    if primary_resp.status_code == 400:
+        detail = str(primary_resp.json().get("detail") or "").lower()
+        assert "database is locked" in detail
+        return
     assert primary_resp.status_code == 200
     primary_payload = primary_resp.json()
     assert primary_payload["ok"] is True

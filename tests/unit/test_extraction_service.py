@@ -63,7 +63,7 @@ def test_extract_resource_persists_tables_and_text_layers(tmp_path: Path) -> Non
     )
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    ingested = ingest.ingest_file(source)
+    ingested = ingest.ingest_file(source, source_uri="https://example.org/extract/tables")
 
     service = ExtractionService(
         resource_repo=resource_repo,
@@ -107,7 +107,7 @@ def test_extract_resource_emits_heartbeat_progress_during_parse(tmp_path: Path, 
     source.write_text("Paragraph one.\n\nParagraph two with numbers 1234.", encoding="utf-8")
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    ingested = ingest.ingest_file(source)
+    ingested = ingest.ingest_file(source, source_uri="https://example.org/extract/heartbeat")
 
     parse_result = ParseResult(
         parser_name="stub-parser",
@@ -154,7 +154,7 @@ def test_extract_resource_retries_when_pdf_worker_crashes(tmp_path: Path, monkey
     source.write_bytes(b"%PDF-1.5\n%fake\n")
 
     ingest = IngestionService(resource_repo=resource_repo, archive_store=ArchiveStore(archive_dir))
-    ingested = ingest.ingest_file(source)
+    ingested = ingest.ingest_file(source, source_uri="https://example.org/extract/retry")
 
     parse_result = ParseResult(
         parser_name="stub-parser",

@@ -9,14 +9,35 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
+from rich.table import Table
+
 from stemmacodicum.core.config import load_paths
 from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.db.sqlite import get_connection, initialize_schema
+
+console = Console()
+
+# Moondream (and ollama vision models generally) crash under concurrent load.
+# A process-wide semaphore keeps requests sequential regardless of PDF worker count.
+_moondream_semaphore = threading.Semaphore(1)
 
 
 @dataclass(slots=True)
@@ -79,6 +100,17 @@ def ensure_image_archive_dir(paths) -> Path:
     return image_dir
 
 
+def image_subdir(image_archive_dir: Path, uid: str) -> Path:
+    """Return (and create) a two-character prefix subdirectory for an image UUID.
+
+    Produces a layout like image_archive/3f/3fa1bc2d-….avif, which keeps
+    Finder-friendly file counts (~256 dirs × ~N/256 files each).
+    """
+    subdir = image_archive_dir / uid[:2]
+    subdir.mkdir(exist_ok=True)
+    return subdir
+
+
 def save_as_avif(image, output_path: Path, quality: int) -> bytes:
     """Save image as AVIF and return the encoded bytes."""
     try:
@@ -119,29 +151,51 @@ def save_as_avif(image, output_path: Path, quality: int) -> bytes:
     return output_path.read_bytes()
 
 
-def describe_with_moondream(image_path: Path, model_name: str) -> str | None:
+def describe_with_moondream(
+    image_bytes: bytes,
+    model_name: str,
+    retries: int = 3,
+) -> tuple[str | None, str | None]:
+    """Returns (description, error_message).
+
+    Errors are surfaced rather than silently dropped. A process-wide semaphore
+    (_moondream_semaphore) enforces sequential calls — ollama vision models
+    crash under concurrent load. Image bytes are passed directly to bypass the
+    ollama SDK's file-extension check (which does not recognise .avif).
+    """
     try:
         import ollama  # type: ignore
     except Exception:
-        return None
-    try:
-        client = ollama.Client()
-        response = client.generate(
-            model=model_name,
-            prompt=(
-                "Describe this image in 1-3 concise sentences for archival search. "
-                "Focus on entities, chart/table content, and any visible text."
-            ),
-            images=[str(image_path)],
-            options={"temperature": 0.1},
-        )
-    except Exception:
-        return None
-    if isinstance(response, dict):
-        text = str(response.get("response", "")).strip()
-    else:
-        text = str(getattr(response, "response", "") or "").strip()
-    return text or None
+        return None, "ollama package not installed"
+
+    with _moondream_semaphore:
+        for attempt in range(retries):
+            try:
+                client = ollama.Client()
+                response = client.chat(
+                    model=model_name,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": (
+                                "Describe this image in 1-3 concise sentences for archival search. "
+                                "Focus on entities, chart/table content, and any visible text."
+                            ),
+                            "images": [image_bytes],
+                        }
+                    ],
+                    options={"temperature": 0.1},
+                )
+                text = ""
+                if response and response.message and response.message.content:
+                    text = response.message.content.strip()
+                return text or None, None
+            except Exception as exc:
+                if attempt < retries - 1:
+                    time.sleep(2**attempt)  # 1 s, 2 s, …
+                else:
+                    return None, str(exc)
+    return None, "unknown error"
 
 
 def batch_insert_resource_images(db_path: Path, rows: list[dict]) -> None:
@@ -217,30 +271,35 @@ def process_resource(
     moondream_model: str,
     fitz,
     image_cls,
-) -> tuple[int, int, list[str]]:
-    log: list[str] = []
+) -> tuple[int, int, int, list[str], float, list[str]]:
+    """Returns (saved, described, skipped_scans, desc_errors, elapsed_sec, verbose_log)."""
+    t0 = time.monotonic()
+    verbose_log: list[str] = []
     pdf_path = (archive_dir / resource.archived_relpath).resolve()
     if not pdf_path.exists():
-        log.append(f"  missing archive file: {pdf_path}")
-        return 0, 0, log
+        return 0, 0, 0, [], time.monotonic() - t0, [f"missing archive file: {pdf_path}"]
     try:
         doc = fitz.open(pdf_path)
     except Exception as exc:
-        log.append(f"  could not open PDF ({type(exc).__name__}: {exc}); skipping.")
-        return 0, 0, log
+        return 0, 0, 0, [], time.monotonic() - t0, [f"could not open PDF ({type(exc).__name__}: {exc})"]
 
     resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
     pending_rows: list[dict] = []
+    skipped_scans = 0
 
     try:
         page_count = doc.page_count
-        log.append(f"  pages: {page_count}")
+        verbose_log.append(f"pages: {page_count}")
         for page_index, page in enumerate(doc):
             page_area = page.rect.width * page.rect.height
             images = page.get_images(full=True)
             if not images:
                 continue
-            log.append(f"  page {page_index + 1}/{page_count}: {len(images)} image(s) found")
+
+            # Count extractable text once per page — used for scan detection below.
+            page_text_len = len(page.get_text().strip())
+
+            verbose_log.append(f"page {page_index + 1}/{page_count}: {len(images)} image(s) found")
             image_counter = 0
             for info in images:
                 xref = int(info[0])
@@ -273,6 +332,17 @@ def process_resource(
                     if image_area / page_area <= 0.02:
                         continue
 
+                    # Skip full-page scan images: image covers >85% of page AND
+                    # the page has no meaningful OCR'd text — this is a scanned
+                    # document where the image IS the page, not an embedded figure.
+                    if image_area / page_area > 0.85 and page_text_len < 50:
+                        skipped_scans += 1
+                        verbose_log.append(
+                            f"  skipped page-scan image "
+                            f"({image_area / page_area:.0%} of page, {page_text_len} text chars)"
+                        )
+                        continue
+
                     image_counter += 1
 
                     dpi_x = (source_width / rect.width) * 72.0 if rect.width > 0 else 72.0
@@ -287,15 +357,18 @@ def process_resource(
 
                     resized = pil_image.resize((output_width_px, output_height_px), resample_lanczos)
 
-                    filename = f"{uuid.uuid4()}.avif"
-                    output_path = image_archive_dir / filename
-                    log.append(f"    saving image {image_counter} -> {filename}")
+                    uid = str(uuid.uuid4())
+                    filename = f"{uid}.avif"
+                    subdir = image_subdir(image_archive_dir, uid)
+                    output_path = subdir / filename
+                    verbose_log.append(f"  image {image_counter} → {output_width_px}×{output_height_px}  {uid[:2]}/{filename}")
                     avif_bytes = save_as_avif(resized, output_path, avif_quality)
                     sha256 = hashlib.sha256(avif_bytes).hexdigest()
                     relpath = str(output_path.relative_to(image_archive_dir.parent))
 
                     pending_rows.append({
                         "output_path": output_path,
+                        "avif_bytes": avif_bytes,
                         "resource_id": resource.resource_id,
                         "extraction_run_id": resource.extraction_run_id,
                         "page_index": page_index,
@@ -334,25 +407,30 @@ def process_resource(
     finally:
         doc.close()
 
-    # Dispatch all moondream calls concurrently (pure I/O — HTTP to Ollama)
+    # Moondream descriptions — serialised via _moondream_semaphore inside the
+    # function, so we can still submit futures here for pipelining across PDFs
+    # without risk of concurrent model calls.
+    desc_errors: list[str] = []
     if describe_images and pending_rows:
-        with ThreadPoolExecutor(max_workers=min(4, len(pending_rows))) as pool:
+        with ThreadPoolExecutor(max_workers=len(pending_rows)) as pool:
             futures = [
-                pool.submit(describe_with_moondream, row["output_path"], moondream_model)
+                pool.submit(describe_with_moondream, row["avif_bytes"], moondream_model)
                 for row in pending_rows
             ]
             for row, future in zip(pending_rows, futures):
-                desc = future.result()
+                desc, err = future.result()
                 if desc:
                     row["description"] = desc
                     row["description_model"] = moondream_model
+                elif err:
+                    desc_errors.append(err)
 
     described = sum(1 for r in pending_rows if r["description"])
 
     if pending_rows:
         batch_insert_resource_images(db_path, pending_rows)
 
-    return len(pending_rows), described, log
+    return len(pending_rows), described, skipped_scans, desc_errors, time.monotonic() - t0, verbose_log
 
 
 def run(args: argparse.Namespace) -> int:
@@ -360,7 +438,7 @@ def run(args: argparse.Namespace) -> int:
     paths = load_paths(Path(args.project_root))
 
     if getattr(args, "refresh", False):
-        print("Refreshing archive: clearing existing images and database records...", flush=True)
+        console.print("[bold yellow]⟳[/bold yellow]  Refreshing archive — clearing images and database records…")
         image_archive_dir = paths.stemma_dir / "image_archive"
         if image_archive_dir.exists():
             shutil.rmtree(image_archive_dir, ignore_errors=True)
@@ -382,50 +460,107 @@ def run(args: argparse.Namespace) -> int:
     initialize_schema(paths.db_path, schema_path)
     resources = load_pdf_resources(paths.db_path, only_missing=not args.force)
     if not resources:
-        print("No PDF resources need image extraction.")
+        console.print("[dim]No PDF resources need image extraction.[/dim]")
         return 0
+
     image_archive_dir = ensure_image_archive_dir(paths)
     total_saved = 0
     total_described = 0
+    total_skipped_scans = 0
     workers = min(args.workers, len(resources))
 
-    print(f"Processing {len(resources)} PDF resources (workers: {workers})...", flush=True)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=36),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        overall = progress.add_task(
+            f"[cyan]Extracting images[/cyan]  [dim]workers: {workers}[/dim]",
+            total=len(resources),
+        )
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_to_meta = {
-            executor.submit(
-                process_resource,
-                db_path=paths.db_path,
-                archive_dir=paths.archive_dir,
-                image_archive_dir=image_archive_dir,
-                resource=resource,
-                avif_quality=args.avif_quality,
-                describe_images=args.describe,
-                moondream_model=args.moondream_model,
-                fitz=fitz,
-                image_cls=image_cls,
-            ): (idx, resource)
-            for idx, resource in enumerate(resources, start=1)
-        }
-        for future in as_completed(future_to_meta):
-            idx, resource = future_to_meta[future]
-            print(f"[{idx}/{len(resources)}] {resource.resource_id} {resource.original_filename}", flush=True)
-            try:
-                saved, described, log_lines = future.result()
-            except Exception as exc:
-                print(f"  ERROR: {exc}", flush=True)
-                continue
-            for line in log_lines:
-                print(line, flush=True)
-            total_saved += saved
-            total_described += described
-            print(f"  extracted images: {saved}, described: {described}", flush=True)
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_meta = {
+                executor.submit(
+                    process_resource,
+                    db_path=paths.db_path,
+                    archive_dir=paths.archive_dir,
+                    image_archive_dir=image_archive_dir,
+                    resource=resource,
+                    avif_quality=args.avif_quality,
+                    describe_images=args.describe,
+                    moondream_model=args.moondream_model,
+                    fitz=fitz,
+                    image_cls=image_cls,
+                ): (idx, resource)
+                for idx, resource in enumerate(resources, start=1)
+            }
 
-    print("")
-    print("Image extraction summary:")
-    print(f"  images stored:      {total_saved}")
-    print(f"  descriptions saved: {total_described}")
-    print(f"  archive:            {image_archive_dir}")
+            for future in as_completed(future_to_meta):
+                idx, resource = future_to_meta[future]
+                name = resource.original_filename or resource.resource_id
+                try:
+                    saved, described, skipped_scans, desc_errors, elapsed, verbose_log = future.result()
+                except Exception as exc:
+                    progress.console.print(
+                        f"  [red]✗[/red]  [bold]{name}[/bold]  "
+                        f"[red]ERROR: {exc}[/red]"
+                    )
+                    progress.advance(overall)
+                    continue
+
+                elapsed_str = f"[dim]{elapsed:.1f}s[/dim]"
+                if saved == 0 and skipped_scans == 0:
+                    img_part = "[dim]no images[/dim]"
+                    status = "[dim]·[/dim]"
+                else:
+                    status = "[green]✓[/green]"
+                    parts = []
+                    if saved:
+                        img_part = f"[green]{saved}[/green] image{'s' if saved != 1 else ''}"
+                        if described:
+                            img_part += f"  [blue]{described} described[/blue]"
+                        elif args.describe:
+                            img_part += "  [yellow]0 described[/yellow]"
+                        parts.append(img_part)
+                    if skipped_scans:
+                        parts.append(f"[dim]{skipped_scans} page scan{'s' if skipped_scans != 1 else ''} skipped[/dim]")
+                    img_part = "  ".join(parts)
+
+                progress.console.print(f"  {status}  [bold]{name}[/bold]  {img_part}  {elapsed_str}")
+
+                if desc_errors:
+                    unique_errors = list(dict.fromkeys(desc_errors))
+                    for err in unique_errors:
+                        progress.console.print(f"       [yellow]⚠ moondream:[/yellow] [dim]{err}[/dim]")
+
+                if args.verbose:
+                    for line in verbose_log:
+                        progress.console.print(f"       [dim]{line}[/dim]")
+
+                total_saved += saved
+                total_described += described
+                total_skipped_scans += skipped_scans
+                progress.advance(overall)
+
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", no_wrap=True)
+    table.add_column(style="bold")
+    table.add_row("PDFs processed:", str(len(resources)))
+    table.add_row("Images stored:", str(total_saved))
+    if args.describe:
+        table.add_row("Descriptions:", str(total_described))
+    if total_skipped_scans:
+        table.add_row("Page scans skipped:", str(total_skipped_scans))
+    table.add_row("Archive:", str(image_archive_dir))
+
+    console.print()
+    console.print(Panel(table, title="[bold]Image Extraction Complete[/bold]", border_style="green"))
     return 0
 
 
@@ -449,6 +584,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=min(4, os.cpu_count() or 1),
         help="Number of parallel PDF workers (default: min(4, cpu_count))",
+    )
+    parser.add_argument(
+        "--verbose",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Print per-page and per-image detail for each PDF",
     )
     return parser
 

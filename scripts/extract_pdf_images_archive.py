@@ -365,7 +365,17 @@ def run(args: argparse.Namespace) -> int:
         if image_archive_dir.exists():
             shutil.rmtree(image_archive_dir, ignore_errors=True)
         with get_connection(paths.db_path) as conn:
+            conn.execute("DROP TRIGGER IF EXISTS block_delete_resource_images")
             conn.execute("DELETE FROM resource_images")
+            conn.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS block_delete_resource_images
+                BEFORE DELETE ON resource_images
+                BEGIN
+                    SELECT RAISE(ABORT, 'DELETE disabled for resource_images');
+                END
+                """
+            )
             conn.commit()
 
     schema_path = Path(__file__).parent.parent / "src" / "stemmacodicum" / "infrastructure" / "db" / "schema.sql"

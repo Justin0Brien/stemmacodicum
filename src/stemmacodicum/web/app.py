@@ -44,7 +44,7 @@ from stemmacodicum.application.services.trace_service import TraceService
 from stemmacodicum.application.services.vector_service import VectorIndexingService
 from stemmacodicum.application.services.verification_service import VerificationService
 from stemmacodicum.core.config import AppPaths
-from stemmacodicum.core.errors import MissingSourceUrlError
+from stemmacodicum.core.errors import EmptySourceFileError, MissingSourceUrlError
 from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.citation_repo import CitationRepo
@@ -232,6 +232,7 @@ def create_app(paths: AppPaths) -> FastAPI:
     vector_service_cache: VectorIndexingService | None = None
     structured_service_cache: StructuredDataService | None = None
     source_recovery_module_cache: Any | None = None
+    ingestion_service_cache: IngestionService | None = None
     policy_service = IngestionPolicyService()
 
     def get_resource_repo() -> ResourceRepo:
@@ -250,7 +251,13 @@ def create_app(paths: AppPaths) -> FastAPI:
         return VerificationRepo(paths.db_path)
 
     def get_ingestion_service() -> IngestionService:
-        return IngestionService(resource_repo=get_resource_repo(), archive_store=ArchiveStore(paths.archive_dir))
+        nonlocal ingestion_service_cache
+        if ingestion_service_cache is None:
+            ingestion_service_cache = IngestionService(
+                resource_repo=get_resource_repo(),
+                archive_store=ArchiveStore(paths.archive_dir),
+            )
+        return ingestion_service_cache
 
     def get_extraction_service() -> ExtractionService:
         return ExtractionService(
@@ -746,6 +753,27 @@ def create_app(paths: AppPaths) -> FastAPI:
                     },
                 )
                 emit("done", {"ok": True, "status": "skipped"})
+            except EmptySourceFileError as exc:
+                detail = str(exc)
+                emit(
+                    "stage",
+                    {
+                        "stage": "archive",
+                        "state": "skipped",
+                        "progress": 100,
+                        "detail": detail,
+                    },
+                )
+                emit(
+                    "payload",
+                    {
+                        "ok": False,
+                        "status": "skipped",
+                        "reason": "empty_source_file",
+                        "error": detail,
+                    },
+                )
+                emit("done", {"ok": True, "status": "skipped"})
             except Exception as exc:
                 emit("error", {"error": str(exc)})
             finally:
@@ -774,6 +802,7 @@ def create_app(paths: AppPaths) -> FastAPI:
         *,
         file_path: Path,
         source_uri: str | None,
+        source_path: Path | None = None,
         uploaded_filename: str | None,
         progress_callback: Callable[[dict[str, object]], None] | None = None,
         resume_resource_id: str | None = None,
@@ -794,7 +823,12 @@ def create_app(paths: AppPaths) -> FastAPI:
             status = "duplicate"
             resumed_from_existing_archive = True
         else:
-            result = get_ingestion_service().ingest_file(file_path, source_uri=source_uri)
+            source_paths = [source_path] if source_path is not None else None
+            result = get_ingestion_service().ingest_file(
+                file_path,
+                source_uri=source_uri,
+                source_paths=source_paths,
+            )
             resource = result.resource
             status = result.status
         archive_detail = (
@@ -858,6 +892,8 @@ def create_app(paths: AppPaths) -> FastAPI:
     def _shutdown_background_import_queue() -> None:
         if import_queue_service is not None:
             import_queue_service.shutdown()
+        if ingestion_service_cache is not None:
+            ingestion_service_cache.shutdown()
 
     def _resource_archive_abspath(resource_id: str) -> tuple[dict[str, Any], Path]:
         resource = get_resource_repo().get_by_id(resource_id)
@@ -1415,6 +1451,13 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "reason": "missing_source_url",
                 "detail": str(exc),
             }
+        except EmptySourceFileError as exc:
+            return {
+                "ok": False,
+                "status": "skipped",
+                "reason": "empty_source_file",
+                "detail": str(exc),
+            }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {
@@ -1473,6 +1516,14 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "detail": str(exc),
                 "uploaded_filename": file.filename,
             }
+        except EmptySourceFileError as exc:
+            return {
+                "ok": False,
+                "status": "skipped",
+                "reason": "empty_source_file",
+                "detail": str(exc),
+                "uploaded_filename": file.filename,
+            }
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         finally:
@@ -1515,6 +1566,7 @@ def create_app(paths: AppPaths) -> FastAPI:
     async def api_import_queue_enqueue_upload(
         file: UploadFile = File(...),
         source_uri: str | None = Form(default=None),
+        source_path: str | None = Form(default=None),
     ) -> dict[str, Any]:
         if import_queue_service is None:
             raise HTTPException(
@@ -1531,6 +1583,7 @@ def create_app(paths: AppPaths) -> FastAPI:
                 uploaded_filename=filename,
                 content_bytes=content,
                 source_uri=source_uri,
+                source_path=source_path,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1554,6 +1607,45 @@ def create_app(paths: AppPaths) -> FastAPI:
                 "jobs": [],
             }
         return import_queue_service.status(limit=limit)
+
+    @app.post("/api/import/queue/clear-active")
+    def api_import_queue_clear_active() -> dict[str, Any]:
+        if import_queue_service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Background import queue is disabled. "
+                    "Set STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED=1 to enable it."
+                ),
+            )
+        result = import_queue_service.clear_active_queue()
+        return {"ok": True, **result}
+
+    @app.post("/api/import/queue/clear-history")
+    def api_import_queue_clear_history() -> dict[str, Any]:
+        if import_queue_service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Background import queue is disabled. "
+                    "Set STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED=1 to enable it."
+                ),
+            )
+        result = import_queue_service.clear_history()
+        return {"ok": True, **result}
+
+    @app.post("/api/import/queue/retry-skipped-source")
+    def api_import_queue_retry_skipped_source() -> dict[str, Any]:
+        if import_queue_service is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Background import queue is disabled. "
+                    "Set STEMMA_BACKGROUND_IMPORT_QUEUE_ENABLED=1 to enable it."
+                ),
+            )
+        result = import_queue_service.retry_skipped_missing_source()
+        return {"ok": True, **result}
 
     @app.post("/api/import/queue/jobs/{job_id}/control")
     def api_import_queue_job_control(job_id: str, req: ImportQueueControlRequest) -> dict[str, Any]:
@@ -3278,12 +3370,19 @@ def create_app(paths: AppPaths) -> FastAPI:
     @app.get("/api/doctor")
     def api_doctor() -> dict[str, Any]:
         report = HealthService(paths.db_path, paths.archive_dir).run_doctor()
+        wayback = get_ingestion_service().wayback_diagnostics(force_probe=False)
         return {
             "ok": report.ok,
             "checks_run": report.checks_run,
             "db_runtime": _jsonable(report.db_runtime),
             "issues": [_jsonable(i) for i in report.issues],
+            "wayback": _jsonable(wayback),
         }
+
+    @app.get("/api/doctor/wayback")
+    def api_doctor_wayback(force: bool = Query(default=False)) -> dict[str, Any]:
+        diag = get_ingestion_service().wayback_diagnostics(force_probe=bool(force))
+        return {"ok": True, "wayback": _jsonable(diag)}
 
     @app.post("/api/ceapf/proposition")
     def api_ceapf_proposition(req: CEAPFPropositionRequest) -> dict[str, Any]:

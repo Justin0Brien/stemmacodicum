@@ -50,7 +50,7 @@ def test_mass_import_pipeline_recurses_and_processes_supported_files(
     monkeypatch.setattr(
         IngestionService,
         "_discover_download_urls",
-        lambda self, path, source_uri: [f"https://example.org/{path.name}"],
+        lambda self, path, source_uri, source_paths=None: [f"https://example.org/{path.name}"],
     )
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
 
@@ -108,7 +108,7 @@ def test_financial_pipeline_reports_already_processed(tmp_path: Path, monkeypatc
     monkeypatch.setattr(
         IngestionService,
         "_discover_download_urls",
-        lambda self, path, source_uri: [f"https://example.org/{path.name}"],
+        lambda self, path, source_uri, source_paths=None: [f"https://example.org/{path.name}"],
     )
     extraction = ExtractionService(resource_repo=resource_repo, extraction_repo=extraction_repo, archive_dir=archive_dir)
 

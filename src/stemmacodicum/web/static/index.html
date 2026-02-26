@@ -3397,6 +3397,20 @@
       <div id="import-live" class="import-live current-focus empty">
         <p class="small">Drop one or more documents to begin. This panel shows the currently processing file with thumbnail preview, staged progress, extraction/table/vector status, and confirmation metadata.</p>
       </div>
+      <div class="row">
+        <button type="button" class="secondary" onclick="importQueueClearActive()">Clear Active Queue</button>
+        <button type="button" class="secondary" onclick="importQueueClearHistory()">Clear Queue History</button>
+        <button type="button" class="secondary" onclick="importQueueRetrySkippedSource()">Retry Skipped Missing-URL</button>
+        <button type="button" class="secondary" onclick="importHistoryClear()">Clear Recent Imports</button>
+      </div>
+      <p id="import-queue-admin-status" class="small"></p>
+      <h3 class="import-history-title">Wayback Status</h3>
+      <div id="import-wayback-status" class="import-queue">
+        <p class="small">Loading Wayback connectivity status...</p>
+      </div>
+      <div class="row">
+        <button type="button" class="secondary" onclick="importRefreshWaybackStatus(true)">Check Wayback Now</button>
+      </div>
       <h3 class="import-history-title">Drop Queue</h3>
       <div id="import-drop-queue" class="import-queue">
         <p class="small">No files queued.</p>
@@ -8955,6 +8969,12 @@ let importQueuePollInFlight = false;
 let importQueueControlInFlight = new Set();
 let importQueueEtaJobId = null;
 let importDropScanClearTimer = null;
+let importDropScanInProgress = false;
+let importDropEnqueueInProgress = false;
+let importLiveLastRenderedAtMs = 0;
+let importQueueAdminBusy = false;
+let importWaybackPollTimer = null;
+let importWaybackLastPayload = null;
 let importDebugMode = 'idle';
 let importDebugMeta = null;
 let importDebugStartedAt = null;
@@ -10391,8 +10411,9 @@ function importRenderDropQueue() {
   const failedCount = importDropQueue.filter((item) => item.status === 'failed').length;
   const skippedCount = importDropQueue.filter((item) => item.status === 'skipped').length;
   const cancelledCount = importDropQueue.filter((item) => item.status === 'cancelled').length;
+  const activeCount = pendingCount + processingCount;
   const queueEtaMs = importQueueRemainingEtaMs();
-  const queueEtaText = (pendingCount + processingCount) > 0
+  const queueEtaText = activeCount > 0
     ? ` • ETA ${importFormatEtaDuration(queueEtaMs)} remaining`
     : '';
 
@@ -10437,7 +10458,7 @@ function importRenderDropQueue() {
     .join('');
 
   el.innerHTML = `
-    <p class="import-queue-head">Queue: ${importDropQueue.length} total • ${pendingCount} pending • ${processingCount} processing • ${doneCount} done • ${failedCount} failed • ${skippedCount} skipped • ${cancelledCount} cancelled${queueEtaText}</p>
+    <p class="import-queue-head">Queue: ${activeCount} active • ${pendingCount} pending • ${processingCount} processing • history ${importDropQueue.length} total • ${doneCount} done • ${failedCount} failed • ${skippedCount} skipped • ${cancelledCount} cancelled${queueEtaText}</p>
     ${itemsHtml}
   `;
 }
@@ -10463,6 +10484,105 @@ function importAddHistory(item) {
   importHistoryItems.unshift(item);
   if (importHistoryItems.length > 12) importHistoryItems.length = 12;
   importRenderHistory();
+}
+
+function importSetQueueAdminStatus(message, tone = 'neutral', autoClearMs = 5000) {
+  const el = document.getElementById('import-queue-admin-status');
+  if (!el) return;
+  const text = String(message || '').trim();
+  if (!text) {
+    el.textContent = '';
+    return;
+  }
+  el.innerHTML = `<span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(titleCase(tone))}</span> ${dbEscapeHtml(text)}`;
+  if (Number.isFinite(Number(autoClearMs)) && Number(autoClearMs) > 0) {
+    const token = Date.now();
+    el.dataset.clearToken = String(token);
+    setTimeout(() => {
+      if (el.dataset.clearToken !== String(token)) return;
+      el.textContent = '';
+    }, Number(autoClearMs));
+  }
+}
+
+function importHistoryClear() {
+  const removed = importHistoryItems.length;
+  importHistoryItems = [];
+  importRenderHistory();
+  importSetQueueAdminStatus(
+    removed > 0
+      ? `Cleared ${removed} recent import entr${removed === 1 ? 'y' : 'ies'}.`
+      : 'Recent import list was already empty.',
+    'neutral',
+    4000
+  );
+}
+
+async function importQueueClearActive() {
+  if (importQueueAdminBusy) return;
+  const ok = window.confirm('Clear active queue items? Queued files will be marked skipped; processing jobs will receive skip requests.');
+  if (!ok) return;
+  importQueueAdminBusy = true;
+  try {
+    const payload = await callApi('POST', '/api/import/queue/clear-active', {}, null);
+    const queuedCleared = Number(payload?.queued_cleared || 0);
+    const processingSignaled = Number(payload?.processing_signaled || 0);
+    await importRefreshServerQueue(true);
+    importSetQueueAdminStatus(
+      `Cleared ${queuedCleared} queued item(s); signaled ${processingSignaled} processing item(s) to skip.`,
+      'ok',
+      6000
+    );
+  } catch (err) {
+    importSetQueueAdminStatus(String(err || 'Failed to clear active queue.'), 'error', 7000);
+  } finally {
+    importQueueAdminBusy = false;
+  }
+}
+
+async function importQueueClearHistory() {
+  if (importQueueAdminBusy) return;
+  const ok = window.confirm('Clear queue history? This removes done/failed/skipped/cancelled entries from the Drop Queue list.');
+  if (!ok) return;
+  importQueueAdminBusy = true;
+  try {
+    const payload = await callApi('POST', '/api/import/queue/clear-history', {}, null);
+    const rowsDeleted = Number(payload?.rows_deleted || 0);
+    const stagedDeleted = Number(payload?.staged_files_deleted || 0);
+    await importRefreshServerQueue(true);
+    importSetQueueAdminStatus(
+      `Removed ${rowsDeleted} history entr${rowsDeleted === 1 ? 'y' : 'ies'}; deleted ${stagedDeleted} staged file(s).`,
+      'ok',
+      6000
+    );
+  } catch (err) {
+    importSetQueueAdminStatus(String(err || 'Failed to clear queue history.'), 'error', 7000);
+  } finally {
+    importQueueAdminBusy = false;
+  }
+}
+
+async function importQueueRetrySkippedSource() {
+  if (importQueueAdminBusy) return;
+  const ok = window.confirm('Retry all skipped jobs that were skipped due to missing source URL metadata?');
+  if (!ok) return;
+  importQueueAdminBusy = true;
+  try {
+    const payload = await callApi('POST', '/api/import/queue/retry-skipped-source', {}, null);
+    const rowsRequeued = Number(payload?.rows_requeued || 0);
+    await importRefreshServerQueue(true);
+    importSetQueueAdminStatus(
+      rowsRequeued > 0
+        ? `Requeued ${rowsRequeued} skipped missing-URL entr${rowsRequeued === 1 ? 'y' : 'ies'}.`
+        : 'No skipped missing-URL entries were found to retry.',
+      rowsRequeued > 0 ? 'ok' : 'neutral',
+      7000
+    );
+  } catch (err) {
+    importSetQueueAdminStatus(String(err || 'Failed to requeue skipped missing-URL items.'), 'error', 7000);
+  } finally {
+    importQueueAdminBusy = false;
+  }
 }
 
 function importStopTimers() {
@@ -10491,9 +10611,37 @@ function importIsBackgroundQueueLiveView() {
   return text.includes('background queue');
 }
 
+function importShouldHoldLivePanelWithoutActiveJobs() {
+  if (importActiveStreamAbortController) return true;
+  if (importDropScanInProgress || importDropEnqueueInProgress) return true;
+  const sinceLastRenderMs = Date.now() - Number(importLiveLastRenderedAtMs || 0);
+  return Number.isFinite(sinceLastRenderMs) && sinceLastRenderMs >= 0 && sinceLastRenderMs < 7000;
+}
+
+function importRenderLiveIdle(message = '') {
+  const live = document.getElementById('import-live');
+  if (!live) return;
+  importStopTimers();
+  importQueueEtaJobId = null;
+  importActiveEta = null;
+  importActiveStepMap = null;
+  importPreviewMetaKey = '';
+  importPreviewPageCurrent = 1;
+  importPreviewPageTotal = null;
+  importPreviewKind = 'generic';
+  importClearPreviewUrl();
+  live.classList.add('empty');
+  live.removeAttribute('data-preview-key');
+  live.removeAttribute('data-preview-kind');
+  const text = String(message || '').trim()
+    || 'No import is currently running. Drop one or more documents to begin.';
+  live.innerHTML = `<p class="small">${dbEscapeHtml(text)}</p>`;
+}
+
 function importRenderLive(meta, opts = {}) {
   const live = document.getElementById('import-live');
   if (!live) return;
+  importLiveLastRenderedAtMs = Date.now();
   live.classList.remove('empty');
   importPreparePreview(meta, opts);
   const previewKey = importPreviewKey(meta);
@@ -12129,16 +12277,30 @@ function importApplyServerQueueState(payload) {
   importDeferRequestedItemId = null;
 
   importRenderDropQueue();
+  if (!importActiveStreamAbortController && queuedCount <= 0 && processingCount <= 0) {
+    if (importShouldHoldLivePanelWithoutActiveJobs()) return;
+    importRenderLiveIdle('No import is currently running. Drop one or more documents to begin.');
+    return;
+  }
   importRenderLiveFromServerQueue(payload);
 }
 
 function importRenderLiveFromServerQueue(payload) {
   if (importActiveStreamAbortController) return;
   const jobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
-  if (!jobs.length) return;
+  if (!jobs.length) {
+    if (importShouldHoldLivePanelWithoutActiveJobs()) return;
+    importRenderLiveIdle();
+    return;
+  }
   const processing = jobs.find((job) => String(job?.status || '').toLowerCase() === 'processing') || null;
-  const target = processing || jobs[jobs.length - 1];
-  if (!target) return;
+  const queued = jobs.find((job) => String(job?.status || '').toLowerCase() === 'queued') || null;
+  const target = processing || queued;
+  if (!target) {
+    if (importShouldHoldLivePanelWithoutActiveJobs()) return;
+    importRenderLiveIdle();
+    return;
+  }
 
   const stepMap = importStepMapFromServer(target?.progress);
   const statusLine = String(target?.progress?.status_line || target?.detail || '');
@@ -12151,7 +12313,11 @@ function importRenderLiveFromServerQueue(payload) {
     queueJobId,
     previewUrl: queueJobId ? `/api/import/queue/jobs/${encodeURIComponent(queueJobId)}/content` : '',
   };
-  let statusText = statusLine || (processing ? 'Import running in background...' : 'Import finished in background.');
+  const targetStatus = String(target?.status || '').toLowerCase();
+  const isQueued = targetStatus === 'queued';
+  let statusText = statusLine || (processing
+    ? 'Import running in background...'
+    : (isQueued ? 'Import queued in background...' : 'Import finished in background.'));
   let countersText = countersLine;
   if (processing && queueJobId) {
     if (!importActiveEta || importQueueEtaJobId !== queueJobId) {
@@ -12203,12 +12369,75 @@ async function importRefreshServerQueue(force = false) {
   }
 }
 
+function importRenderWaybackStatus(payload = null, error = '') {
+  const el = document.getElementById('import-wayback-status');
+  if (!el) return;
+  const wayback = payload?.wayback && typeof payload.wayback === 'object'
+    ? payload.wayback
+    : (importWaybackLastPayload?.wayback || null);
+  if (!wayback) {
+    const detail = String(error || 'Wayback status is unavailable.');
+    el.innerHTML = `<p class="small">${dbEscapeHtml(detail)}</p>`;
+    return;
+  }
+  const enabled = Boolean(wayback.enabled);
+  const suspended = Boolean(wayback.suspended);
+  const reachable = Boolean(wayback.reachable);
+  const tone = !enabled ? 'neutral' : (suspended ? 'warning' : (reachable ? 'ok' : 'error'));
+  const label = !enabled ? 'disabled' : (suspended ? 'suspended' : (reachable ? 'reachable' : 'unreachable'));
+  const checkedAt = String(wayback.last_checked_at || 'unknown');
+  const host = `${String(wayback.probe_host || 'web.archive.org')}:${String(wayback.probe_port || '443')}`;
+  const resolved = String(wayback.resolved_ip || '').trim();
+  const suspendUntil = String(wayback.suspended_until || '').trim();
+  const suspendReason = String(wayback.suspend_reason || '').trim();
+  const lastError = String(wayback.last_error || '').trim();
+  const warning = String(error || '').trim();
+  const details = [
+    `Host ${host}`,
+    `Checked ${checkedAt}`,
+    resolved ? `IP ${resolved}` : '',
+    suspendUntil ? `Paused until ${suspendUntil}` : '',
+  ].filter(Boolean).join(' • ');
+  const issue = warning || lastError || suspendReason;
+  const issueHtml = issue
+    ? `<p class="small"><span class="status-pill ${statusClass('warning')}">Notice</span> ${dbEscapeHtml(issue)}</p>`
+    : '<p class="small">Wayback snapshot registration is operating normally.</p>';
+  el.innerHTML = `
+    <p class="import-queue-head">Wayback: <span class="status-pill ${statusClass(tone)}">${dbEscapeHtml(titleCase(label))}</span></p>
+    <p class="small">${dbEscapeHtml(details)}</p>
+    ${issueHtml}
+  `;
+}
+
+async function importRefreshWaybackStatus(force = false) {
+  const query = force ? '?force=true' : '';
+  try {
+    const payload = await callApi('GET', `/api/doctor/wayback${query}`, null, null);
+    if (payload?.ok) {
+      importWaybackLastPayload = payload;
+      importRenderWaybackStatus(payload, '');
+      return;
+    }
+    importRenderWaybackStatus(null, 'Wayback diagnostics returned an unexpected payload.');
+  } catch (err) {
+    importRenderWaybackStatus(null, String(err || 'Unable to query Wayback diagnostics.'));
+  }
+}
+
 function importStartServerQueuePolling() {
   if (importQueuePollTimer) return;
   importRefreshServerQueue(true);
   importQueuePollTimer = setInterval(() => {
     importRefreshServerQueue(false);
   }, 2500);
+}
+
+function importStartWaybackStatusPolling() {
+  if (importWaybackPollTimer) return;
+  importRefreshWaybackStatus(true);
+  importWaybackPollTimer = setInterval(() => {
+    importRefreshWaybackStatus(false);
+  }, 15000);
 }
 
 function importSetDropScanStatus(message, tone = 'active', autoClearMs = 0) {
@@ -12270,6 +12499,216 @@ function importDropFileExt(name) {
   return safe.slice(idx);
 }
 
+function importLooksAbsolutePath(path) {
+  const text = String(path || '').trim();
+  if (!text) return false;
+  if (text.startsWith('/')) return true;
+  return /^[A-Za-z]:[\\/]/.test(text);
+}
+
+function importDecodeDroppedFileUrl(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  let candidate = raw;
+  if (candidate.startsWith('file://')) {
+    try {
+      candidate = decodeURIComponent(candidate.replace(/^file:\/\//i, ''));
+    } catch {
+      candidate = candidate.replace(/^file:\/\//i, '');
+    }
+    if (!candidate) return '';
+    if (!candidate.startsWith('/') && candidate.startsWith('localhost/')) {
+      candidate = `/${candidate.slice('localhost/'.length)}`;
+    } else if (!candidate.startsWith('/') && candidate.length > 2 && candidate[1] === ':' && candidate[2] === '/') {
+      candidate = candidate.replace(/\//g, '\\');
+    } else if (!candidate.startsWith('/')) {
+      candidate = `/${candidate}`;
+    }
+  }
+  return importLooksAbsolutePath(candidate) ? candidate : '';
+}
+
+function importDropFileBasename(path) {
+  const clean = String(path || '').replace(/\\/g, '/');
+  const idx = clean.lastIndexOf('/');
+  if (idx < 0) return clean;
+  return clean.slice(idx + 1);
+}
+
+function importDropFileDirname(path) {
+  const clean = String(path || '').replace(/\\/g, '/');
+  const idx = clean.lastIndexOf('/');
+  if (idx <= 0) return '/';
+  return clean.slice(0, idx);
+}
+
+function importDropPathJoin(base, rel) {
+  const safeBase = String(base || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const safeRel = String(rel || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!safeBase) return safeRel ? `/${safeRel}` : '';
+  if (!safeRel) return safeBase;
+  return `${safeBase}/${safeRel}`.replace(/\/{2,}/g, '/');
+}
+
+function importDropLooksDirectoryPath(path) {
+  const text = String(path || '').trim();
+  if (!text) return false;
+  const basename = importDropFileBasename(text);
+  const ext = importDropFileExt(basename);
+  return !ext;
+}
+
+function importSetResolvedSourcePath(file, value) {
+  if (!file || !value) return;
+  Object.defineProperty(file, '__stemmaResolvedSourcePath', {
+    value,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function importDropSourcePathFromFile(file) {
+  const direct = importDecodeDroppedFileUrl(file?.path);
+  if (direct) return direct;
+  const resolved = importDecodeDroppedFileUrl(file?.__stemmaResolvedSourcePath);
+  if (resolved) return resolved;
+  const tagged = String(file?.__stemmaSourcePath || '').trim();
+  if (tagged.startsWith('file://')) {
+    const decoded = importDecodeDroppedFileUrl(tagged);
+    if (decoded) return decoded;
+  }
+  return '';
+}
+
+function importResolveDropSourcePathForFile(file, droppedPaths, pathsByName) {
+  if (!file) return '';
+  const existing = importDropSourcePathFromFile(file);
+  if (existing) return existing;
+
+  const absoluteRoots = Array.from(droppedPaths || [])
+    .map((path) => importDecodeDroppedFileUrl(path))
+    .filter((path) => importLooksAbsolutePath(path));
+
+  const relHints = [];
+  const rawHint = String(file?.__stemmaSourcePath || '').trim();
+  if (rawHint && !rawHint.startsWith('file://')) relHints.push(rawHint);
+  const relPathHint = String(file?.__stemmaRelativePath || '').trim();
+  if (relPathHint) relHints.push(relPathHint);
+  const webkitHint = String(file?.webkitRelativePath || '').trim();
+  if (webkitHint) relHints.push(webkitHint);
+
+  const candidates = [];
+  for (const relHint of relHints) {
+    const rel = relHint.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!rel) continue;
+    for (const root of absoluteRoots) {
+      if (importDropLooksDirectoryPath(root)) {
+        candidates.push(importDropPathJoin(root, rel));
+        const rootName = importDropFileBasename(root);
+        if (rootName && rel.startsWith(`${rootName}/`)) {
+          candidates.push(importDropPathJoin(importDropFileDirname(root), rel));
+        }
+      } else {
+        const rootBase = importDropFileBasename(root).toLowerCase();
+        const fileBase = String(file?.name || '').toLowerCase();
+        if (rootBase && fileBase && rootBase === fileBase) candidates.push(root);
+      }
+    }
+  }
+
+  const key = String(file?.name || '').toLowerCase();
+  const basenameMatches = (pathsByName && key) ? (pathsByName.get(key) || []) : [];
+  if (basenameMatches.length === 1) candidates.push(String(basenameMatches[0]));
+
+  for (const candidate of candidates) {
+    const decoded = importDecodeDroppedFileUrl(candidate);
+    if (decoded) return decoded;
+  }
+  return '';
+}
+
+function importParseDropPathText(raw) {
+  const text = String(raw || '');
+  if (!text.trim()) return [];
+  const out = [];
+  const lines = text.replace(/\r/g, '\n').split(/[\n\0]+/);
+  for (const line of lines) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const decoded = importDecodeDroppedFileUrl(trimmed);
+    if (decoded) out.push(decoded);
+  }
+  return out;
+}
+
+async function importExtractDropFilePaths(dataTransfer) {
+  const paths = [];
+  const seen = new Set();
+  const addPaths = (values) => {
+    for (const value of values) {
+      const clean = importDecodeDroppedFileUrl(value);
+      if (!clean || seen.has(clean)) continue;
+      seen.add(clean);
+      paths.push(clean);
+    }
+  };
+
+  const addFromType = (type) => {
+    try {
+      const raw = String(dataTransfer?.getData?.(type) || '');
+      if (!raw) return;
+      addPaths(importParseDropPathText(raw));
+    } catch {
+      // Browser may reject unsupported clipboard type reads.
+    }
+  };
+
+  addFromType('text/uri-list');
+  addFromType('public.file-url');
+  addFromType('text/plain');
+
+  const transferTypes = Array.from(dataTransfer?.types || []);
+  for (const type of transferTypes) {
+    const cleanType = String(type || '').trim();
+    if (!cleanType) continue;
+    const lowered = cleanType.toLowerCase();
+    if (lowered === 'text/uri-list' || lowered === 'public.file-url' || lowered === 'text/plain') {
+      continue;
+    }
+    if (lowered.includes('uri') || lowered.includes('url')) {
+      addFromType(cleanType);
+    }
+  }
+
+  const items = Array.from(dataTransfer?.items || []).filter(Boolean);
+  const stringItems = items.filter((item) => item.kind === 'string' && typeof item.getAsString === 'function');
+  if (stringItems.length) {
+    const payloads = await Promise.all(stringItems.map((item) => new Promise((resolve) => {
+      try {
+        item.getAsString((value) => resolve({ type: String(item.type || ''), value: String(value || '') }));
+      } catch {
+        resolve({ type: String(item.type || ''), value: '' });
+      }
+    })));
+    for (const payload of payloads) {
+      const lowered = String(payload?.type || '').toLowerCase();
+      if (
+        lowered
+        && lowered !== 'text/uri-list'
+        && lowered !== 'public.file-url'
+        && lowered !== 'text/plain'
+        && !lowered.includes('uri')
+        && !lowered.includes('url')
+      ) {
+        continue;
+      }
+      addPaths(importParseDropPathText(String(payload?.value || '')));
+    }
+  }
+
+  return paths;
+}
+
 function importCanQueueDropFile(file) {
   if (!file || typeof file.name !== 'string') return false;
   const ext = importDropFileExt(file.name);
@@ -12319,13 +12758,37 @@ function importReadWebkitFileEntry(fileEntry) {
   });
 }
 
-async function importCollectDropFilesFromWebkitEntry(entry, files, stats, onProgress = null) {
+async function importCollectDropFilesFromWebkitEntry(
+  entry,
+  files,
+  stats,
+  onProgress = null,
+  relPrefix = ''
+) {
   if (!entry) return;
+  const entryName = String(entry?.name || '').trim();
+  const relPath = relPrefix && entryName
+    ? `${relPrefix.replace(/\/+$/, '')}/${entryName}`.replace(/^\/+/, '')
+    : (entryName || relPrefix || '').replace(/^\/+/, '');
   if (entry.isFile) {
     stats.entriesVisited += 1;
     try {
       const file = await importReadWebkitFileEntry(entry);
       if (file) {
+        if (typeof entry.fullPath === 'string' && entry.fullPath.trim()) {
+          Object.defineProperty(file, '__stemmaSourcePath', {
+            value: entry.fullPath,
+            writable: true,
+            configurable: true,
+          });
+        }
+        if (relPath) {
+          Object.defineProperty(file, '__stemmaRelativePath', {
+            value: relPath,
+            writable: true,
+            configurable: true,
+          });
+        }
         files.push(file);
         stats.totalFound += 1;
       }
@@ -12349,17 +12812,34 @@ async function importCollectDropFilesFromWebkitEntry(entry, files, stats, onProg
   }
   for (const child of children) {
     // Keep order deterministic for easier queue progress debugging.
-    await importCollectDropFilesFromWebkitEntry(child, files, stats, onProgress);
+    await importCollectDropFilesFromWebkitEntry(child, files, stats, onProgress, relPath);
   }
 }
 
-async function importCollectDropFilesFromHandle(handle, files, stats, onProgress = null) {
+async function importCollectDropFilesFromHandle(
+  handle,
+  files,
+  stats,
+  onProgress = null,
+  relPrefix = ''
+) {
   if (!handle) return;
+  const handleName = String(handle?.name || '').trim();
+  const relPath = relPrefix && handleName
+    ? `${relPrefix.replace(/\/+$/, '')}/${handleName}`.replace(/^\/+/, '')
+    : (handleName || relPrefix || '').replace(/^\/+/, '');
   if (handle.kind === 'file') {
     stats.entriesVisited += 1;
     try {
       const file = await handle.getFile();
       if (file) {
+        if (relPath) {
+          Object.defineProperty(file, '__stemmaRelativePath', {
+            value: relPath,
+            writable: true,
+            configurable: true,
+          });
+        }
         files.push(file);
         stats.totalFound += 1;
       }
@@ -12376,7 +12856,7 @@ async function importCollectDropFilesFromHandle(handle, files, stats, onProgress
   try {
     // FileSystemDirectoryHandle is async-iterable.
     for await (const [, child] of handle.entries()) {
-      await importCollectDropFilesFromHandle(child, files, stats, onProgress);
+      await importCollectDropFilesFromHandle(child, files, stats, onProgress, relPath);
     }
   } catch {
     stats.errors += 1;
@@ -12419,6 +12899,7 @@ async function importCollectDropFiles(dataTransfer, onProgress = null) {
   };
   importReportDropScanProgress(stats, onProgress, true);
   const items = Array.from(dataTransfer?.items || []).filter(Boolean);
+  const droppedPaths = await importExtractDropFilePaths(dataTransfer);
 
   if (items.length) {
     const supportsHandles = items.some((item) => typeof item?.getAsFileSystemHandle === 'function');
@@ -12458,7 +12939,17 @@ async function importCollectDropFiles(dataTransfer, onProgress = null) {
   const deduped = importDeduplicateDropFiles(files);
   stats.duplicates = deduped.duplicates;
   const importable = [];
+  const pathsByName = new Map();
+  for (const path of droppedPaths) {
+    const key = importDropFileBasename(path).toLowerCase();
+    if (!key) continue;
+    const bucket = pathsByName.get(key) || [];
+    bucket.push(path);
+    pathsByName.set(key, bucket);
+  }
   for (const file of deduped.files) {
+    const resolvedSourcePath = importResolveDropSourcePathForFile(file, droppedPaths, pathsByName);
+    if (resolvedSourcePath) importSetResolvedSourcePath(file, resolvedSourcePath);
     if (importCanQueueDropFile(file)) importable.push(file);
     else stats.unsupported += 1;
   }
@@ -12476,35 +12967,46 @@ async function importCollectDropFiles(dataTransfer, onProgress = null) {
 
 async function importQueueEnqueueFiles(fileList) {
   const files = Array.from(fileList || []).filter((file) => file && typeof file.name === 'string');
-  if (!files.length) return { attempted: 0, queued: 0, failed: 0 };
+  if (!files.length) return { attempted: 0, queued: 0, failed: 0, withSourcePath: 0 };
   let queued = 0;
   let failed = 0;
-  for (const file of files) {
-    let message = '';
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const payload = await callApi('POST', '/api/import/queue/enqueue-upload', fd, null, true);
-      if (!payload?.ok) {
-        message = String(payload?.detail || payload?.error || 'Failed to enqueue file.');
+  let withSourcePath = 0;
+  importDropEnqueueInProgress = true;
+  try {
+    for (const file of files) {
+      let message = '';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const sourcePath = importDropSourcePathFromFile(file);
+        if (sourcePath) {
+          fd.append('source_path', sourcePath);
+          withSourcePath += 1;
+        }
+        const payload = await callApi('POST', '/api/import/queue/enqueue-upload', fd, null, true);
+        if (!payload?.ok) {
+          message = String(payload?.detail || payload?.error || 'Failed to enqueue file.');
+        }
+      } catch (err) {
+        message = String(err || 'Failed to enqueue file.');
       }
-    } catch (err) {
-      message = String(err || 'Failed to enqueue file.');
+      if (message) {
+        failed += 1;
+        importAddHistory({
+          statusTone: 'error',
+          statusLabel: 'failed',
+          name: file.name || 'document',
+          summary: message,
+        });
+      } else {
+        queued += 1;
+      }
     }
-    if (message) {
-      failed += 1;
-      importAddHistory({
-        statusTone: 'error',
-        statusLabel: 'failed',
-        name: file.name || 'document',
-        summary: message,
-      });
-    } else {
-      queued += 1;
-    }
+  } finally {
+    importDropEnqueueInProgress = false;
   }
   await importRefreshServerQueue(true);
-  return { attempted: files.length, queued, failed };
+  return { attempted: files.length, queued, failed, withSourcePath };
 }
 
 async function importProcessDropQueue() {
@@ -12517,6 +13019,7 @@ function prevent(e) { e.preventDefault(); e.stopPropagation(); }
 ['dragenter','dragover'].forEach(evt => dz.addEventListener(evt, () => dz.classList.add('drag')));
 ['dragleave','drop'].forEach(evt => dz.addEventListener(evt, () => dz.classList.remove('drag')));
 dz.addEventListener('drop', async (e) => {
+  importDropScanInProgress = true;
   try {
     importSetDropScanStatus('Scan in progress… preparing dropped content.', 'active');
     const dropped = await importCollectDropFiles(e.dataTransfer, (snapshot) => {
@@ -12540,6 +13043,7 @@ dz.addEventListener('drop', async (e) => {
       return;
     }
 
+    importDropScanInProgress = false;
     const result = await importQueueEnqueueFiles(dropped.files);
     const folderNote = dropped.directories > 0 ? ` from ${dropped.directories} folder(s)` : '';
     const skippedBits = [];
@@ -12547,8 +13051,9 @@ dz.addEventListener('drop', async (e) => {
     if (dropped.duplicates > 0) skippedBits.push(`${dropped.duplicates} duplicate(s)`);
     if (dropped.errors > 0) skippedBits.push(`${dropped.errors} unreadable`);
     const skippedText = skippedBits.length ? ` (${skippedBits.join(', ')} skipped)` : '';
+    const sourcePathText = ` • source paths ${result.withSourcePath}/${result.attempted}`;
     importSetDropScanStatus(
-      `Scan complete. Queued ${result.queued}/${result.attempted} file(s)${folderNote}${skippedText}.`,
+      `Scan complete. Queued ${result.queued}/${result.attempted} file(s)${folderNote}${skippedText}${sourcePathText}.`,
       result.failed > 0 && result.queued <= 0 ? 'error' : 'ok',
       6000
     );
@@ -12556,7 +13061,7 @@ dz.addEventListener('drop', async (e) => {
       statusTone: result.failed > 0 && result.queued <= 0 ? 'error' : 'ok',
       statusLabel: result.failed > 0 && result.queued <= 0 ? 'failed' : 'queued',
       name: 'drag-and-drop batch',
-      summary: `Queued ${result.queued}/${result.attempted} file(s)${folderNote}${skippedText}.`,
+      summary: `Queued ${result.queued}/${result.attempted} file(s)${folderNote}${skippedText}${sourcePathText}.`,
     });
   } catch (err) {
     importSetDropScanStatus(
@@ -12570,6 +13075,8 @@ dz.addEventListener('drop', async (e) => {
       name: 'drag-and-drop batch',
       summary: String(err || 'Failed to enqueue dropped files.'),
     });
+  } finally {
+    importDropScanInProgress = false;
   }
 });
 
@@ -12589,6 +13096,7 @@ dashboardRenderCachedSummary();
 loadDashboard();
 vectorStatus();
 importStartServerQueuePolling();
+importStartWaybackStatusPolling();
 </script>
 </body>
 </html>

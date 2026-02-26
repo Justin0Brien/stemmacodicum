@@ -468,67 +468,76 @@ def pick_primary(urls: list[str], fallback: str | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Persistent write-connection cache — reused across save_resource_urls calls
-# within a single batch run to avoid opening a new connection per resource.
+# Write-buffer — accumulates pending URL updates in memory and flushes them
+# to SQLite in short-lived connections.  The connection is held open for only
+# the duration of each batch write (milliseconds), so it never blocks other
+# processes (e.g. the web server) that need to write to the same database
+# during long-running phases like Wayback or web-search lookups.
 # ---------------------------------------------------------------------------
-_write_conn: "sqlite3.Connection | None" = None
-_write_conn_db: Path | None = None
-_write_conn_count: int = 0
+_pending_writes: list[tuple[Path, str, str | None, str | None]] = []  # (db_path, resource_id, primary_url, urls_json)
+_WRITE_BATCH_SIZE = 25
 
 
-def _get_write_conn(db_path: Path) -> "sqlite3.Connection":
-    """Return (or create) a persistent SQLite connection for batch writes."""
-    global _write_conn, _write_conn_db
-    if _write_conn is None or _write_conn_db != db_path:
-        if _write_conn is not None:
-            try:
-                _write_conn.commit()
-                _write_conn.close()
-            except Exception:
-                pass
-        _write_conn = get_connection(db_path)
-        _write_conn_db = db_path
-    return _write_conn
+def _flush_pending_writes(db_path: Path | None = None) -> None:
+    """Write all buffered URL updates to SQLite in a single short-lived connection.
 
+    If *db_path* is given, only flushes records for that database path.
+    Otherwise flushes everything (grouped by db_path to minimise connections).
+    """
+    global _pending_writes
+    if not _pending_writes:
+        return
 
-def _flush_write_conn() -> None:
-    """Commit and close the persistent write connection (call at end of batch)."""
-    global _write_conn, _write_conn_db, _write_conn_count
-    if _write_conn is not None:
+    if db_path is not None:
+        to_flush = [(p, rid, url, js) for p, rid, url, js in _pending_writes if p == db_path]
+        _pending_writes  = [(p, rid, url, js) for p, rid, url, js in _pending_writes if p != db_path]
+    else:
+        to_flush = list(_pending_writes)
+        _pending_writes = []
+
+    if not to_flush:
+        return
+
+    # Group by db_path so we open one connection per database.
+    by_db: dict[Path, list[tuple[str, str | None, str | None]]] = {}
+    for p, rid, url, js in to_flush:
+        by_db.setdefault(p, []).append((rid, url, js))
+
+    for path, rows in by_db.items():
         try:
-            _write_conn.commit()
-            _write_conn.close()
-        except Exception:
-            pass
-    _write_conn = None
-    _write_conn_db = None
-    _write_conn_count = 0
+            with get_connection(path) as conn:
+                conn.executemany(
+                    "UPDATE resources SET download_url = ?, download_urls_json = ? WHERE id = ?",
+                    [(url, js, rid) for rid, url, js in rows],
+                )
+                conn.commit()
+        except Exception as exc:
+            # Re-queue on failure so data is not silently lost.
+            _pending_writes.extend((path, rid, url, js) for rid, url, js in rows)
+            raise exc
+
+
+# Keep the old name as an alias so call-sites at the end of the run still work.
+def _flush_write_conn() -> None:
+    """Flush all pending buffered writes (call at the end of a batch run)."""
+    _flush_pending_writes()
 
 
 def save_resource_urls(db_path: Path, task: ResourceTask, urls: list[str]) -> None:
-    """Persist *urls* to the resources table, reusing a batch connection.
+    """Buffer *urls* for the given resource and flush to SQLite every N records.
 
-    Commits every 50 writes for durability without the overhead of a commit
-    per resource.  The caller should call :func:`_flush_write_conn` at the
-    end of any batch loop to flush the final partial batch.
+    The connection is opened and closed within :func:`_flush_pending_writes`,
+    so it is never held open while slow I/O (HTTP requests etc.) is in flight.
+    Call :func:`_flush_write_conn` after the batch loop to persist any
+    remaining buffered writes.
     """
-    global _write_conn_count
     if not urls:
         return
     primary = pick_primary(urls)
     urls_json = json.dumps(urls, ensure_ascii=True) if urls else None
-    conn = _get_write_conn(db_path)
-    conn.execute(
-        """
-        UPDATE resources
-        SET download_url = ?, download_urls_json = ?
-        WHERE id = ?
-        """,
-        (primary, urls_json, task.resource_id),
-    )
-    _write_conn_count += 1
-    if _write_conn_count % 50 == 0:
-        conn.commit()
+    _pending_writes.append((db_path, task.resource_id, primary, urls_json))
+    if len(_pending_writes) >= _WRITE_BATCH_SIZE:
+        _flush_pending_writes(db_path)
 
 
 def load_latest_document_text(db_path: Path, resource_id: str, *, max_chars: int = 20000) -> str:

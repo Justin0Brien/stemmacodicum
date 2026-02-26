@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -253,10 +254,11 @@ def process_resource(
         page_count = doc.page_count
         print(f"  pages: {page_count}", flush=True)
         for page_index, page in enumerate(doc):
+            page_area = page.rect.width * page.rect.height
             images = page.get_images(full=True)
             if not images:
                 continue
-            print(f"  page {page_index + 1}/{page_count}: {len(images)} image(s)", flush=True)
+            print(f"  page {page_index + 1}/{page_count}: {len(images)} image(s) found", flush=True)
             image_counter = 0
             for info in images:
                 xref = int(info[0])
@@ -279,11 +281,28 @@ def process_resource(
                     rects = [fitz.Rect(0, 0, max(1, source_width), max(1, source_height))]
 
                 for rect in rects:
-                    image_counter += 1
                     rendered_width_mm = float(rect.width) * 25.4 / 72.0
                     rendered_height_mm = float(rect.height) * 25.4 / 72.0
-                    output_width_px = max(1, int(round(rect.width)))
-                    output_height_px = max(1, int(round(rect.height)))
+
+                    if rendered_width_mm < 20.0 or rendered_height_mm < 20.0:
+                        continue
+
+                    image_area = rect.width * rect.height
+                    if image_area / page_area <= 0.02:
+                        continue
+
+                    image_counter += 1
+
+                    dpi_x = (source_width / rect.width) * 72.0 if rect.width > 0 else 72.0
+                    dpi_y = (source_height / rect.height) * 72.0 if rect.height > 0 else 72.0
+
+                    if dpi_x > 140.0 or dpi_y > 140.0:
+                        output_width_px = max(1, int(round((rect.width / 72.0) * 140.0)))
+                        output_height_px = max(1, int(round((rect.height / 72.0) * 140.0)))
+                    else:
+                        output_width_px = source_width
+                        output_height_px = source_height
+
                     resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
                     resized = pil_image.resize((output_width_px, output_height_px), resample_lanczos)
 
@@ -329,7 +348,7 @@ def process_resource(
                             "source_colorspace": str(extracted.get("colorspace") or ""),
                             "source_bpc": extracted.get("bpc"),
                             "source_size_bytes": int(extracted.get("size") or 0),
-                            "target_dpi": 72,
+                            "target_dpi": 140 if (dpi_x > 140.0 or dpi_y > 140.0) else "original",
                             "compression": "lossy_avif",
                             "quality_preference": "small_size",
                         },
@@ -343,6 +362,16 @@ def process_resource(
 def run(args: argparse.Namespace) -> int:
     fitz, image_cls = require_optional_dependencies()
     paths = load_paths(Path(args.project_root))
+
+    if getattr(args, "refresh", False):
+        print("Refreshing archive: clearing existing images and database records...", flush=True)
+        image_archive_dir = paths.stemma_dir / "image_archive"
+        if image_archive_dir.exists():
+            shutil.rmtree(image_archive_dir, ignore_errors=True)
+        with get_connection(paths.db_path) as conn:
+            conn.execute("DELETE FROM resource_images")
+            conn.commit()
+
     schema_path = Path(__file__).parent.parent / "src" / "stemmacodicum" / "infrastructure" / "db" / "schema.sql"
     initialize_schema(paths.db_path, schema_path)
     resources = load_pdf_resources(paths.db_path, only_missing=not args.force)
@@ -385,7 +414,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--project-root", default=str(Path.cwd()), help="Project root containing .stemma")
     parser.add_argument("--force", action=argparse.BooleanOptionalAction, default=False, help="Reprocess PDFs even if images exist")
-    parser.add_argument("--avif-quality", type=int, default=28, help="AVIF quality (lower is smaller)")
+    parser.add_argument("--refresh", action=argparse.BooleanOptionalAction, default=False, help="Clear existing images and database records")
+    parser.add_argument("--avif-quality", type=int, default=50, help="AVIF quality (lower is smaller)")
     parser.add_argument(
         "--describe",
         action=argparse.BooleanOptionalAction,

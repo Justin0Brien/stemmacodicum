@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import signal
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -363,6 +364,13 @@ FinancialPipelineService = BatchImportService
 @contextmanager
 def _alarm_timeout(seconds: int | None):
     if not seconds or seconds <= 0:
+        yield
+        return
+    if threading.current_thread() is not threading.main_thread():
+        # SIGALRM cannot be configured from non-main threads.
+        yield
+        return
+    if not hasattr(signal, "SIGALRM"):
         yield
         return
 

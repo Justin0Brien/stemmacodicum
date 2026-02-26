@@ -22,6 +22,10 @@ class MissingSourceUrlError(ResourceIngestError):
     """Raised when ingestion cannot resolve a real-world source URL."""
 
 
+class EmptySourceFileError(ResourceIngestError):
+    """Raised when ingestion receives a zero-byte file."""
+
+
 class ReferenceError(StemmaError):
     """Raised when citation/reference operations fail."""
 

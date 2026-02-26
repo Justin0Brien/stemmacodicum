@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
+import shutil
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote, urlsplit
 
 from stemmacodicum.application.services.extraction_service import ExtractionCancelledError
-from stemmacodicum.core.errors import MissingSourceUrlError
+from stemmacodicum.core.errors import EmptySourceFileError, MissingSourceUrlError
+from stemmacodicum.core.hashing import compute_file_digest
 from stemmacodicum.core.ids import new_uuid
 from stemmacodicum.core.time import now_utc_iso
 from stemmacodicum.infrastructure.db.sqlite import get_connection
@@ -57,6 +63,7 @@ class BackgroundImportQueueService:
         uploaded_filename: str,
         content_bytes: bytes,
         source_uri: str | None = None,
+        source_path: str | None = None,
     ) -> dict[str, Any]:
         if not uploaded_filename:
             uploaded_filename = "upload.bin"
@@ -68,9 +75,20 @@ class BackgroundImportQueueService:
         job_id = new_uuid()
         staged_name = f"{job_id}{suffix}"
         staged_path = self.queue_dir / staged_name
-        staged_path.write_bytes(content_bytes)
+        source_path_obj = self._safe_source_path(source_path)
+        if source_path_obj is None and not str(source_uri or "").strip():
+            source_path_obj = self._resolve_source_path_from_upload(
+                uploaded_filename=uploaded_filename,
+                content_bytes=content_bytes,
+            )
+        if source_path_obj is not None:
+            staged_from_source = self._stage_from_source_path(source_path_obj, staged_path)
+        else:
+            staged_from_source = False
+        if not staged_from_source:
+            staged_path.write_bytes(content_bytes)
         now = now_utc_iso()
-        source = source_uri or f"upload:{uploaded_filename}"
+        source = source_uri or (str(source_path_obj) if source_path_obj is not None else f"upload:{uploaded_filename}")
 
         with get_connection(self.db_path) as conn:
             conn.execute(
@@ -112,6 +130,190 @@ class BackgroundImportQueueService:
             row = conn.execute("SELECT * FROM import_jobs WHERE id = ?", (job_id,)).fetchone()
         self._wakeup.set()
         return self._serialize_job_row(row) if row else {"id": job_id}
+
+    @staticmethod
+    def _safe_source_path(source_path: str | None) -> Path | None:
+        text = str(source_path or "").strip()
+        if not text:
+            return None
+        if text.lower().startswith("file://"):
+            try:
+                parsed = urlsplit(text)
+                if parsed.scheme.lower() == "file":
+                    resolved_path = unquote(parsed.path or "")
+                    if parsed.netloc and parsed.netloc.lower() not in {"", "localhost"}:
+                        resolved_path = f"/{parsed.netloc}{resolved_path}"
+                    text = resolved_path
+            except Exception:
+                return None
+        try:
+            resolved = Path(text).expanduser().resolve()
+        except Exception:
+            return None
+        if not resolved.exists() or not resolved.is_file():
+            return None
+        return resolved
+
+    def _resolve_source_path_from_upload(
+        self,
+        *,
+        uploaded_filename: str,
+        content_bytes: bytes,
+    ) -> Path | None:
+        if not uploaded_filename or not content_bytes:
+            return None
+        expected_size = len(content_bytes)
+        expected_digest = hashlib.sha256(content_bytes).hexdigest()
+        for candidate in self._find_filename_candidates(uploaded_filename):
+            if not self._is_candidate_usable(candidate, expected_size=expected_size):
+                continue
+            if self._path_digest_sha256(candidate) != expected_digest:
+                continue
+            return candidate
+        return None
+
+    def _resolve_source_path_from_staged(self, *, staged_path: Path, uploaded_filename: str) -> Path | None:
+        if not staged_path.exists() or not uploaded_filename:
+            return None
+        try:
+            expected_size = int(staged_path.stat().st_size)
+        except OSError:
+            return None
+        if expected_size <= 0:
+            return None
+        staged_digest = self._path_digest_sha256(staged_path)
+        if not staged_digest:
+            return None
+        for candidate in self._find_filename_candidates(uploaded_filename):
+            if not self._is_candidate_usable(candidate, expected_size=expected_size):
+                continue
+            if self._path_digest_sha256(candidate) != staged_digest:
+                continue
+            return candidate
+        return None
+
+    def _is_candidate_usable(self, candidate: Path, *, expected_size: int) -> bool:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except Exception:
+            return False
+        if not resolved.exists() or not resolved.is_file():
+            return False
+        try:
+            if int(resolved.stat().st_size) != int(expected_size):
+                return False
+        except OSError:
+            return False
+        if self.queue_dir in resolved.parents:
+            return False
+        return True
+
+    @staticmethod
+    def _path_digest_sha256(path: Path) -> str:
+        try:
+            return compute_file_digest(path, "sha256")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _is_macos() -> bool:
+        return sys.platform == "darwin"
+
+    def _find_filename_candidates(self, filename: str, *, limit: int = 32) -> list[Path]:
+        safe_name = str(filename or "").strip()
+        if not safe_name:
+            return []
+        if not self._is_macos():
+            return []
+        escaped = safe_name.replace("\\", "\\\\").replace('"', '\\"')
+        query = f'kMDItemFSName == "{escaped}"'
+        try:
+            proc = subprocess.run(
+                ["mdfind", query],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return []
+        if proc.returncode != 0:
+            return []
+        out: list[Path] = []
+        seen: set[str] = set()
+        for line in str(proc.stdout or "").splitlines():
+            text = str(line).strip()
+            if not text:
+                continue
+            try:
+                resolved = Path(text).expanduser().resolve()
+            except Exception:
+                continue
+            key = str(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(resolved)
+            if len(out) >= max(1, int(limit)):
+                break
+        return out
+
+    def _stage_from_source_path(self, source_path: Path, staged_path: Path) -> bool:
+        try:
+            shutil.copy2(source_path, staged_path)
+            self._copy_xattrs(source_path, staged_path)
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
+    def _copy_xattrs(source_path: Path, staged_path: Path) -> None:
+        if hasattr(os, "listxattr") and hasattr(os, "getxattr") and hasattr(os, "setxattr"):
+            try:
+                names = os.listxattr(source_path)
+            except OSError:
+                names = []
+            for name in names:
+                try:
+                    value = os.getxattr(source_path, name)
+                    os.setxattr(staged_path, name, value)
+                except OSError:
+                    continue
+            return
+        if os.name != "posix":
+            return
+        try:
+            listed = subprocess.run(
+                ["xattr", str(source_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        except Exception:
+            return
+        if listed.returncode != 0:
+            return
+        names = [line.strip() for line in str(listed.stdout or "").splitlines() if line.strip()]
+        for name in names:
+            try:
+                value_hex = subprocess.run(
+                    ["xattr", "-px", name, str(source_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if value_hex.returncode != 0:
+                    continue
+                hex_text = "".join(str(value_hex.stdout or "").split()).strip()
+                if not hex_text:
+                    continue
+                subprocess.run(
+                    ["xattr", "-wx", name, hex_text, str(staged_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+            except Exception:
+                continue
 
     def request_control(self, *, job_id: str, action: str) -> dict[str, Any]:
         safe_action = self._validate_control_action(action)
@@ -166,6 +368,119 @@ class BackgroundImportQueueService:
         if updated is None:
             raise ValueError(f"Import job not found after update: {job_id}")
         return self._serialize_job_row(updated)
+
+    def clear_active_queue(self) -> dict[str, int]:
+        now = now_utc_iso()
+        queued_cleared = 0
+        processing_signaled = 0
+        with get_connection(self.db_path) as conn:
+            queued_cursor = conn.execute(
+                """
+                UPDATE import_jobs
+                SET status = 'skipped',
+                    detail = 'Cleared from queue by user request.',
+                    cancel_requested = 1,
+                    cancel_action = 'skip',
+                    cancel_requested_at = COALESCE(cancel_requested_at, ?),
+                    updated_at = ?,
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE queue_name = ?
+                  AND status = 'queued'
+                """,
+                (now, now, now, self._queue_name),
+            )
+            queued_cleared = int(queued_cursor.rowcount or 0)
+            processing_cursor = conn.execute(
+                """
+                UPDATE import_jobs
+                SET cancel_requested = 1,
+                    cancel_action = 'skip',
+                    cancel_requested_at = COALESCE(cancel_requested_at, ?),
+                    detail = 'Skip requested by queue clear operation.',
+                    updated_at = ?
+                WHERE queue_name = ?
+                  AND status = 'processing'
+                """,
+                (now, now, self._queue_name),
+            )
+            processing_signaled = int(processing_cursor.rowcount or 0)
+            conn.commit()
+        self._wakeup.set()
+        return {
+            "queued_cleared": queued_cleared,
+            "processing_signaled": processing_signaled,
+        }
+
+    def clear_history(self) -> dict[str, int]:
+        terminal_statuses = tuple(sorted(self._TERMINAL_STATUSES))
+        staged_relpaths: list[str] = []
+        rows_deleted = 0
+        with get_connection(self.db_path) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT id, staged_relpath
+                FROM import_jobs
+                WHERE queue_name = ?
+                  AND status IN ({", ".join(["?"] * len(terminal_statuses))})
+                """,
+                (self._queue_name, *terminal_statuses),
+            ).fetchall()
+            staged_relpaths = [str(row["staged_relpath"] or "").strip() for row in rows if row["staged_relpath"]]
+            delete_cursor = conn.execute(
+                f"""
+                DELETE FROM import_jobs
+                WHERE queue_name = ?
+                  AND status IN ({", ".join(["?"] * len(terminal_statuses))})
+                """,
+                (self._queue_name, *terminal_statuses),
+            )
+            rows_deleted = int(delete_cursor.rowcount or 0)
+            conn.commit()
+        files_deleted = 0
+        for rel in staged_relpaths:
+            if not rel:
+                continue
+            staged_path = self.queue_dir / rel
+            try:
+                if staged_path.exists():
+                    staged_path.unlink(missing_ok=True)
+                    files_deleted += 1
+            except Exception:
+                continue
+        self._wakeup.set()
+        return {
+            "rows_deleted": rows_deleted,
+            "staged_files_deleted": files_deleted,
+        }
+
+    def retry_skipped_missing_source(self) -> dict[str, int]:
+        now = now_utc_iso()
+        with get_connection(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE import_jobs
+                SET status = 'queued',
+                    detail = 'Requeued for source URL recheck by user request.',
+                    error_message = NULL,
+                    cancel_requested = 0,
+                    cancel_action = NULL,
+                    cancel_requested_at = NULL,
+                    updated_at = ?,
+                    finished_at = NULL
+                WHERE queue_name = ?
+                  AND status = 'skipped'
+                  AND (
+                    detail LIKE 'Import skipped: Missing source URL%'
+                    OR detail LIKE 'Missing source URL%'
+                  )
+                """,
+                (now, self._queue_name),
+            )
+            rows_requeued = int(cursor.rowcount or 0)
+            conn.commit()
+        if rows_requeued > 0:
+            self._wakeup.set()
+        return {"rows_requeued": rows_requeued}
 
     def status(self, *, limit: int = 200) -> dict[str, Any]:
         safe_limit = max(1, min(int(limit), 50000))
@@ -265,6 +580,29 @@ class BackgroundImportQueueService:
             conn.execute(
                 """
                 UPDATE import_jobs
+                SET status = LOWER(TRIM(status)),
+                    updated_at = ?
+                WHERE queue_name = ?
+                  AND status IS NOT NULL
+                  AND status != LOWER(TRIM(status))
+                """,
+                (now, self._queue_name),
+            )
+            conn.execute(
+                """
+                UPDATE import_jobs
+                SET status = 'queued',
+                    detail = 'Recovered from legacy queue state after service restart.',
+                    updated_at = ?
+                WHERE queue_name = ?
+                  AND status NOT IN ('queued', 'processing', 'done', 'failed', 'skipped', 'cancelled')
+                  AND COALESCE(finished_at, '') = ''
+                """,
+                (now, self._queue_name),
+            )
+            conn.execute(
+                """
+                UPDATE import_jobs
                 SET status = 'skipped',
                     detail = 'Skip request recovered after service restart.',
                     updated_at = ?,
@@ -302,6 +640,7 @@ class BackgroundImportQueueService:
                 """,
                 (now, self._queue_name),
             )
+            self._recover_missing_or_empty_staged_jobs(conn, now=now)
             conn.commit()
 
     def _worker_loop(self) -> None:
@@ -351,7 +690,16 @@ class BackgroundImportQueueService:
         staged_relpath = str(row["staged_relpath"] or "")
         staged_path = self.queue_dir / staged_relpath
         source_uri = str(row["source_uri"] or f"upload:{row['original_filename']}")
+        source_path = self._safe_source_path(source_uri)
         uploaded_filename = str(row["original_filename"] or staged_path.name)
+        if source_path is None and source_uri.startswith("upload:"):
+            source_path = self._resolve_source_path_from_staged(
+                staged_path=staged_path,
+                uploaded_filename=uploaded_filename,
+            )
+            if source_path is not None and source_uri.startswith("upload:"):
+                self._update_source_uri(job_id=job_id, source_uri=str(source_path))
+                source_uri = str(source_path)
         resume_progress = self._parse_json_obj(row["progress_json"]) or {}
         resume_resource_id = str(row["resource_id"]).strip() if row["resource_id"] else None
         started_mono = time.monotonic()
@@ -359,6 +707,13 @@ class BackgroundImportQueueService:
         last_cancel_poll = 0.0
         auto_kill_requested = False
         delete_staged_file = True
+        staged_issue = self._staged_file_issue(staged_path=staged_path, uploaded_filename=uploaded_filename)
+        if staged_issue is not None:
+            reason, remove_staged = staged_issue
+            self._mark_job_skipped(job_id, reason)
+            if remove_staged and staged_path.exists():
+                staged_path.unlink(missing_ok=True)
+            return
 
         def progress_callback(update: dict[str, object]) -> None:
             self._update_job_progress(job_id, update)
@@ -394,6 +749,7 @@ class BackgroundImportQueueService:
             payload = self._run_import_callback(
                 file_path=staged_path,
                 source_uri=source_uri,
+                source_path=source_path,
                 uploaded_filename=uploaded_filename,
                 progress_callback=progress_callback,
                 resume_resource_id=resume_resource_id,
@@ -410,12 +766,81 @@ class BackgroundImportQueueService:
         except MissingSourceUrlError as exc:
             self._mark_job_skipped(job_id, str(exc))
             delete_staged_file = False
+        except EmptySourceFileError as exc:
+            self._mark_job_skipped(job_id, str(exc))
         except Exception as exc:
             logger.exception("Background import job failed: %s", job_id)
             self._mark_job_failed(job_id, str(exc))
         finally:
             if delete_staged_file and staged_path.exists():
                 staged_path.unlink(missing_ok=True)
+
+    def _update_source_uri(self, *, job_id: str, source_uri: str) -> None:
+        now = now_utc_iso()
+        with get_connection(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE import_jobs
+                SET source_uri = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (source_uri, now, job_id),
+            )
+            conn.commit()
+
+    def _recover_missing_or_empty_staged_jobs(self, conn, *, now: str) -> None:
+        rows = conn.execute(
+            """
+            SELECT id, staged_relpath, original_filename
+            FROM import_jobs
+            WHERE queue_name = ?
+              AND status IN ('queued', 'processing')
+            """,
+            (self._queue_name,),
+        ).fetchall()
+        staged_files_to_delete: list[Path] = []
+        for row in rows:
+            staged_relpath = str(row["staged_relpath"] or "").strip()
+            staged_path = self.queue_dir / staged_relpath
+            uploaded_filename = str(row["original_filename"] or staged_path.name)
+            staged_issue = self._staged_file_issue(
+                staged_path=staged_path,
+                uploaded_filename=uploaded_filename,
+            )
+            if staged_issue is None:
+                continue
+            reason, remove_staged = staged_issue
+            conn.execute(
+                """
+                UPDATE import_jobs
+                SET status = 'skipped',
+                    detail = ?,
+                    error_message = NULL,
+                    cancel_requested = 0,
+                    cancel_action = NULL,
+                    cancel_requested_at = NULL,
+                    updated_at = ?,
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE id = ?
+                """,
+                (f"Import skipped: {reason}", now, now, row["id"]),
+            )
+            if remove_staged and staged_path.exists():
+                staged_files_to_delete.append(staged_path)
+        for staged_path in staged_files_to_delete:
+            staged_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _staged_file_issue(*, staged_path: Path, uploaded_filename: str) -> tuple[str, bool] | None:
+        if not staged_path.exists():
+            return (f"Queued source file is missing from import queue: {uploaded_filename}", False)
+        try:
+            staged_size = int(staged_path.stat().st_size)
+        except OSError as exc:
+            return (f"Unable to inspect queued source file: {uploaded_filename} ({exc})", False)
+        if staged_size <= 0:
+            return (f"Zero-byte source file cannot be imported: {uploaded_filename}", True)
+        return None
 
     def _update_job_progress(self, job_id: str, update: dict[str, object]) -> None:
         if not isinstance(update, dict):

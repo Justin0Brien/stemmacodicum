@@ -9,7 +9,12 @@ from rich.table import Table
 from stemmacodicum.application.services.ingestion_service import IngestionService
 from stemmacodicum.application.services.project_service import ProjectService
 from stemmacodicum.cli.context import CLIContext
-from stemmacodicum.core.errors import MissingSourceUrlError, ProjectNotInitializedError, ResourceIngestError
+from stemmacodicum.core.errors import (
+    EmptySourceFileError,
+    MissingSourceUrlError,
+    ProjectNotInitializedError,
+    ResourceIngestError,
+)
 from stemmacodicum.infrastructure.archive.store import ArchiveStore
 from stemmacodicum.infrastructure.db.repos.resource_repo import ResourceRepo
 
@@ -55,6 +60,8 @@ def run(args: argparse.Namespace, ctx: CLIContext) -> int:
                 result = service.ingest_file(p, source_uri=args.source_uri)
                 table.add_row(str(p), result.status, result.resource.digest_sha256)
             except MissingSourceUrlError as exc:
+                table.add_row(str(p), "skipped", str(exc))
+            except EmptySourceFileError as exc:
                 table.add_row(str(p), "skipped", str(exc))
             except ResourceIngestError as exc:
                 table.add_row(str(p), "error", str(exc))

@@ -4,6 +4,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from stemmacodicum.application.services.background_import_queue_service import BackgroundImportQueueService
 from stemmacodicum.core.config import AppPaths
 from stemmacodicum.infrastructure.db.sqlite import get_connection
 from stemmacodicum.web.app import create_app
@@ -199,6 +200,15 @@ def test_web_app_end_to_end_smoke(tmp_path: Path) -> None:
     payload = r.json()
     assert "db_runtime" in payload
     assert payload["db_runtime"]["journal_mode"] == "wal"
+    assert "wayback" in payload
+    assert isinstance(payload["wayback"], dict)
+
+    r = client.get("/api/doctor/wayback")
+    assert r.status_code == 200
+    wayback_payload = r.json()
+    assert wayback_payload["ok"] is True
+    assert "wayback" in wayback_payload
+    assert isinstance(wayback_payload["wayback"], dict)
 
     r = client.get("/api/dashboard/summary")
     assert r.status_code == 200
@@ -673,6 +683,204 @@ def test_background_import_queue_status_supports_large_limit(tmp_path: Path) -> 
         jobs = payload.get("jobs", [])
         assert isinstance(jobs, list)
         assert any(str(job.get("id")) == queued_job_id for job in jobs)
+
+
+def test_background_import_queue_resolves_source_path_from_filename_lookup(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    source = tmp_path / "resolved-source.pdf"
+    source.write_bytes(b"%PDF-1.4 background queue source path lookup")
+
+    def fake_find_filename_candidates(self, filename: str, limit: int = 32):
+        if filename == source.name:
+            return [source]
+        return []
+
+    monkeypatch.setattr(
+        BackgroundImportQueueService,
+        "_find_filename_candidates",
+        fake_find_filename_candidates,
+    )
+
+    with TestClient(create_app(paths)) as client:
+        files = {"file": (source.name, source.read_bytes(), "application/pdf")}
+        enqueue_resp = client.post("/api/import/queue/enqueue-upload", files=files)
+        assert enqueue_resp.status_code == 200
+        payload = enqueue_resp.json()
+        assert payload.get("ok") is True
+        source_uri = str(payload.get("job", {}).get("source_uri") or "")
+        assert source_uri == str(source.resolve())
+
+
+def test_background_import_queue_clear_endpoints(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    with TestClient(create_app(paths)) as client:
+        clear_active_resp = client.post("/api/import/queue/clear-active")
+        assert clear_active_resp.status_code == 200
+        clear_active_payload = clear_active_resp.json()
+        assert clear_active_payload.get("ok") is True
+        assert "queued_cleared" in clear_active_payload
+        assert "processing_signaled" in clear_active_payload
+
+        files = {"file": ("empty.pdf", b"", "application/pdf")}
+        enqueue_resp = client.post(
+            "/api/import/queue/enqueue-upload",
+            data={"source_uri": "https://example.org/queue/clear-history"},
+            files=files,
+        )
+        assert enqueue_resp.status_code == 200
+        queued_job_id = enqueue_resp.json()["job"]["id"]
+
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            status_resp = client.get("/api/import/queue/status?limit=200")
+            assert status_resp.status_code == 200
+            jobs = status_resp.json().get("jobs", [])
+            job = next((item for item in jobs if item.get("id") == queued_job_id), None)
+            if job and str(job.get("status") or "").lower() in {"done", "failed", "skipped", "cancelled"}:
+                break
+            time.sleep(0.1)
+
+        clear_history_resp = client.post("/api/import/queue/clear-history")
+        assert clear_history_resp.status_code == 200
+        clear_history_payload = clear_history_resp.json()
+        assert clear_history_payload.get("ok") is True
+        assert int(clear_history_payload.get("rows_deleted") or 0) >= 1
+        assert "staged_files_deleted" in clear_history_payload
+
+        retry_resp = client.post("/api/import/queue/retry-skipped-source")
+        assert retry_resp.status_code == 200
+        retry_payload = retry_resp.json()
+        assert retry_payload.get("ok") is True
+        assert "rows_requeued" in retry_payload
+
+
+def test_background_import_queue_skips_zero_byte_files(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    with TestClient(create_app(paths)) as client:
+        files = {"file": ("empty.pdf", b"", "application/pdf")}
+        enqueue_resp = client.post(
+            "/api/import/queue/enqueue-upload",
+            data={"source_uri": "https://example.org/queue/empty"},
+            files=files,
+        )
+        assert enqueue_resp.status_code == 200
+        queued_job_id = enqueue_resp.json()["job"]["id"]
+
+        deadline = time.time() + 10.0
+        latest_job = None
+        while time.time() < deadline:
+            status_resp = client.get("/api/import/queue/status?limit=200")
+            assert status_resp.status_code == 200
+            jobs = status_resp.json().get("jobs", [])
+            latest_job = next((job for job in jobs if job.get("id") == queued_job_id), None)
+            if latest_job and latest_job.get("status") in {"done", "failed", "skipped", "cancelled"}:
+                break
+            time.sleep(0.1)
+
+        assert latest_job is not None
+        assert latest_job.get("status") == "skipped"
+        detail = str(latest_job.get("detail") or "").lower()
+        assert "zero-byte" in detail
+
+
+def test_background_import_queue_recovers_missing_staged_file_after_restart(tmp_path: Path) -> None:
+    project_root = tmp_path / "proj"
+    project_root.mkdir(parents=True, exist_ok=True)
+    paths = AppPaths(
+        project_root=project_root,
+        stemma_dir=project_root / ".stemma",
+        db_path=project_root / ".stemma" / "stemma.db",
+        archive_dir=project_root / ".stemma" / "archive",
+        vector_dir=project_root / ".stemma" / "vector",
+        qdrant_dir=project_root / ".stemma" / "vector" / "qdrant",
+    )
+
+    with TestClient(create_app(paths)):
+        # Boot once so queue schema is initialized.
+        pass
+
+    job_id = "99999999-aaaa-bbbb-cccc-111111111111"
+    with get_connection(paths.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO import_jobs (
+                id,
+                queue_name,
+                source_kind,
+                source_uri,
+                original_filename,
+                staged_relpath,
+                size_bytes,
+                status,
+                attempts,
+                detail,
+                created_at,
+                updated_at
+            ) VALUES (?, 'default', 'upload', ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                job_id,
+                "https://example.org/queue/missing",
+                "missing-empty.pdf",
+                "definitely-missing-empty.pdf",
+                0,
+                "processing",
+                "Previously running import.",
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:01Z",
+            ),
+        )
+        conn.commit()
+
+    with TestClient(create_app(paths)) as client:
+        deadline = time.time() + 3.0
+        recovered_job = None
+        while time.time() < deadline:
+            status_resp = client.get("/api/import/queue/status?limit=200")
+            assert status_resp.status_code == 200
+            jobs = status_resp.json().get("jobs", [])
+            recovered_job = next((job for job in jobs if job.get("id") == job_id), None)
+            if recovered_job and recovered_job.get("status") in {"skipped", "cancelled", "failed", "done"}:
+                break
+            time.sleep(0.05)
+
+        assert recovered_job is not None
+        assert recovered_job.get("status") == "skipped"
+        detail = str(recovered_job.get("detail") or "").lower()
+        assert "missing" in detail
+        assert "import queue" in detail
 
 
 def test_sources_panel_api_recovery_and_primary_update(tmp_path: Path) -> None:

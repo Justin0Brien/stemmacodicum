@@ -39,10 +39,10 @@ def _sqlite_busy_timeout_ms() -> int:
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:
+    conn.execute(f"PRAGMA busy_timeout = {_sqlite_busy_timeout_ms()};")
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute(f"PRAGMA busy_timeout = {_sqlite_busy_timeout_ms()};")
 
 
 def get_connection(db_path: Path) -> sqlite3.Connection:

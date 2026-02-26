@@ -5,10 +5,12 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +24,7 @@ class PdfResource:
     resource_id: str
     archived_relpath: str
     original_filename: str
+    extraction_run_id: str | None
 
 
 def require_optional_dependencies() -> tuple[object, object]:
@@ -50,7 +53,10 @@ def load_pdf_resources(db_path: Path, only_missing: bool = True) -> list[PdfReso
     with get_connection(db_path) as conn:
         rows = conn.execute(
             f"""
-            SELECT r.id, r.archived_relpath, r.original_filename
+            SELECT r.id, r.archived_relpath, r.original_filename,
+                   (SELECT er.id FROM extraction_runs er
+                    WHERE er.resource_id = r.id
+                    ORDER BY er.created_at DESC LIMIT 1) AS extraction_run_id
             FROM resources r
             {where_clause}
             ORDER BY r.ingested_at ASC
@@ -61,6 +67,7 @@ def load_pdf_resources(db_path: Path, only_missing: bool = True) -> list[PdfReso
             resource_id=str(row["id"]),
             archived_relpath=str(row["archived_relpath"]),
             original_filename=str(row["original_filename"] or ""),
+            extraction_run_id=str(row["extraction_run_id"]) if row["extraction_run_id"] else None,
         )
         for row in rows
     ]
@@ -72,25 +79,14 @@ def ensure_image_archive_dir(paths) -> Path:
     return image_dir
 
 
-def latest_extraction_run_id(db_path: Path, resource_id: str) -> str | None:
-    with get_connection(db_path) as conn:
-        row = conn.execute(
-            """
-            SELECT id
-            FROM extraction_runs
-            WHERE resource_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (resource_id,),
-        ).fetchone()
-    return str(row["id"]) if row else None
-
-
-def save_as_avif(image, output_path: Path, quality: int) -> None:
+def save_as_avif(image, output_path: Path, quality: int) -> bytes:
+    """Save image as AVIF and return the encoded bytes."""
     try:
-        image.save(output_path, format="AVIF", quality=quality, speed=8, dpi=(72, 72))
-        return
+        buf = io.BytesIO()
+        image.save(buf, format="AVIF", quality=quality, speed=8, dpi=(72, 72))
+        raw = buf.getvalue()
+        output_path.write_bytes(raw)
+        return raw
     except Exception:
         pass
 
@@ -120,6 +116,7 @@ def save_as_avif(image, output_path: Path, quality: int) -> None:
         result = subprocess.run(ffmpeg, capture_output=True, text=True)
         if result.returncode != 0:
             raise RuntimeError(f"Unable to encode AVIF. ffmpeg failed: {result.stderr.strip()}")
+    return output_path.read_bytes()
 
 
 def describe_with_moondream(image_path: Path, model_name: str) -> str | None:
@@ -147,31 +144,37 @@ def describe_with_moondream(image_path: Path, model_name: str) -> str | None:
     return text or None
 
 
-def insert_resource_image(
-    db_path: Path,
-    *,
-    resource_id: str,
-    extraction_run_id: str | None,
-    page_index: int,
-    image_index: int,
-    source_xref: int,
-    source_name: str,
-    source_format: str,
-    source_width_px: int,
-    source_height_px: int,
-    rendered_width_mm: float,
-    rendered_height_mm: float,
-    output_width_px: int,
-    output_height_px: int,
-    output_file_relpath: str,
-    output_file_sha256: str,
-    description_text: str | None,
-    description_model: str | None,
-    bbox_json: dict[str, float],
-    metadata_json: dict[str, object],
-) -> None:
+def batch_insert_resource_images(db_path: Path, rows: list[dict]) -> None:
+    now = now_utc_iso()
+    params = []
+    for row in rows:
+        description = row["description"]
+        params.append((
+            str(uuid.uuid4()),
+            row["resource_id"],
+            row["extraction_run_id"],
+            int(row["page_index"]),
+            int(row["image_index"]),
+            int(row["source_xref"]),
+            row["source_name"],
+            row["source_format"],
+            int(row["source_width_px"]),
+            int(row["source_height_px"]),
+            float(row["rendered_width_mm"]),
+            float(row["rendered_height_mm"]),
+            int(row["output_width_px"]),
+            int(row["output_height_px"]),
+            row["output_file_relpath"],
+            row["output_file_sha256"],
+            description,
+            row["description_model"],
+            now_utc_iso() if description else None,
+            json.dumps(row["bbox_json"], ensure_ascii=True),
+            json.dumps(row["metadata_json"], ensure_ascii=True, sort_keys=True),
+            now,
+        ))
     with get_connection(db_path) as conn:
-        conn.execute(
+        conn.executemany(
             """
             INSERT OR REPLACE INTO resource_images (
               id,
@@ -198,30 +201,7 @@ def insert_resource_image(
               created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                str(uuid.uuid4()),
-                resource_id,
-                extraction_run_id,
-                int(page_index),
-                int(image_index),
-                int(source_xref),
-                source_name,
-                source_format,
-                int(source_width_px),
-                int(source_height_px),
-                float(rendered_width_mm),
-                float(rendered_height_mm),
-                int(output_width_px),
-                int(output_height_px),
-                output_file_relpath,
-                output_file_sha256,
-                description_text,
-                description_model,
-                now_utc_iso() if description_text else None,
-                json.dumps(bbox_json, ensure_ascii=True),
-                json.dumps(metadata_json, ensure_ascii=True, sort_keys=True),
-                now_utc_iso(),
-            ),
+            params,
         )
         conn.commit()
 
@@ -237,28 +217,30 @@ def process_resource(
     moondream_model: str,
     fitz,
     image_cls,
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
+    log: list[str] = []
     pdf_path = (archive_dir / resource.archived_relpath).resolve()
     if not pdf_path.exists():
-        print(f"  missing archive file: {pdf_path}", flush=True)
-        return 0, 0
-    extraction_run_id = latest_extraction_run_id(db_path, resource.resource_id)
+        log.append(f"  missing archive file: {pdf_path}")
+        return 0, 0, log
     try:
         doc = fitz.open(pdf_path)
     except Exception as exc:
-        print(f"  could not open PDF ({type(exc).__name__}: {exc}); skipping.", flush=True)
-        return 0, 0
-    saved = 0
-    described = 0
+        log.append(f"  could not open PDF ({type(exc).__name__}: {exc}); skipping.")
+        return 0, 0, log
+
+    resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
+    pending_rows: list[dict] = []
+
     try:
         page_count = doc.page_count
-        print(f"  pages: {page_count}", flush=True)
+        log.append(f"  pages: {page_count}")
         for page_index, page in enumerate(doc):
             page_area = page.rect.width * page.rect.height
             images = page.get_images(full=True)
             if not images:
                 continue
-            print(f"  page {page_index + 1}/{page_count}: {len(images)} image(s) found", flush=True)
+            log.append(f"  page {page_index + 1}/{page_count}: {len(images)} image(s) found")
             image_counter = 0
             for info in images:
                 xref = int(info[0])
@@ -303,45 +285,41 @@ def process_resource(
                         output_width_px = source_width
                         output_height_px = source_height
 
-                    resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
                     resized = pil_image.resize((output_width_px, output_height_px), resample_lanczos)
 
                     filename = f"{uuid.uuid4()}.avif"
                     output_path = image_archive_dir / filename
-                    print(f"    saving image {image_counter} -> {filename}", flush=True)
-                    save_as_avif(resized, output_path, avif_quality)
-                    sha256 = hashlib.sha256(output_path.read_bytes()).hexdigest()
+                    log.append(f"    saving image {image_counter} -> {filename}")
+                    avif_bytes = save_as_avif(resized, output_path, avif_quality)
+                    sha256 = hashlib.sha256(avif_bytes).hexdigest()
                     relpath = str(output_path.relative_to(image_archive_dir.parent))
 
-                    description = describe_with_moondream(output_path, moondream_model) if describe_images else None
-                    if description:
-                        described += 1
-                    insert_resource_image(
-                        db_path=db_path,
-                        resource_id=resource.resource_id,
-                        extraction_run_id=extraction_run_id,
-                        page_index=page_index,
-                        image_index=image_counter,
-                        source_xref=xref,
-                        source_name=source_name,
-                        source_format=source_format,
-                        source_width_px=max(0, source_width),
-                        source_height_px=max(0, source_height),
-                        rendered_width_mm=rendered_width_mm,
-                        rendered_height_mm=rendered_height_mm,
-                        output_width_px=output_width_px,
-                        output_height_px=output_height_px,
-                        output_file_relpath=relpath,
-                        output_file_sha256=sha256,
-                        description_text=description,
-                        description_model=moondream_model if description else None,
-                        bbox_json={
+                    pending_rows.append({
+                        "output_path": output_path,
+                        "resource_id": resource.resource_id,
+                        "extraction_run_id": resource.extraction_run_id,
+                        "page_index": page_index,
+                        "image_index": image_counter,
+                        "source_xref": xref,
+                        "source_name": source_name,
+                        "source_format": source_format,
+                        "source_width_px": max(0, source_width),
+                        "source_height_px": max(0, source_height),
+                        "rendered_width_mm": rendered_width_mm,
+                        "rendered_height_mm": rendered_height_mm,
+                        "output_width_px": output_width_px,
+                        "output_height_px": output_height_px,
+                        "output_file_relpath": relpath,
+                        "output_file_sha256": sha256,
+                        "description": None,
+                        "description_model": None,
+                        "bbox_json": {
                             "x0": float(rect.x0),
                             "y0": float(rect.y0),
                             "x1": float(rect.x1),
                             "y1": float(rect.y1),
                         },
-                        metadata_json={
+                        "metadata_json": {
                             "resource_original_filename": resource.original_filename,
                             "page_number": page_index + 1,
                             "source_extracted_ext": str(extracted.get("ext") or ""),
@@ -352,11 +330,29 @@ def process_resource(
                             "compression": "lossy_avif",
                             "quality_preference": "small_size",
                         },
-                    )
-                    saved += 1
+                    })
     finally:
         doc.close()
-    return saved, described
+
+    # Dispatch all moondream calls concurrently (pure I/O — HTTP to Ollama)
+    if describe_images and pending_rows:
+        with ThreadPoolExecutor(max_workers=min(4, len(pending_rows))) as pool:
+            futures = [
+                pool.submit(describe_with_moondream, row["output_path"], moondream_model)
+                for row in pending_rows
+            ]
+            for row, future in zip(pending_rows, futures):
+                desc = future.result()
+                if desc:
+                    row["description"] = desc
+                    row["description_model"] = moondream_model
+
+    described = sum(1 for r in pending_rows if r["description"])
+
+    if pending_rows:
+        batch_insert_resource_images(db_path, pending_rows)
+
+    return len(pending_rows), described, log
 
 
 def run(args: argparse.Namespace) -> int:
@@ -381,24 +377,39 @@ def run(args: argparse.Namespace) -> int:
     image_archive_dir = ensure_image_archive_dir(paths)
     total_saved = 0
     total_described = 0
+    workers = min(args.workers, len(resources))
 
-    print(f"Processing {len(resources)} PDF resources...", flush=True)
-    for idx, resource in enumerate(resources, start=1):
-        print(f"[{idx}/{len(resources)}] {resource.resource_id} {resource.original_filename}", flush=True)
-        saved, described = process_resource(
-            db_path=paths.db_path,
-            archive_dir=paths.archive_dir,
-            image_archive_dir=image_archive_dir,
-            resource=resource,
-            avif_quality=args.avif_quality,
-            describe_images=args.describe,
-            moondream_model=args.moondream_model,
-            fitz=fitz,
-            image_cls=image_cls,
-        )
-        total_saved += saved
-        total_described += described
-        print(f"  extracted images: {saved}, described: {described}", flush=True)
+    print(f"Processing {len(resources)} PDF resources (workers: {workers})...", flush=True)
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_meta = {
+            executor.submit(
+                process_resource,
+                db_path=paths.db_path,
+                archive_dir=paths.archive_dir,
+                image_archive_dir=image_archive_dir,
+                resource=resource,
+                avif_quality=args.avif_quality,
+                describe_images=args.describe,
+                moondream_model=args.moondream_model,
+                fitz=fitz,
+                image_cls=image_cls,
+            ): (idx, resource)
+            for idx, resource in enumerate(resources, start=1)
+        }
+        for future in as_completed(future_to_meta):
+            idx, resource = future_to_meta[future]
+            print(f"[{idx}/{len(resources)}] {resource.resource_id} {resource.original_filename}", flush=True)
+            try:
+                saved, described, log_lines = future.result()
+            except Exception as exc:
+                print(f"  ERROR: {exc}", flush=True)
+                continue
+            for line in log_lines:
+                print(line, flush=True)
+            total_saved += saved
+            total_described += described
+            print(f"  extracted images: {saved}, described: {described}", flush=True)
 
     print("")
     print("Image extraction summary:")
@@ -423,6 +434,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Generate image descriptions using Ollama moondream",
     )
     parser.add_argument("--moondream-model", default="moondream:latest", help="Ollama model name for image descriptions")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=min(4, os.cpu_count() or 1),
+        help="Number of parallel PDF workers (default: min(4, cpu_count))",
+    )
     return parser
 
 

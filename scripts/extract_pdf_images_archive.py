@@ -151,7 +151,7 @@ def save_as_avif(image, output_path: Path, quality: int) -> bytes:
     return output_path.read_bytes()
 
 
-def describe_with_moondream(
+def describe_image(
     image_bytes: bytes,
     model_name: str,
     retries: int = 3,
@@ -159,36 +159,62 @@ def describe_with_moondream(
     """Returns (description, error_message).
 
     Errors are surfaced rather than silently dropped. A process-wide semaphore
-    (_moondream_semaphore) enforces sequential calls — ollama vision models
-    crash under concurrent load. Image bytes are passed directly to bypass the
-    ollama SDK's file-extension check (which does not recognise .avif).
+    (_moondream_semaphore) enforces sequential calls — ollama vision models can
+    crash under concurrent load.
+
+    Image pre-resize rules:
+      - moondream: hard-limited to 378×378 (its CLIP encoder resolution; larger
+        images cause the llama runner to segfault on Apple Silicon).
+      - all other models: thumbnail to 768×768 preserving aspect ratio.
+    Both are JPEG-encoded before sending to avoid the ollama SDK's file-extension
+    check, which does not recognise .avif.
     """
     try:
         import ollama  # type: ignore
     except Exception:
         return None, "ollama package not installed"
 
+    # Pre-resize to a safe resolution for the target model.
+    try:
+        from PIL import Image as _Image
+        _img = _Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        if "moondream" in model_name.lower():
+            _img = _img.resize((378, 378), _Image.LANCZOS)
+        else:
+            _img.thumbnail((768, 768), _Image.LANCZOS)
+        _buf = io.BytesIO()
+        _img.save(_buf, format="JPEG", quality=90)
+        image_bytes = _buf.getvalue()
+    except Exception:
+        pass  # fall through with original bytes
+
+    prompt = (
+        "Describe this image in 1-3 concise sentences for archival search. "
+        "Focus on entities, chart/table content, and any visible text."
+    )
+
     with _moondream_semaphore:
         for attempt in range(retries):
             try:
                 client = ollama.Client()
-                response = client.chat(
-                    model=model_name,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": (
-                                "Describe this image in 1-3 concise sentences for archival search. "
-                                "Focus on entities, chart/table content, and any visible text."
-                            ),
-                            "images": [image_bytes],
-                        }
-                    ],
-                    options={"temperature": 0.1},
-                )
-                text = ""
-                if response and response.message and response.message.content:
-                    text = response.message.content.strip()
+                # Use chat() for instruction-tuned models (gemma3, llava, etc.).
+                # moondream uses generate() — it does not apply a chat template
+                # for vision inputs and returns empty via chat().
+                if "moondream" in model_name.lower():
+                    response = client.generate(
+                        model=model_name,
+                        prompt=prompt,
+                        images=[image_bytes],
+                        options={"temperature": 0.1, "num_ctx": 2048},
+                    )
+                    text = (response.response or "").strip() if response else ""
+                else:
+                    response = client.chat(
+                        model=model_name,
+                        messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
+                        options={"temperature": 0.1},
+                    )
+                    text = (response.message.content or "").strip() if response and response.message else ""
                 return text or None, None
             except Exception as exc:
                 if attempt < retries - 1:
@@ -303,20 +329,36 @@ def process_resource(
             image_counter = 0
             for info in images:
                 xref = int(info[0])
-                source_width = int(info[2] or 0)
-                source_height = int(info[3] or 0)
                 source_name = str(info[7] or "")
                 source_format = str(info[8] or "")
+
+                # Keep extract_image for metadata fields (ext, colorspace, bpc, size).
+                # For pixel data, use Pixmap instead: it resolves PDF /Decode arrays
+                # and colorspace transforms that extract_image leaves raw, which is
+                # what causes inverted (white-on-black) images.
                 extracted = doc.extract_image(xref)
                 if not extracted:
                     continue
-                raw_bytes = extracted.get("image")
-                if not isinstance(raw_bytes, (bytes, bytearray)):
-                    continue
                 try:
-                    pil_image = image_cls.open(io.BytesIO(raw_bytes)).convert("RGB")
+                    pix = fitz.Pixmap(doc, xref)
+                    # Normalise to plain RGB — handles grayscale, CMYK, indexed,
+                    # and also drops alpha, all in one step.
+                    if pix.colorspace != fitz.csRGB or pix.alpha:
+                        pix = fitz.Pixmap(fitz.csRGB, pix)
+                    pil_image = image_cls.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 except Exception:
                     continue
+
+                # Correct for page rotation so the image matches what a viewer
+                # displays.  PDF /Rotate stores degrees clockwise; PIL rotates CCW,
+                # so we negate.  expand=True swaps w/h for 90°/270° rotations.
+                if page.rotation:
+                    pil_image = pil_image.rotate(-page.rotation, expand=True)
+
+                # Use the (possibly rotated) PIL dimensions as the source dimensions
+                # for all subsequent DPI / resize calculations.
+                source_width, source_height = pil_image.size
+
                 rects = page.get_image_rects(xref)
                 if not rects:
                     rects = [fitz.Rect(0, 0, max(1, source_width), max(1, source_height))]
@@ -332,14 +374,16 @@ def process_resource(
                     if image_area / page_area <= 0.02:
                         continue
 
-                    # Skip full-page scan images: image covers >85% of page AND
-                    # the page has no meaningful OCR'd text — this is a scanned
-                    # document where the image IS the page, not an embedded figure.
-                    if image_area / page_area > 0.85 and page_text_len < 50:
+                    # Skip page-scan images.  Two tiers:
+                    #   >90% of page: always a scan (catches OCR'd scans that have
+                    #     a text layer on top, so page_text_len would be high).
+                    #   >65% of page AND no text: un-OCR'd scan background.
+                    ratio = image_area / page_area
+                    if ratio > 0.90 or (ratio > 0.65 and page_text_len < 50):
                         skipped_scans += 1
                         verbose_log.append(
                             f"  skipped page-scan image "
-                            f"({image_area / page_area:.0%} of page, {page_text_len} text chars)"
+                            f"({ratio:.0%} of page, {page_text_len} text chars)"
                         )
                         continue
 
@@ -414,7 +458,7 @@ def process_resource(
     if describe_images and pending_rows:
         with ThreadPoolExecutor(max_workers=len(pending_rows)) as pool:
             futures = [
-                pool.submit(describe_with_moondream, row["avif_bytes"], moondream_model)
+                pool.submit(describe_image, row["avif_bytes"], moondream_model)
                 for row in pending_rows
             ]
             for row, future in zip(pending_rows, futures):
@@ -578,7 +622,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Generate image descriptions using Ollama moondream",
     )
-    parser.add_argument("--moondream-model", default="moondream:latest", help="Ollama model name for image descriptions")
+    parser.add_argument("--moondream-model", default="gemma3:latest", help="Ollama vision model for image descriptions (default: gemma3:latest; moondream:latest is unstable on Apple Silicon)")
     parser.add_argument(
         "--workers",
         type=int,

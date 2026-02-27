@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import queue as _queue
 import shutil
 import subprocess
 import tempfile
@@ -35,9 +36,13 @@ from stemmacodicum.infrastructure.db.sqlite import get_connection, initialize_sc
 
 console = Console()
 
-# Moondream (and ollama vision models generally) crash under concurrent load.
+# Ollama vision models crash under concurrent load.
 # A process-wide semaphore keeps requests sequential regardless of PDF worker count.
-_moondream_semaphore = threading.Semaphore(1)
+_vision_semaphore = threading.Semaphore(1)
+
+# Timeout (seconds) for a single ollama vision inference call.
+# Generous enough for slow hardware; prevents infinite hangs if the server stalls.
+_OLLAMA_TIMEOUT = 180
 
 
 @dataclass(slots=True)
@@ -159,7 +164,7 @@ def describe_image(
     """Returns (description, error_message).
 
     Errors are surfaced rather than silently dropped. A process-wide semaphore
-    (_moondream_semaphore) enforces sequential calls — ollama vision models can
+    (_vision_semaphore) enforces sequential calls — ollama vision models can
     crash under concurrent load.
 
     Image pre-resize rules:
@@ -193,10 +198,10 @@ def describe_image(
         "Focus on entities, chart/table content, and any visible text."
     )
 
-    with _moondream_semaphore:
+    with _vision_semaphore:
         for attempt in range(retries):
             try:
-                client = ollama.Client()
+                client = ollama.Client(timeout=_OLLAMA_TIMEOUT)
                 # Use chat() for instruction-tuned models (gemma3, llava, etc.).
                 # moondream uses generate() — it does not apply a chat template
                 # for vision inputs and returns empty via chat().
@@ -228,9 +233,9 @@ def batch_insert_resource_images(db_path: Path, rows: list[dict]) -> None:
     now = now_utc_iso()
     params = []
     for row in rows:
-        description = row["description"]
+        description = row.get("description")
         params.append((
-            str(uuid.uuid4()),
+            row["id"],
             row["resource_id"],
             row["extraction_run_id"],
             int(row["page_index"]),
@@ -286,6 +291,74 @@ def batch_insert_resource_images(db_path: Path, rows: list[dict]) -> None:
         conn.commit()
 
 
+def update_image_description(db_path: Path, image_id: str, description: str, model: str) -> None:
+    """UPDATE an existing resource_images row with a freshly generated description."""
+    with get_connection(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE resource_images
+               SET description_text            = ?,
+                   description_model           = ?,
+                   description_generated_at    = ?
+             WHERE id = ?
+            """,
+            (description, model, now_utc_iso(), image_id),
+        )
+        conn.commit()
+
+
+def description_worker(
+    desc_queue: _queue.Queue,
+    db_path: Path,
+    model: str,
+    stop_event: threading.Event,
+    progress=None,
+    desc_task_id=None,
+    total_described: list | None = None,
+    desc_lock: threading.Lock | None = None,
+) -> None:
+    """Background thread: drain *desc_queue*, call ollama, UPDATE the DB row.
+
+    Runs until *stop_event* is set **and** the queue is empty. Advances the
+    description progress bar on every item regardless of success or failure.
+    """
+    while True:
+        try:
+            image_id, avif_bytes = desc_queue.get(timeout=1.0)
+        except _queue.Empty:
+            if stop_event.is_set():
+                break
+            continue
+
+        try:
+            desc, err = describe_image(avif_bytes, model)
+            if desc:
+                try:
+                    update_image_description(db_path, image_id, desc, model)
+                    if total_described is not None and desc_lock is not None:
+                        with desc_lock:
+                            total_described[0] += 1
+                except Exception as db_exc:
+                    if progress is not None:
+                        progress.console.print(
+                            f"  [yellow]⚠ description DB update failed:[/yellow] [dim]{db_exc}[/dim]"
+                        )
+            elif err:
+                if progress is not None:
+                    progress.console.print(
+                        f"  [yellow]⚠ description error:[/yellow] [dim]{err}[/dim]"
+                    )
+        except Exception as exc:
+            if progress is not None:
+                progress.console.print(
+                    f"  [red]✗ description worker exception:[/red] [dim]{exc}[/dim]"
+                )
+        finally:
+            desc_queue.task_done()
+            if progress is not None and desc_task_id is not None:
+                progress.advance(desc_task_id)
+
+
 def process_resource(
     *,
     db_path: Path,
@@ -297,17 +370,27 @@ def process_resource(
     moondream_model: str,
     fitz,
     image_cls,
-) -> tuple[int, int, int, list[str], float, list[str]]:
-    """Returns (saved, described, skipped_scans, desc_errors, elapsed_sec, verbose_log)."""
+    desc_queue: _queue.Queue | None = None,
+    progress=None,
+    desc_task_id=None,
+    desc_total: list | None = None,
+    desc_lock: threading.Lock | None = None,
+) -> tuple[int, int, list[str], float, list[str]]:
+    """Returns (saved, skipped_scans, elapsed_sec, verbose_log).
+
+    Descriptions are handled asynchronously by a background worker that drains
+    *desc_queue*.  Images are inserted to the DB immediately (without a
+    description) so that workers are never blocked waiting for ollama.
+    """
     t0 = time.monotonic()
     verbose_log: list[str] = []
     pdf_path = (archive_dir / resource.archived_relpath).resolve()
     if not pdf_path.exists():
-        return 0, 0, 0, [], time.monotonic() - t0, [f"missing archive file: {pdf_path}"]
+        return 0, 0, time.monotonic() - t0, [f"missing archive file: {pdf_path}"]
     try:
         doc = fitz.open(pdf_path)
     except Exception as exc:
-        return 0, 0, 0, [], time.monotonic() - t0, [f"could not open PDF ({type(exc).__name__}: {exc})"]
+        return 0, 0, time.monotonic() - t0, [f"could not open PDF ({type(exc).__name__}: {exc})"]
 
     resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
     pending_rows: list[dict] = []
@@ -401,6 +484,8 @@ def process_resource(
 
                     resized = pil_image.resize((output_width_px, output_height_px), resample_lanczos)
 
+                    # Generate the image UUID early so it can be passed to the
+                    # async description worker after the DB insert.
                     uid = str(uuid.uuid4())
                     filename = f"{uid}.avif"
                     subdir = image_subdir(image_archive_dir, uid)
@@ -411,6 +496,7 @@ def process_resource(
                     relpath = str(output_path.relative_to(image_archive_dir.parent))
 
                     pending_rows.append({
+                        "id": uid,
                         "output_path": output_path,
                         "avif_bytes": avif_bytes,
                         "resource_id": resource.resource_id,
@@ -451,30 +537,20 @@ def process_resource(
     finally:
         doc.close()
 
-    # Moondream descriptions — serialised via _moondream_semaphore inside the
-    # function, so we can still submit futures here for pipelining across PDFs
-    # without risk of concurrent model calls.
-    desc_errors: list[str] = []
-    if describe_images and pending_rows:
-        with ThreadPoolExecutor(max_workers=len(pending_rows)) as pool:
-            futures = [
-                pool.submit(describe_image, row["avif_bytes"], moondream_model)
-                for row in pending_rows
-            ]
-            for row, future in zip(pending_rows, futures):
-                desc, err = future.result()
-                if desc:
-                    row["description"] = desc
-                    row["description_model"] = moondream_model
-                elif err:
-                    desc_errors.append(err)
-
-    described = sum(1 for r in pending_rows if r["description"])
-
     if pending_rows:
         batch_insert_resource_images(db_path, pending_rows)
 
-    return len(pending_rows), described, skipped_scans, desc_errors, time.monotonic() - t0, verbose_log
+    # Hand images to the background description worker.  The worker UPDATE-s the
+    # DB row once ollama responds, so this thread is never blocked on inference.
+    if describe_images and pending_rows and desc_queue is not None:
+        if progress is not None and desc_task_id is not None and desc_lock is not None:
+            with desc_lock:
+                desc_total[0] += len(pending_rows)
+                progress.update(desc_task_id, total=desc_total[0])
+        for row in pending_rows:
+            desc_queue.put((row["id"], row["avif_bytes"]))
+
+    return len(pending_rows), skipped_scans, time.monotonic() - t0, verbose_log
 
 
 def run(args: argparse.Namespace) -> int:
@@ -509,9 +585,15 @@ def run(args: argparse.Namespace) -> int:
 
     image_archive_dir = ensure_image_archive_dir(paths)
     total_saved = 0
-    total_described = 0
     total_skipped_scans = 0
     workers = min(args.workers, len(resources))
+
+    # Shared state for the async description worker.
+    desc_queue: _queue.Queue = _queue.Queue()
+    desc_stop = threading.Event()
+    desc_total: list[int] = [0]
+    total_described: list[int] = [0]
+    desc_lock = threading.Lock()
 
     with Progress(
         SpinnerColumn(),
@@ -527,6 +609,31 @@ def run(args: argparse.Namespace) -> int:
             f"[cyan]Extracting images[/cyan]  [dim]workers: {workers}[/dim]",
             total=len(resources),
         )
+        desc_task = progress.add_task(
+            "[blue]Describing images[/blue]",
+            total=None,  # grows as images are queued
+            visible=args.describe,
+        )
+
+        # Start the single background description thread.  It serialises all
+        # ollama calls via _vision_semaphore so PDF workers are never blocked.
+        desc_thread = threading.Thread(
+            target=description_worker,
+            kwargs=dict(
+                desc_queue=desc_queue,
+                db_path=paths.db_path,
+                model=args.moondream_model,
+                stop_event=desc_stop,
+                progress=progress,
+                desc_task_id=desc_task,
+                total_described=total_described,
+                desc_lock=desc_lock,
+            ),
+            daemon=True,
+            name="description-worker",
+        )
+        if args.describe:
+            desc_thread.start()
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_meta = {
@@ -541,6 +648,11 @@ def run(args: argparse.Namespace) -> int:
                     moondream_model=args.moondream_model,
                     fitz=fitz,
                     image_cls=image_cls,
+                    desc_queue=desc_queue if args.describe else None,
+                    progress=progress,
+                    desc_task_id=desc_task,
+                    desc_total=desc_total,
+                    desc_lock=desc_lock,
                 ): (idx, resource)
                 for idx, resource in enumerate(resources, start=1)
             }
@@ -549,7 +661,7 @@ def run(args: argparse.Namespace) -> int:
                 idx, resource = future_to_meta[future]
                 name = resource.original_filename or resource.resource_id
                 try:
-                    saved, described, skipped_scans, desc_errors, elapsed, verbose_log = future.result()
+                    saved, skipped_scans, elapsed, verbose_log = future.result()
                 except Exception as exc:
                     progress.console.print(
                         f"  [red]✗[/red]  [bold]{name}[/bold]  "
@@ -566,31 +678,26 @@ def run(args: argparse.Namespace) -> int:
                     status = "[green]✓[/green]"
                     parts = []
                     if saved:
-                        img_part = f"[green]{saved}[/green] image{'s' if saved != 1 else ''}"
-                        if described:
-                            img_part += f"  [blue]{described} described[/blue]"
-                        elif args.describe:
-                            img_part += "  [yellow]0 described[/yellow]"
-                        parts.append(img_part)
+                        parts.append(f"[green]{saved}[/green] image{'s' if saved != 1 else ''}")
                     if skipped_scans:
                         parts.append(f"[dim]{skipped_scans} page scan{'s' if skipped_scans != 1 else ''} skipped[/dim]")
                     img_part = "  ".join(parts)
 
                 progress.console.print(f"  {status}  [bold]{name}[/bold]  {img_part}  {elapsed_str}")
 
-                if desc_errors:
-                    unique_errors = list(dict.fromkeys(desc_errors))
-                    for err in unique_errors:
-                        progress.console.print(f"       [yellow]⚠ moondream:[/yellow] [dim]{err}[/dim]")
-
                 if args.verbose:
                     for line in verbose_log:
                         progress.console.print(f"       [dim]{line}[/dim]")
 
                 total_saved += saved
-                total_described += described
                 total_skipped_scans += skipped_scans
                 progress.advance(overall)
+
+    # All extraction futures are done. Signal the description worker to drain
+    # whatever remains in the queue and then exit.
+    if args.describe and desc_thread.is_alive():
+        desc_stop.set()
+        desc_thread.join()
 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="dim", no_wrap=True)
@@ -598,7 +705,7 @@ def run(args: argparse.Namespace) -> int:
     table.add_row("PDFs processed:", str(len(resources)))
     table.add_row("Images stored:", str(total_saved))
     if args.describe:
-        table.add_row("Descriptions:", str(total_described))
+        table.add_row("Descriptions:", str(total_described[0]))
     if total_skipped_scans:
         table.add_row("Page scans skipped:", str(total_skipped_scans))
     table.add_row("Archive:", str(image_archive_dir))

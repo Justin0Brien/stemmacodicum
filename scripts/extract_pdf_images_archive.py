@@ -40,6 +40,12 @@ console = Console()
 # A process-wide semaphore keeps requests sequential regardless of PDF worker count.
 _vision_semaphore = threading.Semaphore(1)
 
+# PyMuPDF (MuPDF) corrupts the GIL condvar under concurrent load on some platforms
+# (Apple Silicon / Python 3.14 in particular).  Serialise all fitz calls with a
+# semaphore — the thread pool still overlaps I/O and description work, but only one
+# thread enters fitz C code at a time.
+_fitz_semaphore = threading.Semaphore(1)
+
 # Timeout (seconds) for a single ollama vision inference call.
 # Generous enough for slow hardware; prevents infinite hangs if the server stalls.
 _OLLAMA_TIMEOUT = 180
@@ -70,12 +76,24 @@ def require_optional_dependencies() -> tuple[object, object]:
     return fitz, Image
 
 
+def load_undescribed_images(db_path: Path) -> list[tuple[str, str]]:
+    """Return (id, output_file_relpath) for images already in the DB that have no description."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, output_file_relpath FROM resource_images WHERE description_text IS NULL ORDER BY created_at ASC"
+        ).fetchall()
+    return [(str(row["id"]), str(row["output_file_relpath"])) for row in rows]
+
+
 def load_pdf_resources(db_path: Path, only_missing: bool = True) -> list[PdfResource]:
     where_clause = """
       WHERE (lower(r.original_filename) LIKE '%.pdf' OR lower(r.media_type) = 'application/pdf')
     """
     if only_missing:
-        where_clause += " AND NOT EXISTS (SELECT 1 FROM resource_images ri WHERE ri.resource_id = r.id)"
+        where_clause += (
+            " AND NOT EXISTS (SELECT 1 FROM resource_images ri WHERE ri.resource_id = r.id)"
+            " AND NOT EXISTS (SELECT 1 FROM pdf_image_scans ps WHERE ps.resource_id = r.id)"
+        )
     with get_connection(db_path) as conn:
         rows = conn.execute(
             f"""
@@ -186,7 +204,11 @@ def describe_image(
         if "moondream" in model_name.lower():
             _img = _img.resize((378, 378), _Image.LANCZOS)
         else:
-            _img.thumbnail((768, 768), _Image.LANCZOS)
+            # 448 px matches gemma3's SigLIP encoder patch grid (14 px patches →
+            # 1 024 visual tokens vs ~3 024 at 768 px).  Sufficient for 1-3 sentence
+            # archival descriptions; larger sizes just inflate the HTTP payload and
+            # attention cost with no benefit for this task.
+            _img.thumbnail((448, 448), _Image.LANCZOS)
         _buf = io.BytesIO()
         _img.save(_buf, format="JPEG", quality=90)
         image_bytes = _buf.getvalue()
@@ -217,7 +239,7 @@ def describe_image(
                     response = client.chat(
                         model=model_name,
                         messages=[{"role": "user", "content": prompt, "images": [image_bytes]}],
-                        options={"temperature": 0.1},
+                        options={"temperature": 0.1, "num_ctx": 4096},
                     )
                     text = (response.message.content or "").strip() if response and response.message else ""
                 return text or None, None
@@ -227,6 +249,19 @@ def describe_image(
                 else:
                     return None, str(exc)
     return None, "unknown error"
+
+
+def record_pdf_scan(db_path: Path, resource_id: str, images_found: int) -> None:
+    """Record that a PDF was scanned, even when no images were found.
+
+    This prevents re-scanning text-only or scanned-page PDFs on every run.
+    """
+    with get_connection(db_path) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO pdf_image_scans (resource_id, scanned_at, images_found) VALUES (?, ?, ?)",
+            (resource_id, now_utc_iso(), images_found),
+        )
+        conn.commit()
 
 
 def batch_insert_resource_images(db_path: Path, rows: list[dict]) -> None:
@@ -324,13 +359,14 @@ def description_worker(
     """
     while True:
         try:
-            image_id, avif_bytes = desc_queue.get(timeout=1.0)
+            image_id, avif_bytes_or_path = desc_queue.get(timeout=1.0)
         except _queue.Empty:
             if stop_event.is_set():
                 break
             continue
 
         try:
+            avif_bytes = avif_bytes_or_path.read_bytes() if isinstance(avif_bytes_or_path, Path) else avif_bytes_or_path
             desc, err = describe_image(avif_bytes, model)
             if desc:
                 try:
@@ -387,155 +423,179 @@ def process_resource(
     pdf_path = (archive_dir / resource.archived_relpath).resolve()
     if not pdf_path.exists():
         return 0, 0, time.monotonic() - t0, [f"missing archive file: {pdf_path}"]
-    try:
-        doc = fitz.open(pdf_path)
-    except Exception as exc:
-        return 0, 0, time.monotonic() - t0, [f"could not open PDF ({type(exc).__name__}: {exc})"]
 
     resample_lanczos = getattr(getattr(image_cls, "Resampling", image_cls), "LANCZOS", image_cls.LANCZOS)
-    pending_rows: list[dict] = []
+    # Partial rows collected inside the semaphore; each carries a "_resized" PIL
+    # image that is encoded to AVIF after the semaphore is released so that slow
+    # ffmpeg/Pillow work does not block other threads from entering fitz.
+    _pending_encode: list[dict] = []
     skipped_scans = 0
 
-    try:
-        page_count = doc.page_count
-        verbose_log.append(f"pages: {page_count}")
-        for page_index, page in enumerate(doc):
-            page_area = page.rect.width * page.rect.height
-            images = page.get_images(full=True)
-            if not images:
-                continue
+    # Serialise all MuPDF C calls.  PyMuPDF is not thread-safe under concurrent
+    # load: heap corruption from one thread manifests as GIL condvar failures
+    # ("take_gil: PyCOND_WAIT failed") and bus errors in other threads.  The
+    # semaphore covers only fitz + PIL decode/resize; AVIF encoding, DB inserts,
+    # and description queuing all run after it is released.
+    with _fitz_semaphore:
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as exc:
+            return 0, 0, time.monotonic() - t0, [f"could not open PDF ({type(exc).__name__}: {exc})"]
 
-            # Count extractable text once per page — used for scan detection below.
-            page_text_len = len(page.get_text().strip())
-
-            verbose_log.append(f"page {page_index + 1}/{page_count}: {len(images)} image(s) found")
-            image_counter = 0
-            for info in images:
-                xref = int(info[0])
-                source_name = str(info[7] or "")
-                source_format = str(info[8] or "")
-
-                # Keep extract_image for metadata fields (ext, colorspace, bpc, size).
-                # For pixel data, use Pixmap instead: it resolves PDF /Decode arrays
-                # and colorspace transforms that extract_image leaves raw, which is
-                # what causes inverted (white-on-black) images.
-                extracted = doc.extract_image(xref)
-                if not extracted:
-                    continue
-                try:
-                    pix = fitz.Pixmap(doc, xref)
-                    # Normalise to plain RGB — handles grayscale, CMYK, indexed,
-                    # and also drops alpha, all in one step.
-                    if pix.colorspace != fitz.csRGB or pix.alpha:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-                    pil_image = image_cls.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                except Exception:
+        try:
+            page_count = doc.page_count
+            verbose_log.append(f"pages: {page_count}")
+            for page_index, page in enumerate(doc):
+                page_area = page.rect.width * page.rect.height
+                images = page.get_images(full=True)
+                if not images:
                     continue
 
-                # Correct for page rotation so the image matches what a viewer
-                # displays.  PDF /Rotate stores degrees clockwise; PIL rotates CCW,
-                # so we negate.  expand=True swaps w/h for 90°/270° rotations.
-                if page.rotation:
-                    pil_image = pil_image.rotate(-page.rotation, expand=True)
+                # Count extractable text once per page — used for scan detection below.
+                page_text_len = len(page.get_text().strip())
 
-                # Use the (possibly rotated) PIL dimensions as the source dimensions
-                # for all subsequent DPI / resize calculations.
-                source_width, source_height = pil_image.size
+                verbose_log.append(f"page {page_index + 1}/{page_count}: {len(images)} image(s) found")
+                image_counter = 0
+                for info in images:
+                    xref = int(info[0])
+                    source_name = str(info[7] or "")
+                    source_format = str(info[8] or "")
 
-                rects = page.get_image_rects(xref)
-                if not rects:
-                    rects = [fitz.Rect(0, 0, max(1, source_width), max(1, source_height))]
-
-                for rect in rects:
-                    rendered_width_mm = float(rect.width) * 25.4 / 72.0
-                    rendered_height_mm = float(rect.height) * 25.4 / 72.0
-
-                    if rendered_width_mm < 20.0 or rendered_height_mm < 20.0:
+                    # Keep extract_image for metadata fields (ext, colorspace, bpc, size).
+                    # For pixel data, use Pixmap instead: it resolves PDF /Decode arrays
+                    # and colorspace transforms that extract_image leaves raw, which is
+                    # what causes inverted (white-on-black) images.
+                    extracted = doc.extract_image(xref)
+                    if not extracted:
+                        continue
+                    try:
+                        pix = fitz.Pixmap(doc, xref)
+                        # Normalise to plain RGB — handles grayscale, CMYK, indexed,
+                        # and also drops alpha, all in one step.
+                        if pix.colorspace != fitz.csRGB or pix.alpha:
+                            pix = fitz.Pixmap(fitz.csRGB, pix)
+                        pil_image = image_cls.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    except Exception:
                         continue
 
-                    image_area = rect.width * rect.height
-                    if image_area / page_area <= 0.02:
-                        continue
+                    # Correct for page rotation so the image matches what a viewer
+                    # displays.  PDF /Rotate stores degrees clockwise; PIL rotates CCW,
+                    # so we negate.  expand=True swaps w/h for 90°/270° rotations.
+                    if page.rotation:
+                        pil_image = pil_image.rotate(-page.rotation, expand=True)
 
-                    # Skip page-scan images.  Two tiers:
-                    #   >90% of page: always a scan (catches OCR'd scans that have
-                    #     a text layer on top, so page_text_len would be high).
-                    #   >65% of page AND no text: un-OCR'd scan background.
-                    ratio = image_area / page_area
-                    if ratio > 0.90 or (ratio > 0.65 and page_text_len < 50):
-                        skipped_scans += 1
-                        verbose_log.append(
-                            f"  skipped page-scan image "
-                            f"({ratio:.0%} of page, {page_text_len} text chars)"
-                        )
-                        continue
+                    # Use the (possibly rotated) PIL dimensions as the source dimensions
+                    # for all subsequent DPI / resize calculations.
+                    source_width, source_height = pil_image.size
 
-                    image_counter += 1
+                    rects = page.get_image_rects(xref)
+                    if not rects:
+                        rects = [fitz.Rect(0, 0, max(1, source_width), max(1, source_height))]
 
-                    dpi_x = (source_width / rect.width) * 72.0 if rect.width > 0 else 72.0
-                    dpi_y = (source_height / rect.height) * 72.0 if rect.height > 0 else 72.0
+                    for rect in rects:
+                        rendered_width_mm = float(rect.width) * 25.4 / 72.0
+                        rendered_height_mm = float(rect.height) * 25.4 / 72.0
 
-                    if dpi_x > 140.0 or dpi_y > 140.0:
-                        output_width_px = max(1, int(round((rect.width / 72.0) * 140.0)))
-                        output_height_px = max(1, int(round((rect.height / 72.0) * 140.0)))
-                    else:
-                        output_width_px = source_width
-                        output_height_px = source_height
+                        if rendered_width_mm < 20.0 or rendered_height_mm < 20.0:
+                            continue
 
-                    resized = pil_image.resize((output_width_px, output_height_px), resample_lanczos)
+                        image_area = rect.width * rect.height
+                        if image_area / page_area <= 0.02:
+                            continue
 
-                    # Generate the image UUID early so it can be passed to the
-                    # async description worker after the DB insert.
-                    uid = str(uuid.uuid4())
-                    filename = f"{uid}.avif"
-                    subdir = image_subdir(image_archive_dir, uid)
-                    output_path = subdir / filename
-                    verbose_log.append(f"  image {image_counter} → {output_width_px}×{output_height_px}  {uid[:2]}/{filename}")
-                    avif_bytes = save_as_avif(resized, output_path, avif_quality)
-                    sha256 = hashlib.sha256(avif_bytes).hexdigest()
-                    relpath = str(output_path.relative_to(image_archive_dir.parent))
+                        # Skip page-scan images.  Two tiers:
+                        #   >90% of page: always a scan (catches OCR'd scans that have
+                        #     a text layer on top, so page_text_len would be high).
+                        #   >65% of page AND no text: un-OCR'd scan background.
+                        ratio = image_area / page_area
+                        if ratio > 0.90 or (ratio > 0.65 and page_text_len < 50):
+                            skipped_scans += 1
+                            verbose_log.append(
+                                f"  skipped page-scan image "
+                                f"({ratio:.0%} of page, {page_text_len} text chars)"
+                            )
+                            continue
 
-                    pending_rows.append({
-                        "id": uid,
-                        "output_path": output_path,
-                        "avif_bytes": avif_bytes,
-                        "resource_id": resource.resource_id,
-                        "extraction_run_id": resource.extraction_run_id,
-                        "page_index": page_index,
-                        "image_index": image_counter,
-                        "source_xref": xref,
-                        "source_name": source_name,
-                        "source_format": source_format,
-                        "source_width_px": max(0, source_width),
-                        "source_height_px": max(0, source_height),
-                        "rendered_width_mm": rendered_width_mm,
-                        "rendered_height_mm": rendered_height_mm,
-                        "output_width_px": output_width_px,
-                        "output_height_px": output_height_px,
-                        "output_file_relpath": relpath,
-                        "output_file_sha256": sha256,
-                        "description": None,
-                        "description_model": None,
-                        "bbox_json": {
-                            "x0": float(rect.x0),
-                            "y0": float(rect.y0),
-                            "x1": float(rect.x1),
-                            "y1": float(rect.y1),
-                        },
-                        "metadata_json": {
-                            "resource_original_filename": resource.original_filename,
-                            "page_number": page_index + 1,
-                            "source_extracted_ext": str(extracted.get("ext") or ""),
-                            "source_colorspace": str(extracted.get("colorspace") or ""),
-                            "source_bpc": extracted.get("bpc"),
-                            "source_size_bytes": int(extracted.get("size") or 0),
-                            "target_dpi": 140 if (dpi_x > 140.0 or dpi_y > 140.0) else "original",
-                            "compression": "lossy_avif",
-                            "quality_preference": "small_size",
-                        },
-                    })
-    finally:
-        doc.close()
+                        image_counter += 1
+
+                        dpi_x = (source_width / rect.width) * 72.0 if rect.width > 0 else 72.0
+                        dpi_y = (source_height / rect.height) * 72.0 if rect.height > 0 else 72.0
+
+                        if dpi_x > 140.0 or dpi_y > 140.0:
+                            output_width_px = max(1, int(round((rect.width / 72.0) * 140.0)))
+                            output_height_px = max(1, int(round((rect.height / 72.0) * 140.0)))
+                        else:
+                            output_width_px = source_width
+                            output_height_px = source_height
+
+                        uid = str(uuid.uuid4())
+                        subdir = image_subdir(image_archive_dir, uid)
+                        output_path = subdir / f"{uid}.avif"
+
+                        _pending_encode.append({
+                            "_resized": pil_image.resize((output_width_px, output_height_px), resample_lanczos),
+                            "id": uid,
+                            "output_path": output_path,
+                            "resource_id": resource.resource_id,
+                            "extraction_run_id": resource.extraction_run_id,
+                            "page_index": page_index,
+                            "image_index": image_counter,
+                            "source_xref": xref,
+                            "source_name": source_name,
+                            "source_format": source_format,
+                            "source_width_px": max(0, source_width),
+                            "source_height_px": max(0, source_height),
+                            "rendered_width_mm": rendered_width_mm,
+                            "rendered_height_mm": rendered_height_mm,
+                            "output_width_px": output_width_px,
+                            "output_height_px": output_height_px,
+                            "bbox_json": {
+                                "x0": float(rect.x0),
+                                "y0": float(rect.y0),
+                                "x1": float(rect.x1),
+                                "y1": float(rect.y1),
+                            },
+                            "metadata_json": {
+                                "resource_original_filename": resource.original_filename,
+                                "page_number": page_index + 1,
+                                "source_extracted_ext": str(extracted.get("ext") or ""),
+                                "source_colorspace": str(extracted.get("colorspace") or ""),
+                                "source_bpc": extracted.get("bpc"),
+                                "source_size_bytes": int(extracted.get("size") or 0),
+                                "target_dpi": 140 if (dpi_x > 140.0 or dpi_y > 140.0) else "original",
+                                "compression": "lossy_avif",
+                                "quality_preference": "small_size",
+                            },
+                        })
+        finally:
+            doc.close()
+    # _fitz_semaphore released.  AVIF encoding, DB insert, and description
+    # queuing all run concurrently from here on.
+
+    # Record that this PDF was scanned so it is not re-scanned on the next run
+    # even when no images were found.
+    record_pdf_scan(db_path, resource.resource_id, len(_pending_encode))
+
+    # Encode AVIF files outside the fitz semaphore so slow ffmpeg/Pillow work
+    # does not block other worker threads from processing their PDFs.
+    pending_rows: list[dict] = []
+    for row in _pending_encode:
+        resized = row.pop("_resized")
+        output_path = row["output_path"]
+        avif_bytes = save_as_avif(resized, output_path, avif_quality)
+        sha256 = hashlib.sha256(avif_bytes).hexdigest()
+        verbose_log.append(
+            f"  image {row['image_index']} → {row['output_width_px']}×{row['output_height_px']}"
+            f"  {row['id'][:2]}/{row['id']}.avif"
+        )
+        pending_rows.append({
+            **row,
+            "avif_bytes": avif_bytes,
+            "output_file_relpath": str(output_path.relative_to(image_archive_dir.parent)),
+            "output_file_sha256": sha256,
+            "description": None,
+            "description_model": None,
+        })
 
     if pending_rows:
         batch_insert_resource_images(db_path, pending_rows)
@@ -565,6 +625,7 @@ def run(args: argparse.Namespace) -> int:
         with get_connection(paths.db_path) as conn:
             conn.execute("DROP TRIGGER IF EXISTS block_delete_resource_images")
             conn.execute("DELETE FROM resource_images")
+            conn.execute("DELETE FROM pdf_image_scans")
             conn.execute(
                 """
                 CREATE TRIGGER IF NOT EXISTS block_delete_resource_images
@@ -579,14 +640,15 @@ def run(args: argparse.Namespace) -> int:
     schema_path = Path(__file__).parent.parent / "src" / "stemmacodicum" / "infrastructure" / "db" / "schema.sql"
     initialize_schema(paths.db_path, schema_path)
     resources = load_pdf_resources(paths.db_path, only_missing=not args.force)
-    if not resources:
+    undescribed = load_undescribed_images(paths.db_path) if args.describe else []
+    if not resources and not undescribed:
         console.print("[dim]No PDF resources need image extraction.[/dim]")
         return 0
 
     image_archive_dir = ensure_image_archive_dir(paths)
     total_saved = 0
     total_skipped_scans = 0
-    workers = min(args.workers, len(resources))
+    workers = min(args.workers, len(resources)) if resources else 1
 
     # Shared state for the async description worker.
     desc_queue: _queue.Queue = _queue.Queue()
@@ -634,6 +696,17 @@ def run(args: argparse.Namespace) -> int:
         )
         if args.describe:
             desc_thread.start()
+
+        # Backfill descriptions for images already in the DB from a previous run.
+        if undescribed:
+            console.print(f"  [dim]Queuing {len(undescribed)} existing images for description backfill…[/dim]")
+            with desc_lock:
+                desc_total[0] += len(undescribed)
+                progress.update(desc_task, total=desc_total[0])
+            for img_id, relpath in undescribed:
+                img_path = image_archive_dir.parent / relpath
+                if img_path.exists():
+                    desc_queue.put((img_id, img_path))
 
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_meta = {
@@ -693,11 +766,12 @@ def run(args: argparse.Namespace) -> int:
                 total_skipped_scans += skipped_scans
                 progress.advance(overall)
 
-    # All extraction futures are done. Signal the description worker to drain
-    # whatever remains in the queue and then exit.
-    if args.describe and desc_thread.is_alive():
-        desc_stop.set()
-        desc_thread.join()
+        # All extraction futures are done. Signal the description worker to drain
+        # whatever remains in the queue and then exit — while still inside the
+        # Progress context so the description bar keeps updating.
+        if args.describe and desc_thread.is_alive():
+            desc_stop.set()
+            desc_thread.join()
 
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_column(style="dim", no_wrap=True)

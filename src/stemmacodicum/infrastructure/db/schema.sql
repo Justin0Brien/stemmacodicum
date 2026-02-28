@@ -340,6 +340,13 @@ CREATE TABLE IF NOT EXISTS import_jobs (
     finished_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS pdf_image_scans (
+    resource_id TEXT PRIMARY KEY,
+    scanned_at TEXT NOT NULL,
+    images_found INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE RESTRICT
+);
+
 CREATE TABLE IF NOT EXISTS resource_images (
     id TEXT PRIMARY KEY,
     resource_id TEXT NOT NULL,
